@@ -2,6 +2,8 @@ import Foundation
 
 public enum SessionTitleSource: String, Sendable, Codable {
     case codexThreadName
+    case claudeCustomTitle
+    case claudeAiTitle
 }
 
 public struct SessionSnapshot {

@@ -391,23 +391,21 @@ final class AppState {
     private func refreshProviderTitle(for trackedSessionId: String, providerSessionId: String? = nil) {
         guard let session = sessions[trackedSessionId] else { return }
 
-        switch session.source {
-        case "codex":
-            let lookupSessionId = providerSessionId ?? session.providerSessionId ?? trackedSessionId
+        let lookupSessionId = providerSessionId ?? session.providerSessionId ?? trackedSessionId
+        if let providerSessionId {
+            sessions[trackedSessionId]?.providerSessionId = providerSessionId
+        } else if SessionTitleStore.supports(provider: session.source) {
             sessions[trackedSessionId]?.providerSessionId = lookupSessionId
+        }
 
-            if let resolved = SessionTitleStore.title(for: lookupSessionId, provider: session.source) {
-                sessions[trackedSessionId]?.sessionTitle = resolved.title
-                sessions[trackedSessionId]?.sessionTitleSource = resolved.source
-            } else {
-                sessions[trackedSessionId]?.sessionTitle = nil
-                sessions[trackedSessionId]?.sessionTitleSource = nil
-            }
+        guard SessionTitleStore.supports(provider: session.source) else { return }
 
-        default:
-            if let providerSessionId {
-                sessions[trackedSessionId]?.providerSessionId = providerSessionId
-            }
+        if let resolved = SessionTitleStore.title(for: lookupSessionId, provider: session.source, cwd: session.cwd) {
+            sessions[trackedSessionId]?.sessionTitle = resolved.title
+            sessions[trackedSessionId]?.sessionTitleSource = resolved.source
+        } else {
+            sessions[trackedSessionId]?.sessionTitle = nil
+            sessions[trackedSessionId]?.sessionTitleSource = nil
         }
     }
 
@@ -473,7 +471,8 @@ final class AppState {
             executeEffect(effect, sessionId: sessionId)
         }
 
-        if sessions[sessionId]?.source == "codex" || event.rawJSON["_source"] as? String == "codex" {
+        if let provider = sessions[sessionId]?.source,
+           SessionTitleStore.supports(provider: provider) {
             refreshProviderTitle(for: sessionId)
         }
 
@@ -1030,7 +1029,7 @@ final class AppState {
             session.ttyPath = info.tty
             session.recentMessages = info.recentMessages
             session.source = info.source
-            session.providerSessionId = info.source == "codex" ? info.sessionId : nil
+            session.providerSessionId = SessionTitleStore.supports(provider: info.source) ? info.sessionId : nil
             if let last = info.recentMessages.last(where: { $0.isUser }) {
                 session.lastUserPrompt = last.text
             }
