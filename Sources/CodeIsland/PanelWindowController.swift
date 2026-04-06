@@ -359,22 +359,13 @@ class PanelWindowController {
         return false
     }
 
-    /// Check if the terminal running the active session is the foreground app
+    /// Fast check: is the terminal running the active session the foreground app?
+    /// Main-thread safe — no AppleScript or subprocess calls.
     func isActiveTerminalForeground() -> Bool {
         guard let sessionId = appState.activeSessionId,
               let session = appState.sessions[sessionId],
-              let termApp = session.termApp else { return false }
-        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
-        let frontName = frontApp.localizedName?.lowercased() ?? ""
-        let bundleId = frontApp.bundleIdentifier?.lowercased() ?? ""
-        // Normalize: strip ".app" suffix and "apple_" prefix for consistent matching
-        // e.g. "iTerm.app" → "iterm", "Apple_Terminal" → "terminal"
-        let term = termApp.lowercased()
-            .replacingOccurrences(of: ".app", with: "")
-            .replacingOccurrences(of: "apple_", with: "")
-        let normalizedFront = frontName.replacingOccurrences(of: ".app", with: "")
-        return normalizedFront.contains(term) || term.contains(normalizedFront) ||
-               bundleId.contains(term)
+              session.termApp != nil else { return false }
+        return TerminalVisibilityDetector.isTerminalFrontmostForSession(session)
     }
 
     deinit {

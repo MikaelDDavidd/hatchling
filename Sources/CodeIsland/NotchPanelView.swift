@@ -1072,7 +1072,7 @@ private struct SessionCard: View {
                             cardHovering: hovering
                         )
                         if showIdSuffix {
-                            Text("#\(sessionId.prefix(4))")
+                            Text("#\(shortSessionId(sessionId))")
                                 .font(.system(size: fontSize - 1, design: .monospaced))
                                 .foregroundStyle(.gray)
                         }
@@ -1126,7 +1126,7 @@ private struct SessionCard: View {
                                 Text("$")
                                     .font(.system(size: fontSize, weight: .bold, design: .monospaced))
                                     .foregroundStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
-                                Text(renderMarkdown(compactText(msg.text)))
+                                Text(renderMarkdown(compactText(stripDirectives(msg.text))))
                                     .font(.system(size: fontSize, design: .monospaced))
                                     .foregroundStyle(.white.opacity(0.85))
                                     .lineLimit(aiLineLimit)
@@ -1674,4 +1674,58 @@ private func inlineMarkdown(_ text: String) -> AttributedString {
     }
     markdownCache[text] = result
     return result
+}
+
+/// Generate a short session ID with better disambiguation.
+/// For time-ordered UUIDs (e.g. Codex "019d631e-73d9-..."), the high bits are
+/// timestamps that barely differ within a day. Use last 4 chars of the UUID
+/// instead of the first 4 for better uniqueness.
+private func shortSessionId(_ id: String) -> String {
+    let clean = id.replacingOccurrences(of: "-", with: "")
+    if clean.count >= 8 {
+        return String(clean.suffix(4))
+    }
+    return String(id.prefix(4))
+}
+
+/// Strip internal directives (::code-comment{}, ::git-*{}, etc.) from message text
+/// so they don't leak into the UI preview.
+private func stripDirectives(_ text: String) -> String {
+    // Match ::directive-name{...} patterns (may span multiple lines)
+    // Use a simple approach: remove lines that start with ::word{ or are continuation of a directive
+    var result: [String] = []
+    var inDirective = false
+    var braceDepth = 0
+
+    for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        if inDirective {
+            for ch in line {
+                if ch == "{" { braceDepth += 1 }
+                if ch == "}" { braceDepth -= 1 }
+            }
+            if braceDepth <= 0 {
+                inDirective = false
+                braceDepth = 0
+            }
+            continue
+        }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("::") && trimmed.contains("{") {
+            // Count braces to handle single-line vs multi-line directives
+            braceDepth = 0
+            for ch in line {
+                if ch == "{" { braceDepth += 1 }
+                if ch == "}" { braceDepth -= 1 }
+            }
+            if braceDepth > 0 {
+                inDirective = true
+            }
+            // Either way, skip this line
+            continue
+        }
+        result.append(String(line))
+    }
+
+    let cleaned = result.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    return cleaned
 }

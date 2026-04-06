@@ -256,24 +256,45 @@ final class AppState {
         }
     }
 
-    private func shouldSuppressAutoExpand(for sessionId: String) -> Bool {
+    /// Fast app-level suppress check (main-thread safe, no blocking).
+    private func shouldSuppressAppLevel(for sessionId: String) -> Bool {
         guard UserDefaults.standard.bool(forKey: SettingsKey.smartSuppress) else { return false }
         guard let session = sessions[sessionId],
-              let termApp = session.termApp else { return false }
-        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
-        let frontName = frontApp.localizedName?.lowercased() ?? ""
-        let bundleId = frontApp.bundleIdentifier?.lowercased() ?? ""
-        let term = termApp.lowercased()
-            .replacingOccurrences(of: ".app", with: "")
-            .replacingOccurrences(of: "apple_", with: "")
-        let normalizedFront = frontName.replacingOccurrences(of: ".app", with: "")
-        return normalizedFront.contains(term) || term.contains(normalizedFront) || bundleId.contains(term)
+              session.termApp != nil else { return false }
+        return TerminalVisibilityDetector.isTerminalFrontmostForSession(session)
     }
 
     private func showCompletion(_ sessionId: String) {
-        // Smart suppress: don't show completion card if user is looking at the terminal
-        if shouldSuppressAutoExpand(for: sessionId) { return }
+        // Fast path: terminal not even frontmost — show immediately
+        guard shouldSuppressAppLevel(for: sessionId) else {
+            doShowCompletion(sessionId)
+            return
+        }
 
+        // Terminal IS frontmost — check tab-level on background thread
+        guard let session = sessions[sessionId] else { return }
+        let sessionCopy = session
+        Task.detached {
+            let tabVisible = TerminalVisibilityDetector.isSessionTabVisible(sessionCopy)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                // Verify state hasn't changed while we were checking
+                // (e.g. approval/question card popped up, session was removed)
+                guard self.sessions[sessionId] != nil else { return }
+                switch self.surface {
+                case .approvalCard, .questionCard: return  // don't overwrite higher-priority surfaces
+                default: break
+                }
+                if !tabVisible {
+                    withAnimation(NotchAnimation.pop) {
+                        self.doShowCompletion(sessionId)
+                    }
+                }
+            }
+        }
+    }
+
+    private func doShowCompletion(_ sessionId: String) {
         activeSessionId = sessionId
         surface = .completionCard(sessionId: sessionId)
         completionHasBeenEntered = false
@@ -382,21 +403,22 @@ final class AppState {
             return
         }
 
-        // Model transcript read (side effect, stays here)
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
-        }
-        if sessions[sessionId]?.model == nil && !modelReadAttempted.contains(sessionId) {
-            modelReadAttempted.insert(sessionId)
-            let cwd = sessions[sessionId]?.cwd
-            let model = Self.readModelFromTranscript(sessionId: sessionId, cwd: cwd)
-            sessions[sessionId]?.model = model
         }
 
         let wasWaiting = sessions[sessionId]?.status == .waitingApproval
             || sessions[sessionId]?.status == .waitingQuestion
 
         let effects = reduceEvent(sessions: &sessions, event: event, maxHistory: maxHistory)
+
+        // Model transcript read: done AFTER reduceEvent so extractMetadata has filled in cwd
+        if sessions[sessionId]?.model == nil && !modelReadAttempted.contains(sessionId) {
+            modelReadAttempted.insert(sessionId)
+            let cwd = sessions[sessionId]?.cwd
+            let model = Self.readModelFromTranscript(sessionId: sessionId, cwd: cwd)
+            sessions[sessionId]?.model = model
+        }
 
         // If session was waiting but received an activity event, the question/permission
         // was answered externally (e.g. user replied in terminal). Clear pending items.
@@ -946,21 +968,24 @@ final class AppState {
                 continue
             }
 
-            // Dedup: if a hook-created session already exists with same source + cwd,
+            // Dedup: if a hook-created session already exists with same source + cwd + pid,
             // skip the discovered one to avoid duplicate entries (e.g. Codex hooks vs
             // file-based discovery produce different session IDs for the same process).
-            let isDuplicate = sessions.values.contains { existing in
-                existing.source == info.source &&
-                existing.cwd != nil && existing.cwd == info.cwd
-            }
-            if isDuplicate {
-                // Still attach PID monitor to the existing session if possible
-                if let pid = info.pid {
-                    if let existingKey = sessions.first(where: {
-                        $0.value.source == info.source && $0.value.cwd == info.cwd
-                    })?.key, processMonitors[existingKey] == nil {
-                        monitorProcess(sessionId: existingKey, pid: pid)
-                    }
+            // Only dedup when PID matches (or discovered has no PID), so concurrent
+            // sessions in the same repo aren't incorrectly merged.
+            let duplicateKey = sessions.first(where: { (_, existing) in
+                guard existing.source == info.source,
+                      existing.cwd != nil, existing.cwd == info.cwd else { return false }
+                // If we have PIDs for both, they must match
+                if let discoveredPid = info.pid, let existingPid = existing.cliPid,
+                   discoveredPid != existingPid { return false }
+                return true
+            })?.key
+
+            if let existingKey = duplicateKey {
+                // Still attach PID monitor to the existing session if missing
+                if let pid = info.pid, processMonitors[existingKey] == nil {
+                    monitorProcess(sessionId: existingKey, pid: pid)
                 }
                 continue
             }
@@ -1145,7 +1170,8 @@ final class AppState {
 
     // MARK: - Codex Session Discovery
 
-    /// Find running Codex processes
+    /// Find running Codex processes.
+    /// Checks both executable path (Desktop app) and command-line args (npm/Homebrew: node script).
     private nonisolated static func findCodexPids() -> [pid_t] {
         var bufferSize = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
         guard bufferSize > 0 else { return [] }
@@ -1162,12 +1188,58 @@ final class AppState {
             let len = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
             guard len > 0 else { continue }
             let path = String(cString: pathBuffer)
-            // Match Codex: npm install (@openai/codex) or Codex Desktop app
-            if (path.contains("@openai/codex") || path.contains("Codex.app/Contents/")) && path.hasSuffix("/codex") {
+            let pathLower = path.lowercased()
+
+            // Match 1: Codex Desktop app (native binary)
+            if pathLower.contains("codex.app/contents/") && pathLower.hasSuffix("/codex") {
                 codexPids.append(pid)
+                continue
+            }
+
+            // Match 2: npm/Homebrew install — node running @openai/codex script.
+            // proc_pidpath returns the node binary, so check command-line args instead.
+            if pathLower.hasSuffix("/node") {
+                if let args = getProcessArgs(pid),
+                   args.contains(where: { $0.contains("@openai/codex") || $0.contains("openai-codex") }) {
+                    codexPids.append(pid)
+                }
             }
         }
         return codexPids
+    }
+
+    /// Get command-line arguments for a process via sysctl KERN_PROCARGS2.
+    private nonisolated static func getProcessArgs(_ pid: pid_t) -> [String]? {
+        var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+
+        // First 4 bytes = argc (as int32)
+        guard size > MemoryLayout<Int32>.size else { return nil }
+        let argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
+        guard argc > 0, argc < 256 else { return nil }
+
+        // Skip past argc + executable path + padding nulls to reach argv
+        var offset = MemoryLayout<Int32>.size
+        // Skip executable path
+        while offset < size && buffer[offset] != 0 { offset += 1 }
+        // Skip null padding
+        while offset < size && buffer[offset] == 0 { offset += 1 }
+
+        // Parse null-terminated argv strings
+        var args: [String] = []
+        var argStart = offset
+        for _ in 0..<argc {
+            while offset < size && buffer[offset] != 0 { offset += 1 }
+            if offset > argStart {
+                args.append(String(bytes: buffer[argStart..<offset], encoding: .utf8) ?? "")
+            }
+            offset += 1
+            argStart = offset
+        }
+        return args
     }
 
     /// Find active Codex sessions by matching running processes to session files
