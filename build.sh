@@ -40,9 +40,12 @@ if [ ! -f ".build/CodeIsland.icns" ]; then
 fi
 cp .build/CodeIsland.icns "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
-# Copy SPM resource bundles (pure resources, no lipo needed)
+# Copy SPM resource bundles — place at .app root where Bundle.module expects them
 for bundle in .build/*/release/*.bundle; do
-    [ -e "$bundle" ] && cp -R "$bundle" "$APP_BUNDLE/Contents/Resources/"
+    if [ -e "$bundle" ]; then
+        cp -R "$bundle" "$APP_BUNDLE/"
+        break
+    fi
 done
 
 echo "Done: $APP_BUNDLE"

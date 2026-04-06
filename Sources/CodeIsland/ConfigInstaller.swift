@@ -166,7 +166,7 @@ struct ConfigInstaller {
         BRIDGE="$HOME/.claude/hooks/codeisland-bridge"
         [ -x "$BRIDGE" ] && exec "$BRIDGE"
         # Fallback: original shell approach (no binary installed yet)
-        SOCK="/tmp/codeisland.sock"
+        SOCK="/tmp/codeisland-$(id -u).sock"
         [ -S "$SOCK" ] || exit 0
         INPUT=$(cat)
         _ITERM_GUID="${ITERM_SESSION_ID##*:}"
@@ -514,15 +514,12 @@ struct ConfigInstaller {
 
     /// The JS plugin source — embedded as resource or bundled alongside
     private static func opencodePluginSource() -> String? {
-        // Try bundle resource first
-        if let url = Bundle.main.url(forResource: "codeisland-opencode", withExtension: "js"),
+        // Try SPM resource bundle (where build actually places it)
+        if let url = Bundle.module.url(forResource: "codeisland-opencode", withExtension: "js", subdirectory: "Resources"),
            let src = try? String(contentsOf: url) { return src }
-        // Fallback: look next to the executable
-        if let execPath = Bundle.main.executablePath {
-            let dir = (execPath as NSString).deletingLastPathComponent
-            let path = dir + "/codeisland-opencode.js"
-            if let src = try? String(contentsOfFile: path) { return src }
-        }
+        // Fallback: try without subdirectory
+        if let url = Bundle.module.url(forResource: "codeisland-opencode", withExtension: "js"),
+           let src = try? String(contentsOf: url) { return src }
         return nil
     }
 

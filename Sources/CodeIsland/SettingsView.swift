@@ -93,11 +93,7 @@ struct SettingsView: View {
 private struct PageHeader: View {
     let title: String
     var body: some View {
-        Text(title)
-            .font(.system(size: 20, weight: .bold))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 4)
-            .padding(.bottom, -4)
+        EmptyView()
     }
 }
 
@@ -135,7 +131,6 @@ private struct GeneralPage: View {
 
     var body: some View {
         Form {
-            PageHeader(title: l10n["general"])
             Section {
                 Picker(l10n["language"], selection: $l10n.language) {
                     Text(l10n["system_language"]).tag("system")
@@ -178,7 +173,6 @@ private struct BehaviorPage: View {
 
     var body: some View {
         Form {
-            PageHeader(title: l10n["behavior"])
             Section(l10n["display_section"]) {
                 Toggle(l10n["hide_in_fullscreen"], isOn: $hideInFullscreen)
                 Toggle(l10n["hide_when_no_session"], isOn: $hideWhenNoSession)
@@ -230,7 +224,6 @@ private struct HooksPage: View {
 
     var body: some View {
         Form {
-            PageHeader(title: l10n["hooks"])
             Section(l10n["cli_status"]) {
                 ForEach(ConfigInstaller.allCLIs, id: \.source) { cli in
                     let installed = cliStatuses[cli.source] ?? false
@@ -333,7 +326,6 @@ private struct AppearancePage: View {
 
     var body: some View {
         Form {
-            PageHeader(title: l10n["appearance"])
             Section(l10n["panel"]) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -398,7 +390,6 @@ private struct MascotsPage: View {
 
     var body: some View {
         Form {
-            PageHeader(title: l10n["mascots"])
             Section {
                 Picker(l10n["preview_status"], selection: $previewStatus) {
                     Text(l10n["processing"]).tag(AgentStatus.processing)
@@ -475,7 +466,6 @@ private struct SoundPage: View {
 
     var body: some View {
         Form {
-            PageHeader(title: l10n["sound"])
             Section {
                 Toggle(l10n["enable_sound"], isOn: $soundEnabled)
                 if soundEnabled {
