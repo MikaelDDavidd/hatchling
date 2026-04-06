@@ -946,9 +946,7 @@ private struct SessionIdCopyButton: View {
     @State private var resetTask: Task<Void, Never>?
 
     private var compactLabel: String {
-        let prefixLength = min(8, sessionId.count)
-        let prefix = sessionId.prefix(prefixLength)
-        return sessionId.count > prefixLength ? "#\(prefix)…" : "#\(prefix)"
+        "#\(shortSessionId(sessionId))"
     }
 
     var body: some View {
@@ -959,12 +957,12 @@ private struct SessionIdCopyButton: View {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: max(8, fontSize - 1), weight: .semibold))
             }
-            .foregroundStyle(copied ? Color(red: 0.3, green: 0.85, blue: 0.4) : .white.opacity(hovering ? 0.72 : 0.5))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .foregroundStyle(copied ? Color(red: 0.3, green: 0.85, blue: 0.4) : .white.opacity(hovering ? 0.68 : 0.42))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
             .background(
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.white.opacity(hovering || copied ? 0.12 : 0.06))
+                    .fill(Color.white.opacity(hovering || copied ? 0.08 : 0.001))
             )
         }
         .buttonStyle(.plain)
@@ -986,6 +984,57 @@ private struct SessionIdCopyButton: View {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard !Task.isCancelled else { return }
             copied = false
+        }
+    }
+}
+
+private struct SessionIdentityLine: View {
+    let session: SessionSnapshot
+    let sessionId: String
+    let projectFontSize: CGFloat
+    let projectColor: Color
+    let sessionFontSize: CGFloat
+    let sessionColor: Color
+    let dividerColor: Color
+    let cardHovering: Bool
+
+    private var displaySessionId: String { session.displaySessionId(sessionId: sessionId) }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ProjectNameLink(
+                name: session.projectDisplayName,
+                cwd: session.cwd,
+                fontSize: projectFontSize,
+                color: projectColor,
+                cardHovering: cardHovering
+            )
+            .layoutPriority(2)
+
+            if let sessionLabel = session.sessionLabel {
+                Text("#\(sessionLabel)")
+                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
+                    .foregroundStyle(sessionColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+
+                Text("·")
+                    .font(.system(size: sessionFontSize, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(dividerColor)
+
+                SessionIdCopyButton(
+                    sessionId: displaySessionId,
+                    fontSize: sessionFontSize
+                )
+                .fixedSize()
+            } else {
+                SessionIdCopyButton(
+                    sessionId: displaySessionId,
+                    fontSize: sessionFontSize
+                )
+                .fixedSize()
+            }
         }
     }
 }
@@ -1070,8 +1119,6 @@ private struct SessionCard: View {
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
     private var fontSize: CGFloat { CGFloat(contentFontSize) }
     private var aiLineLimit: Int? { aiMessageLines > 0 ? aiMessageLines : nil }
-    private var displaySessionId: String { session.displaySessionId(sessionId: sessionId) }
-    private var sessionTitleText: String { session.displayTitle(sessionId: displaySessionId) }
     private var statusNameColor: Color {
         if session.status == .idle && session.interrupted {
             return Color(red: 1.0, green: 0.45, blue: 0.35)
@@ -1109,29 +1156,18 @@ private struct SessionCard: View {
 
             // Column 2: Content
             VStack(alignment: .leading, spacing: 6) {
-                // Header: session title + project context
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(sessionTitleText)
-                            .font(.system(size: fontSize + 2, weight: .bold, design: .monospaced))
-                            .foregroundStyle(statusNameColor)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-
-                        HStack(spacing: 6) {
-                            ProjectNameLink(
-                                name: session.projectDisplayName,
-                                cwd: session.cwd,
-                                fontSize: fontSize - 0.5,
-                                color: .white.opacity(0.58),
-                                cardHovering: hovering
-                            )
-                            SessionIdCopyButton(
-                                sessionId: displaySessionId,
-                                fontSize: fontSize - 1
-                            )
-                        }
-                    }
+                // Header: project name + optional session label + short ID
+                HStack(alignment: .center, spacing: 8) {
+                    SessionIdentityLine(
+                        session: session,
+                        sessionId: sessionId,
+                        projectFontSize: fontSize + 2,
+                        projectColor: statusNameColor,
+                        sessionFontSize: fontSize,
+                        sessionColor: .white.opacity(0.76),
+                        dividerColor: .white.opacity(0.28),
+                        cardHovering: hovering
+                    )
                     Spacer(minLength: 8)
 
                     HStack(spacing: 4) {
@@ -1440,19 +1476,21 @@ private struct CollapsedSessionRow: View {
     let session: SessionSnapshot
     let sessionId: String
 
-    private var displaySessionId: String { session.displaySessionId(sessionId: sessionId) }
-    private var sessionTitleText: String { session.displayTitle(sessionId: displaySessionId) }
-
     var body: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(.white.opacity(0.2))
                 .frame(width: 6, height: 6)
-            Text(sessionTitleText)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.4))
-                .lineLimit(1)
-            SessionIdCopyButton(sessionId: displaySessionId, fontSize: 9.5)
+            SessionIdentityLine(
+                session: session,
+                sessionId: sessionId,
+                projectFontSize: 11,
+                projectColor: .white.opacity(0.42),
+                sessionFontSize: 10,
+                sessionColor: .white.opacity(0.32),
+                dividerColor: .white.opacity(0.18),
+                cardHovering: false
+            )
             if let prompt = session.lastUserPrompt {
                 Text("– \(prompt)")
                     .font(.system(size: 10, design: .monospaced))
@@ -1802,4 +1840,16 @@ private func stripDirectives(_ text: String) -> String {
 
     let cleaned = result.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     return cleaned
+}
+
+/// Generate a short session ID with better disambiguation.
+/// For time-ordered UUIDs (e.g. Codex "019d631e-73d9-..."), the high bits are
+/// timestamps that barely differ within a day. Use last 4 chars of the UUID
+/// instead of the first 4 for better uniqueness.
+private func shortSessionId(_ id: String) -> String {
+    let clean = id.replacingOccurrences(of: "-", with: "")
+    if clean.count >= 8 {
+        return String(clean.suffix(4))
+    }
+    return String(id.prefix(4))
 }

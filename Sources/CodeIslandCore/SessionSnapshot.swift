@@ -82,13 +82,7 @@ public struct SessionSnapshot {
     }
 
     public func displayTitle(sessionId: String) -> String {
-        if let sessionTitle {
-            let trimmed = sessionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return sessionId
+        sessionLabel ?? sessionId
     }
 
     public func displaySessionId(sessionId: String) -> String {
@@ -103,6 +97,12 @@ public struct SessionSnapshot {
 
     public var projectDisplayName: String {
         displayName
+    }
+
+    public var sessionLabel: String? {
+        guard let sessionTitle else { return nil }
+        let trimmed = sessionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Shortened model name: "claude-opus-4-6" → "opus"
