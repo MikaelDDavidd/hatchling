@@ -97,6 +97,7 @@ final class AppState {
                 removeSession(key)
             }
         }
+        refreshDerivedState()
     }
 
     // MARK: - Process Monitoring (DispatchSource)
@@ -165,6 +166,7 @@ final class AppState {
             activeSessionId = mostActiveSessionId()
         }
         startRotationIfNeeded()
+        refreshDerivedState()
     }
 
     // MARK: - Compact bar mascot rotation
@@ -288,38 +290,11 @@ final class AppState {
         }
     }
 
-    // Computed: current display state (highest priority across all sessions)
-    /// Source of the highest-priority session (for compact bar character selection)
-    var primarySource: String {
-        var highest: AgentStatus = .idle
-        var source = "claude"
-        for s in sessions.values {
-            switch s.status {
-            case .waitingApproval: return s.source
-            case .waitingQuestion: return s.source
-            case .running where highest == .idle || highest == .processing:
-                highest = .running; source = s.source
-            case .processing where highest == .idle:
-                highest = .processing; source = s.source
-            default: break
-            }
-        }
-        return source
-    }
-
-    var status: AgentStatus {
-        var highest: AgentStatus = .idle
-        for s in sessions.values {
-            switch s.status {
-            case .waitingApproval: return .waitingApproval
-            case .waitingQuestion: return .waitingQuestion
-            case .running where highest == .idle || highest == .processing: highest = .running
-            case .processing where highest == .idle: highest = .processing
-            default: break
-            }
-        }
-        return highest
-    }
+    // Cached derived state (refreshed by refreshDerivedState after session mutations)
+    private(set) var status: AgentStatus = .idle
+    private(set) var primarySource: String = "claude"
+    private(set) var activeSessionCount: Int = 0
+    private(set) var totalSessionCount: Int = 0
 
     var currentTool: String? {
         guard let id = activeSessionId, let s = sessions[id] else { return nil }
@@ -341,12 +316,38 @@ final class AppState {
         return s.model
     }
 
-    var activeSessionCount: Int {
-        sessions.values.filter { $0.status != .idle }.count
-    }
-
-    var totalSessionCount: Int {
-        sessions.count
+    /// Recompute cached status/source/counts from sessions in a single O(n) pass.
+    /// Call after any mutation to `sessions` or session status.
+    private func refreshDerivedState() {
+        var highestStatus: AgentStatus = .idle
+        var source = "claude"
+        var active = 0
+        for s in sessions.values {
+            if s.status != .idle { active += 1 }
+            switch s.status {
+            case .waitingApproval:
+                highestStatus = .waitingApproval; source = s.source
+            case .waitingQuestion:
+                if highestStatus != .waitingApproval {
+                    highestStatus = .waitingQuestion; source = s.source
+                }
+            case .running:
+                if highestStatus == .idle || highestStatus == .processing {
+                    highestStatus = .running; source = s.source
+                }
+            case .processing:
+                if highestStatus == .idle {
+                    highestStatus = .processing; source = s.source
+                }
+            default: break
+            }
+        }
+        // Only assign when changed (avoids unnecessary @Observable notifications)
+        if status != highestStatus { status = highestStatus }
+        if primarySource != source { primarySource = source }
+        if activeSessionCount != active { activeSessionCount = active }
+        let total = sessions.count
+        if totalSessionCount != total { totalSessionCount = total }
     }
 
     func handleEvent(_ event: HookEvent) {
@@ -421,6 +422,7 @@ final class AppState {
 
         scheduleSave()
         startRotationIfNeeded()
+        refreshDerivedState()
     }
 
     private func executeEffect(_ effect: SideEffect, sessionId: String) {
@@ -464,6 +466,7 @@ final class AppState {
             surface = .approvalCard(sessionId: sessionId)
             SoundManager.shared.handleEvent("PermissionRequest")
         }
+        refreshDerivedState()
     }
 
     func approvePermission(always: Bool = false) {
@@ -496,6 +499,7 @@ final class AppState {
         sessions[sessionId]?.status = .running
 
         showNextPending()
+        refreshDerivedState()
     }
 
     func denyPermission() {
@@ -513,6 +517,7 @@ final class AppState {
         }
 
         showNextPending()
+        refreshDerivedState()
     }
 
     func handleQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
@@ -537,6 +542,7 @@ final class AppState {
             surface = .questionCard(sessionId: sessionId)
             SoundManager.shared.handleEvent("PermissionRequest")
         }
+        refreshDerivedState()
     }
 
     func handleAskUserQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
@@ -574,6 +580,7 @@ final class AppState {
             surface = .questionCard(sessionId: sessionId)
             SoundManager.shared.handleEvent("PermissionRequest")
         }
+        refreshDerivedState()
     }
 
     func answerQuestion(_ answer: String) {
@@ -608,6 +615,7 @@ final class AppState {
         sessions[sessionId]?.status = .processing
 
         showNextPending()
+        refreshDerivedState()
     }
 
     func skipQuestion() {
@@ -624,6 +632,7 @@ final class AppState {
         sessions[sessionId]?.status = .processing
 
         showNextPending()
+        refreshDerivedState()
     }
 
     /// Drain all queued permissions for a specific session, resuming their continuations with deny
@@ -754,6 +763,7 @@ final class AppState {
             sessions[p.sessionId] = snapshot
         }
         SessionPersistence.clear()
+        refreshDerivedState()
     }
 
     func startSessionDiscovery() {
@@ -875,6 +885,7 @@ final class AppState {
         if didAdd && activeSessionId == nil {
             activeSessionId = sessions.keys.sorted().first
         }
+        refreshDerivedState()
     }
 
     func stopSessionDiscovery() {

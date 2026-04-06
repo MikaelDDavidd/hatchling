@@ -182,7 +182,7 @@ class PanelWindowController {
                 } onChange: {
                     Task { @MainActor in self?.updateVisibility() }
                 }
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: .milliseconds(500))
             }
         }
 

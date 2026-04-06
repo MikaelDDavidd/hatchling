@@ -782,6 +782,17 @@ private struct SessionListView: View {
     }
 
     var body: some View {
+        // Pre-compute duplicate display names O(n) instead of O(n²) per-card check
+        let duplicateNames: Set<String> = {
+            var seen = Set<String>()
+            var dupes = Set<String>()
+            for s in appState.sessions.values {
+                let name = s.displayName
+                if seen.contains(name) { dupes.insert(name) }
+                seen.insert(name)
+            }
+            return dupes
+        }()
         let content = VStack(spacing: 6) {
             ForEach(groupedSessions, id: \.header) { group in
                 if !group.header.isEmpty {
@@ -803,7 +814,7 @@ private struct SessionListView: View {
 
                 ForEach(group.ids, id: \.self) { sessionId in
                     if let session = appState.sessions[sessionId] {
-                        let hasDuplicate = appState.sessions.contains { $0.key != sessionId && $0.value.displayName == session.displayName }
+                        let hasDuplicate = duplicateNames.contains(session.displayName)
                         let isStale = session.status == .idle && session.lastActivity.timeIntervalSinceNow < -900
                         Group {
                             if isStale {
