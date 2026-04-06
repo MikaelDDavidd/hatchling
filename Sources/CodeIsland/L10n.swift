@@ -160,6 +160,7 @@ final class L10n: ObservableObject {
         "skip": "SKIP",
         "submit": "SUBMIT",
         "open_path": "Open",
+        "copy_session_id": "Copy session ID",
 
         // Session grouping
         "status_running": "Running",
@@ -302,6 +303,7 @@ final class L10n: ObservableObject {
         "skip": "跳过",
         "submit": "提交",
         "open_path": "打开",
+        "copy_session_id": "复制会话 ID",
 
         // Session grouping
         "status_running": "运行中",
