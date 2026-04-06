@@ -77,6 +77,7 @@ struct NotchPanelView: View {
                                 onAlwaysAllow: { appState.approvePermission(always: true) },
                                 onDeny: { appState.denyPermission() }
                             )
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
                     case .questionCard:
                         if let q = appState.pendingQuestion {
@@ -88,6 +89,7 @@ struct NotchPanelView: View {
                                 onAnswer: { appState.answerQuestion($0) },
                                 onSkip: { appState.skipQuestion() }
                             )
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
                     case .completionCard:
                         SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId)
@@ -156,11 +158,14 @@ struct NotchPanelView: View {
                         }
                     }
                 } else {
-                    // Collapse immediately
+                    // Collapse with brief delay to prevent flicker on accidental mouse-out
                     hoverTimer?.invalidate()
-                    hoverTimer = nil
-                    withAnimation(NotchAnimation.close) {
-                        appState.surface = .collapsed
+                    hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
+                        Task { @MainActor in
+                            withAnimation(NotchAnimation.close) {
+                                appState.surface = .collapsed
+                            }
+                        }
                     }
                 }
             }
@@ -290,10 +295,11 @@ private struct NotchIconButton: View {
                     Circle()
                         .fill(tint.opacity(hovering ? 0.2 : 0.08))
                 )
+                .scaleEffect(hovering ? 1.1 : 1.0)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
         .help(tooltip ?? "")
     }
 }
@@ -670,7 +676,7 @@ private struct OptionRow: View {
             )
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
     }
 }
 
@@ -699,7 +705,7 @@ private struct PixelButton: View {
                 )
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
     }
 }
 
@@ -773,15 +779,11 @@ private struct SessionListView: View {
         }
     }
 
-    private var totalSessionCount: Int {
-        groupedSessions.reduce(0) { $0 + $1.ids.count }
-    }
-
-    private var needsScroll: Bool {
-        onlySessionId == nil && totalSessionCount > maxVisibleSessions
-    }
-
     var body: some View {
+        // Compute once per render — groupedSessions, totalCount, needsScroll, duplicateNames
+        let groups = groupedSessions
+        let totalSessionCount = groups.reduce(0) { $0 + $1.ids.count }
+        let needsScroll = onlySessionId == nil && totalSessionCount > maxVisibleSessions
         // Pre-compute duplicate display names O(n) instead of O(n²) per-card check
         let duplicateNames: Set<String> = {
             var seen = Set<String>()
@@ -794,7 +796,7 @@ private struct SessionListView: View {
             return dupes
         }()
         let content = VStack(spacing: 6) {
-            ForEach(groupedSessions, id: \.header) { group in
+            ForEach(groups, id: \.header) { group in
                 if !group.header.isEmpty {
                     HStack(spacing: 6) {
                         if let src = group.source, let icon = cliIcon(source: src) {
@@ -955,7 +957,7 @@ private struct SessionsExpandLink: View {
         }
         .buttonStyle(.plain)
         .onHover { h in
-            hovering = h
+            withAnimation(NotchAnimation.micro) { hovering = h }
             hoverTimer?.invalidate()
             hoverTimer = nil
             if h {
@@ -1119,7 +1121,7 @@ private struct SessionCard: View {
         )
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
         .onTapGesture {
             if isCompletion {
                 TerminalActivator.activate(session: session, sessionId: sessionId)
@@ -1381,12 +1383,17 @@ private struct TerminalJumpButton: View {
         "opencode": "ai.opencode.desktop",
     ]
 
+    private static var termIconCache: [String: NSImage] = [:]
+
     private var termIcon: NSImage? {
         let bid = session.termBundleId ?? Self.sourceBundleIds[session.source]
-        guard let bid,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)
+        guard let bid else { return nil }
+        if let cached = Self.termIconCache[bid] { return cached }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)
         else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        Self.termIconCache[bid] = icon
+        return icon
     }
 
     var body: some View {
@@ -1525,12 +1532,17 @@ private let cliIconFiles: [String: String] = [
     "opencode": "opencode",
 ]
 
+private var cliIconCache: [String: NSImage] = [:]
+
 func cliIcon(source: String, size: CGFloat = 16) -> NSImage? {
+    let key = "\(source)_\(Int(size))"
+    if let cached = cliIconCache[key] { return cached }
     guard let filename = cliIconFiles[source],
           let url = Bundle.module.url(forResource: filename, withExtension: "png", subdirectory: "Resources/cli-icons"),
           let image = NSImage(contentsOf: url)
     else { return nil }
     image.size = NSSize(width: size, height: size)
+    cliIconCache[key] = image
     return image
 }
 
@@ -1631,9 +1643,20 @@ struct MiniAgentIcon: View {
 // MARK: - Shared Helpers
 
 /// Inline markdown rendering (bold, italic, code, links)
+private var markdownCache: [String: AttributedString] = [:]
+private let markdownCacheLimit = 128
+
 private func inlineMarkdown(_ text: String) -> AttributedString {
+    if let cached = markdownCache[text] { return cached }
+    let result: AttributedString
     if let attr = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-        return attr
+        result = attr
+    } else {
+        result = AttributedString(text)
     }
-    return AttributedString(text)
+    if markdownCache.count >= markdownCacheLimit {
+        markdownCache.removeAll(keepingCapacity: true)
+    }
+    markdownCache[text] = result
+    return result
 }

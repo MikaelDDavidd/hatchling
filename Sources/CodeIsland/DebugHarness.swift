@@ -39,6 +39,8 @@ enum PreviewScenario: String, CaseIterable {
     case codebuddy
     case opencode
     case allcli
+    // Performance stress test
+    case stress
 }
 
 @MainActor
@@ -75,6 +77,7 @@ enum DebugHarness {
         case .codebuddy: applyCodeBuddy(to: appState)
         case .opencode: applyOpenCode(to: appState)
         case .allcli: applyAllCLI(to: appState)
+        case .stress: applyStress(to: appState)
         }
     }
 
@@ -450,5 +453,39 @@ enum DebugHarness {
         state.sessions["preview-allcli-8"] = s8
         state.activeSessionId = "preview-allcli-1"
         state.surface = .approvalCard(sessionId: "preview-allcli-5")
+    }
+
+    // MARK: - Stress Test (30 sessions)
+
+    private static func applyStress(to state: AppState) {
+        let sources = ["claude", "codex", "gemini", "cursor", "qoder", "droid", "codebuddy", "opencode"]
+        let statuses: [AgentStatus] = [.running, .processing, .idle, .waitingApproval, .waitingQuestion]
+        let tools = ["Edit", "Read", "Bash", "Write", "Grep", "Agent"]
+        let projects = ["frontend", "backend", "api", "mobile", "infra", "docs", "cli", "sdk", "web", "core"]
+
+        for i in 0..<30 {
+            var s = SessionSnapshot()
+            s.status = statuses[i % statuses.count]
+            s.cwd = "/tmp/stress-\(projects[i % projects.count])-\(i)"
+            s.model = i % 3 == 0 ? "claude-opus-4-20250514" : "claude-sonnet-4-20250514"
+            s.source = sources[i % sources.count]
+            s.lastUserPrompt = "Task #\(i): work on \(projects[i % projects.count])"
+            s.addRecentMessage(ChatMessage(isUser: true, text: "Task #\(i): work on \(projects[i % projects.count])"))
+            s.addRecentMessage(ChatMessage(isUser: false, text: "Working on it. Reading files and analyzing the codebase..."))
+            if s.status == .running || s.status == .processing {
+                s.currentTool = tools[i % tools.count]
+                s.toolDescription = "src/module\(i).swift"
+            }
+            for j in 0..<(i % 5) {
+                s.recordTool(tools[j % tools.count], description: "file\(j).ts", success: j % 4 != 0, agentType: nil, maxHistory: 20)
+            }
+            if i % 7 == 0 {
+                s.subagents["agent-\(i)-1"] = SubagentState(agentId: "agent-\(i)-1", agentType: "general-purpose")
+            }
+            s.termApp = "Ghostty"
+            s.lastActivity = Date().addingTimeInterval(Double(-i * 30))
+            state.sessions["preview-stress-\(i)"] = s
+        }
+        state.activeSessionId = "preview-stress-0"
     }
 }

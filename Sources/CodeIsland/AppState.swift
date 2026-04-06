@@ -171,12 +171,18 @@ final class AppState {
 
     // MARK: - Compact bar mascot rotation
 
+    /// Cached sorted active session IDs — refreshed by refreshActiveIds()
+    private var cachedActiveIds: [String] = []
+
+    private func refreshActiveIds() {
+        cachedActiveIds = sessions.filter { $0.value.status != .idle }.keys.sorted()
+    }
+
     private func startRotationIfNeeded() {
-        let activeIds = sessions.filter { $0.value.status != .idle }.keys.sorted()
-        if activeIds.count > 1 {
-            // Fix up rotatingSessionId if nil or stale
-            if rotatingSessionId == nil || !activeIds.contains(rotatingSessionId!) {
-                rotatingSessionId = activeIds.first
+        refreshActiveIds()
+        if cachedActiveIds.count > 1 {
+            if rotatingSessionId == nil || !cachedActiveIds.contains(rotatingSessionId!) {
+                rotatingSessionId = cachedActiveIds.first
             }
             if rotationTimer == nil {
                 rotationTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
@@ -193,15 +199,14 @@ final class AppState {
     }
 
     private func rotateToNextSession() {
-        let activeIds = sessions.filter { $0.value.status != .idle }.keys.sorted()
-        guard activeIds.count > 1 else {
+        guard cachedActiveIds.count > 1 else {
             rotatingSessionId = nil
             return
         }
-        if let current = rotatingSessionId, let idx = activeIds.firstIndex(of: current) {
-            rotatingSessionId = activeIds[(idx + 1) % activeIds.count]
+        if let current = rotatingSessionId, let idx = cachedActiveIds.firstIndex(of: current) {
+            rotatingSessionId = cachedActiveIds[(idx + 1) % cachedActiveIds.count]
         } else {
-            rotatingSessionId = activeIds.first
+            rotatingSessionId = cachedActiveIds.first
         }
     }
 
@@ -673,10 +678,18 @@ final class AppState {
 
     /// Find the most recently active non-idle session
     private func mostActiveSessionId() -> String? {
-        // Prefer non-idle sessions, fall back to most recently active
-        let nonIdle = sessions.filter { $0.value.status != .idle }
-        let pool = nonIdle.isEmpty ? sessions : nonIdle
-        return pool.max(by: { $0.value.lastActivity < $1.value.lastActivity })?.key
+        // Single-pass: find most recent non-idle, fall back to most recent overall
+        var bestNonIdle: (key: String, time: Date)?
+        var bestAny: (key: String, time: Date)?
+        for (key, session) in sessions {
+            if bestAny == nil || session.lastActivity > bestAny!.time {
+                bestAny = (key, session.lastActivity)
+            }
+            if session.status != .idle, bestNonIdle == nil || session.lastActivity > bestNonIdle!.time {
+                bestNonIdle = (key, session.lastActivity)
+            }
+        }
+        return (bestNonIdle ?? bestAny)?.key
     }
 
     /// Check if Cursor is in YOLO mode by reading its settings
