@@ -145,13 +145,15 @@ private struct GeneralPage: View {
                     Text(l10n["auto"]).tag("auto")
                     ForEach(Array(NSScreen.screens.enumerated()), id: \.offset) { index, screen in
                         let name = screen.localizedName
+                        let isBuiltin = name.contains("Built-in") || name.contains("内置")
                         let hasNotch: Bool = {
                             if #available(macOS 12.0, *) {
                                 return screen.auxiliaryTopLeftArea != nil
                             }
                             return false
                         }()
-                        Text("\(name)\(hasNotch ? " \(l10n["notch"])" : "")").tag("screen_\(index)")
+                        let label = isBuiltin ? l10n["builtin_display"] : name
+                        Text(label).tag("screen_\(index)")
                     }
                 }
             }
@@ -174,22 +176,30 @@ private struct BehaviorPage: View {
     var body: some View {
         Form {
             Section(l10n["display_section"]) {
-                Toggle(isOn: $hideInFullscreen) {
-                    Text(l10n["hide_in_fullscreen"])
-                    Text(l10n["hide_in_fullscreen_desc"])
-                }
-                Toggle(isOn: $hideWhenNoSession) {
-                    Text(l10n["hide_when_no_session"])
-                    Text(l10n["hide_when_no_session_desc"])
-                }
-                Toggle(isOn: $smartSuppress) {
-                    Text(l10n["smart_suppress"])
-                    Text(l10n["smart_suppress_desc"])
-                }
-                Toggle(isOn: $collapseOnMouseLeave) {
-                    Text(l10n["collapse_on_mouse_leave"])
-                    Text(l10n["collapse_on_mouse_leave_desc"])
-                }
+                BehaviorToggleRow(
+                    title: l10n["hide_in_fullscreen"],
+                    desc: l10n["hide_in_fullscreen_desc"],
+                    isOn: $hideInFullscreen,
+                    animation: .hideFullscreen
+                )
+                BehaviorToggleRow(
+                    title: l10n["hide_when_no_session"],
+                    desc: l10n["hide_when_no_session_desc"],
+                    isOn: $hideWhenNoSession,
+                    animation: .hideNoSession
+                )
+                BehaviorToggleRow(
+                    title: l10n["smart_suppress"],
+                    desc: l10n["smart_suppress_desc"],
+                    isOn: $smartSuppress,
+                    animation: .smartSuppress
+                )
+                BehaviorToggleRow(
+                    title: l10n["collapse_on_mouse_leave"],
+                    desc: l10n["collapse_on_mouse_leave_desc"],
+                    isOn: $collapseOnMouseLeave,
+                    animation: .collapseMouseLeave
+                )
             }
 
             Section(l10n["sessions"]) {
@@ -225,6 +235,7 @@ private struct HooksPage: View {
     @State private var cliStatuses: [String: Bool] = [:]
     @State private var statusMessage = ""
     @State private var statusIsError = false
+    @State private var refreshKey = 0
 
     private func refreshCLIStatuses() {
         for cli in ConfigInstaller.allCLIs {
@@ -250,7 +261,8 @@ private struct HooksPage: View {
                         fullPath: cli.fullPath,
                         installed: installed,
                         exists: exists
-                    )
+                    ) { _ in refreshCLIStatuses() }
+                    .id("\(cli.source)-\(refreshKey)")
                 }
                 // OpenCode (plugin-based, not hooks)
                 let ocInstalled = cliStatuses["opencode"] ?? false
@@ -262,14 +274,23 @@ private struct HooksPage: View {
                     fullPath: NSHomeDirectory() + "/.config/opencode/config.json",
                     installed: ocInstalled,
                     exists: ocExists
-                )
+                ) { _ in refreshCLIStatuses() }
+                .id("opencode-\(refreshKey)")
             }
 
             Section(l10n["management"]) {
                 HStack(spacing: 8) {
                     Button {
+                        // Enable all detected CLIs before reinstalling
+                        for cli in ConfigInstaller.allCLIs where ConfigInstaller.cliExists(source: cli.source) {
+                            UserDefaults.standard.set(true, forKey: "cli_enabled_\(cli.source)")
+                        }
+                        if ConfigInstaller.cliExists(source: "opencode") {
+                            UserDefaults.standard.set(true, forKey: "cli_enabled_opencode")
+                        }
                         if ConfigInstaller.install() {
                             refreshCLIStatuses()
+                            refreshKey += 1
                             statusMessage = l10n["hooks_installed"]
                             statusIsError = false
                         } else {
@@ -283,8 +304,14 @@ private struct HooksPage: View {
                     .buttonStyle(.bordered)
 
                     Button(role: .destructive) {
+                        // Disable all CLIs before uninstalling
+                        for cli in ConfigInstaller.allCLIs {
+                            UserDefaults.standard.set(false, forKey: "cli_enabled_\(cli.source)")
+                        }
+                        UserDefaults.standard.set(false, forKey: "cli_enabled_opencode")
                         ConfigInstaller.uninstall()
                         refreshCLIStatuses()
+                        refreshKey += 1
                         statusMessage = l10n["hooks_uninstalled"]
                         statusIsError = false
                     } label: {
@@ -318,9 +345,20 @@ private struct CLIStatusRow: View {
     let fullPath: String
     let installed: Bool
     let exists: Bool
+    var onToggle: ((Bool) -> Void)?
 
-    private func statusText() -> String {
-        installed ? l10n["activated"] : (exists ? l10n["not_installed"] : l10n["not_detected"])
+    @State private var enabled: Bool
+
+    init(name: String, source: String, configPath: String, fullPath: String,
+         installed: Bool, exists: Bool, onToggle: ((Bool) -> Void)? = nil) {
+        self.name = name
+        self.source = source
+        self.configPath = configPath
+        self.fullPath = fullPath
+        self.installed = installed
+        self.exists = exists
+        self.onToggle = onToggle
+        _enabled = State(initialValue: ConfigInstaller.isEnabled(source: source))
     }
 
     var body: some View {
@@ -331,31 +369,37 @@ private struct CLIStatusRow: View {
                         .resizable()
                         .frame(width: 20, height: 20)
                 }
-                Text(name)
-                Spacer()
-                Circle()
-                    .fill(installed ? Color.green : (exists ? Color.red : Color.gray))
-                    .frame(width: 8, height: 8)
-                Text(statusText())
-                    .foregroundColor(installed ? .secondary : (exists ? .red : .gray))
-                    .font(.caption)
-            }
-            if installed {
-                HStack(spacing: 2) {
-                    Text(configPath)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                    Button {
-                        let url = URL(fileURLWithPath: fullPath)
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    } label: {
-                        Image(systemName: "arrow.right.circle")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name)
+                    if !exists {
+                        Text(l10n["not_detected"])
                             .font(.system(size: 11))
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(.tertiary)
+                    } else if installed {
+                        HStack(spacing: 2) {
+                            Text(configPath)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: fullPath)])
+                            } label: {
+                                Image(systemName: "arrow.right.circle")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
-                .padding(.leading, 28)
+                Spacer()
+                if exists {
+                    Toggle("", isOn: $enabled)
+                        .labelsHidden()
+                        .onChange(of: enabled) { _, newValue in
+                            ConfigInstaller.setEnabled(source: source, enabled: newValue)
+                            onToggle?(newValue)
+                        }
+                }
             }
         }
     }
@@ -515,6 +559,7 @@ private struct SoundPage: View {
     @AppStorage(SettingsKey.soundTaskError) private var soundTaskError = SettingsDefaults.soundTaskError
     @AppStorage(SettingsKey.soundApprovalNeeded) private var soundApprovalNeeded = SettingsDefaults.soundApprovalNeeded
     @AppStorage(SettingsKey.soundPromptSubmit) private var soundPromptSubmit = SettingsDefaults.soundPromptSubmit
+    @AppStorage(SettingsKey.soundBoot) private var soundBoot = SettingsDefaults.soundBoot
 
     var body: some View {
         Form {
@@ -555,6 +600,10 @@ private struct SoundPage: View {
                 Section(l10n["interaction"]) {
                     SoundEventRow(title: l10n["approval_needed"], subtitle: l10n["waiting_approval_desc"], soundName: "8bit_approval", isOn: $soundApprovalNeeded)
                     SoundEventRow(title: l10n["task_confirmation"], subtitle: l10n["you_sent_message"], soundName: "8bit_submit", isOn: $soundPromptSubmit)
+                }
+
+                Section(l10n["system_section"]) {
+                    SoundEventRow(title: l10n["boot_sound"], subtitle: l10n["boot_sound_desc"], soundName: "8bit_boot", isOn: $soundBoot)
                 }
             }
         }
@@ -655,6 +704,171 @@ private struct AboutPage: View {
         .onHover { h in
             if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+    }
+}
+
+// MARK: - Behavior Animation Previews
+
+private enum BehaviorAnim {
+    case hideFullscreen, hideNoSession, smartSuppress, collapseMouseLeave
+}
+
+private struct BehaviorToggleRow: View {
+    let title: String
+    let desc: String
+    @Binding var isOn: Bool
+    let animation: BehaviorAnim
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            HStack(spacing: 12) {
+                BehaviorMiniAnim(animation: animation)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    Text(desc)
+                }
+            }
+        }
+    }
+}
+
+/// Looping mini animation showing what a behavior setting does.
+private struct BehaviorMiniAnim: View {
+    let animation: BehaviorAnim
+    private let w: CGFloat = 64
+    private let h: CGFloat = 42
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.04)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            Canvas { c, sz in
+                draw(c, sz: sz, t: t)
+            }
+        }
+        .frame(width: w, height: h)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private func draw(_ c: GraphicsContext, sz: CGSize, t: Double) {
+        let bg = Color(nsColor: .windowBackgroundColor).opacity(0.6)
+        c.fill(Path(CGRect(origin: .zero, size: sz)), with: .color(bg))
+
+        switch animation {
+        case .hideFullscreen:   drawHideFullscreen(c, sz: sz, t: t)
+        case .hideNoSession:    drawHideNoSession(c, sz: sz, t: t)
+        case .smartSuppress:    drawSmartSuppress(c, sz: sz, t: t)
+        case .collapseMouseLeave: drawCollapseMouseLeave(c, sz: sz, t: t)
+        }
+    }
+
+    // Shared: draw a mini screen outline
+    private func drawScreen(_ c: GraphicsContext, sz: CGSize, scale: CGFloat = 1.0) {
+        let sw: CGFloat = 46 * scale
+        let sh: CGFloat = 28 * scale
+        let sx = (sz.width - sw) / 2
+        let sy = (sz.height - sh) / 2 + 2
+        let rect = CGRect(x: sx, y: sy, width: sw, height: sh)
+        c.stroke(Path(roundedRect: rect, cornerRadius: 3), with: .color(.secondary.opacity(0.4)), lineWidth: 1)
+        // Screen "content" lines
+        for i in 0..<3 {
+            let ly = sy + 8 + CGFloat(i) * 6
+            let lw = sw * (i == 2 ? 0.4 : 0.65)
+            c.fill(Path(CGRect(x: sx + 6, y: ly, width: lw, height: 2)),
+                   with: .color(.secondary.opacity(0.15)))
+        }
+    }
+
+    // Shared: draw a mini notch pill
+    private func drawNotch(_ c: GraphicsContext, sz: CGSize, opacity: Double, expanded: Bool = false) {
+        let nw: CGFloat = expanded ? 30 : 14
+        let nh: CGFloat = expanded ? 14 : 5
+        let nx = (sz.width - nw) / 2
+        let ny: CGFloat = (sz.height - 28) / 2 + 2 - 1
+        let rect = CGRect(x: nx, y: ny, width: nw, height: nh)
+        c.fill(Path(roundedRect: rect, cornerRadius: nh / 2, style: .continuous),
+               with: .color(Color.orange.opacity(opacity)))
+    }
+
+    // 1) Fullscreen: screen expands → notch fades
+    private func drawHideFullscreen(_ c: GraphicsContext, sz: CGSize, t: Double) {
+        let cycle = t.truncatingRemainder(dividingBy: 3.0) / 3.0
+        // 0-0.3: normal, 0.3-0.5: expand, 0.5-0.8: fullscreen, 0.8-1: shrink back
+        let scale: CGFloat = cycle < 0.3 ? 1.0 :
+            cycle < 0.5 ? 1.0 + (cycle - 0.3) / 0.2 * 0.25 :
+            cycle < 0.8 ? 1.25 :
+            1.25 - (cycle - 0.8) / 0.2 * 0.25
+        let notchOp = cycle < 0.3 ? 0.8 :
+            cycle < 0.5 ? 0.8 - (cycle - 0.3) / 0.2 * 0.8 :
+            cycle < 0.8 ? 0.0 :
+            (cycle - 0.8) / 0.2 * 0.8
+        drawScreen(c, sz: sz, scale: scale)
+        drawNotch(c, sz: sz, opacity: notchOp)
+    }
+
+    // 2) No session: sessions blink out → notch fades
+    private func drawHideNoSession(_ c: GraphicsContext, sz: CGSize, t: Double) {
+        let cycle = t.truncatingRemainder(dividingBy: 3.0) / 3.0
+        drawScreen(c, sz: sz)
+        // Session dots
+        let dotOp = cycle < 0.4 ? 1.0 : cycle < 0.6 ? 1.0 - (cycle - 0.4) / 0.2 : cycle < 0.85 ? 0.0 : (cycle - 0.85) / 0.15
+        let cx = sz.width / 2
+        let cy = sz.height / 2 + 4
+        for i in 0..<2 {
+            let dx: CGFloat = CGFloat(i) * 8 - 4
+            c.fill(Path(ellipseIn: CGRect(x: cx + dx - 2, y: cy - 2, width: 4, height: 4)),
+                   with: .color(.green.opacity(0.7 * dotOp)))
+        }
+        let notchOp = cycle < 0.5 ? 0.8 : cycle < 0.7 ? 0.8 - (cycle - 0.5) / 0.2 * 0.8 : cycle < 0.85 ? 0.0 : (cycle - 0.85) / 0.15 * 0.8
+        drawNotch(c, sz: sz, opacity: notchOp)
+    }
+
+    // 3) Smart suppress: terminal tab comes forward → notch stays collapsed
+    private func drawSmartSuppress(_ c: GraphicsContext, sz: CGSize, t: Double) {
+        let cycle = t.truncatingRemainder(dividingBy: 3.5) / 3.5
+        drawScreen(c, sz: sz)
+        // Terminal window sliding forward
+        let termOp = cycle < 0.2 ? 0.0 : cycle < 0.4 ? (cycle - 0.2) / 0.2 : cycle < 0.8 ? 1.0 : 1.0 - (cycle - 0.8) / 0.2
+        let termY = sz.height / 2 + (1.0 - min(1, termOp)) * 5
+        let tw: CGFloat = 28
+        let th: CGFloat = 16
+        let tx = (sz.width - tw) / 2
+        let termRect = CGRect(x: tx, y: termY - 2, width: tw, height: th)
+        c.fill(Path(roundedRect: termRect, cornerRadius: 2),
+               with: .color(Color(white: 0.15).opacity(0.85 * min(1, termOp))))
+        // >_ prompt
+        if termOp > 0.3 {
+            c.fill(Path(CGRect(x: tx + 4, y: termY + 3, width: 6, height: 1.5)),
+                   with: .color(.green.opacity(0.7 * min(1, termOp))))
+        }
+        // Notch stays small (suppressed)
+        drawNotch(c, sz: sz, opacity: 0.5)
+    }
+
+    // 4) Collapse on mouse leave: notch expands → mouse leaves → collapses
+    private func drawCollapseMouseLeave(_ c: GraphicsContext, sz: CGSize, t: Double) {
+        let cycle = t.truncatingRemainder(dividingBy: 3.0) / 3.0
+        drawScreen(c, sz: sz)
+        let expanded = cycle > 0.15 && cycle < 0.55
+        let notchOp = 0.8
+        drawNotch(c, sz: sz, opacity: notchOp, expanded: expanded)
+        // Mouse cursor
+        let cursorX: CGFloat = cycle < 0.1 ? sz.width / 2 :
+            cycle < 0.15 ? sz.width / 2 :
+            cycle < 0.5 ? sz.width / 2 :
+            sz.width / 2 + (cycle - 0.5) / 0.2 * 20
+        let cursorY: CGFloat = cycle < 0.1 ? sz.height / 2 + 10 :
+            cycle < 0.15 ? sz.height / 2 + 10 - (cycle - 0.1) / 0.05 * 12 :
+            cycle < 0.5 ? sz.height / 2 - 2 :
+            sz.height / 2 - 2 + (cycle - 0.5) / 0.2 * 12
+        let cursorOp = cycle < 0.05 ? cycle / 0.05 : cycle > 0.75 ? max(0, 1.0 - (cycle - 0.75) / 0.15) : 1.0
+        // Arrow cursor shape
+        var arrow = Path()
+        arrow.move(to: CGPoint(x: cursorX, y: cursorY))
+        arrow.addLine(to: CGPoint(x: cursorX, y: cursorY + 7))
+        arrow.addLine(to: CGPoint(x: cursorX + 2, y: cursorY + 5))
+        arrow.addLine(to: CGPoint(x: cursorX + 5, y: cursorY + 5))
+        arrow.closeSubpath()
+        c.fill(arrow, with: .color(.white.opacity(0.9 * cursorOp)))
     }
 }
 

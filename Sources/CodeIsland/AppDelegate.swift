@@ -64,6 +64,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateChecker.shared.checkForUpdates(silent: true)
         }
 
+        SoundManager.shared.playBoot()
+
         // Boot animation: brief expand to confirm app is running
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)

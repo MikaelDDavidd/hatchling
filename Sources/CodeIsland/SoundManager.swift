@@ -35,6 +35,13 @@ class SoundManager {
         play(entry.sound)
     }
 
+    /// Play boot sound on app launch
+    func playBoot() {
+        guard defaults.bool(forKey: SettingsKey.soundEnabled) else { return }
+        guard defaults.bool(forKey: SettingsKey.soundBoot) else { return }
+        play("8bit_boot")
+    }
+
     /// Preview a specific sound (used by settings UI play buttons)
     func preview(_ soundName: String) {
         play(soundName)

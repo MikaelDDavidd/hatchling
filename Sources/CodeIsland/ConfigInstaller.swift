@@ -198,9 +198,10 @@ struct ConfigInstaller {
         installHookScript(fm: fm)
         installBridgeBinary(fm: fm)
 
-        // Install hooks for each CLI
+        // Install hooks for each enabled CLI
         var ok = true
         for cli in allCLIs {
+            guard isEnabled(source: cli.source) else { continue }
             if cli.source == "claude" {
                 if !installClaudeHooks(cli: cli, fm: fm) { ok = false }
             } else {
@@ -209,7 +210,9 @@ struct ConfigInstaller {
         }
 
         // Install OpenCode plugin
-        if !installOpencodePlugin(fm: fm) { ok = false }
+        if isEnabled(source: "opencode") {
+            if !installOpencodePlugin(fm: fm) { ok = false }
+        }
 
         return ok
     }
@@ -250,6 +253,41 @@ struct ConfigInstaller {
     // Keep backward compat
     static func isCodexInstalled() -> Bool { isInstalled(source: "codex") }
 
+    /// Whether a CLI is enabled by user (UserDefaults). Default: true.
+    static func isEnabled(source: String) -> Bool {
+        let key = "cli_enabled_\(source)"
+        if UserDefaults.standard.object(forKey: key) == nil { return true }
+        return UserDefaults.standard.bool(forKey: key)
+    }
+
+    /// Toggle a single CLI on/off: installs or uninstalls its hooks.
+    @discardableResult
+    static func setEnabled(source: String, enabled: Bool) -> Bool {
+        UserDefaults.standard.set(enabled, forKey: "cli_enabled_\(source)")
+        let fm = FileManager.default
+        if enabled {
+            installHookScript(fm: fm)
+            installBridgeBinary(fm: fm)
+            if source == "opencode" {
+                return installOpencodePlugin(fm: fm)
+            }
+            guard let cli = allCLIs.first(where: { $0.source == source }) else { return false }
+            if cli.source == "claude" {
+                return installClaudeHooks(cli: cli, fm: fm)
+            } else {
+                installExternalHooks(cli: cli, fm: fm)
+                return isHooksInstalled(for: cli, fm: fm)
+            }
+        } else {
+            if source == "opencode" {
+                uninstallOpencodePlugin(fm: fm)
+            } else if let cli = allCLIs.first(where: { $0.source == source }) {
+                uninstallHooks(cli: cli, fm: fm)
+            }
+            return true
+        }
+    }
+
     /// Check all installed CLIs and repair missing hooks. Returns names of repaired CLIs.
     static func verifyAndRepair() -> [String] {
         let fm = FileManager.default
@@ -259,6 +297,7 @@ struct ConfigInstaller {
 
         var repaired: [String] = []
         for cli in allCLIs {
+            guard isEnabled(source: cli.source) else { continue }
             guard fm.fileExists(atPath: cli.dirPath) else { continue }
             if isHooksInstalled(for: cli, fm: fm) { continue }
             if cli.source == "claude" {
@@ -273,7 +312,8 @@ struct ConfigInstaller {
             }
         }
         // OpenCode plugin
-        if fm.fileExists(atPath: (opencodeConfigPath as NSString).deletingLastPathComponent),
+        if isEnabled(source: "opencode"),
+           fm.fileExists(atPath: (opencodeConfigPath as NSString).deletingLastPathComponent),
            !isOpencodePluginInstalled(fm: fm) {
             if installOpencodePlugin(fm: fm) { repaired.append("OpenCode") }
         }

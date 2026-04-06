@@ -30,6 +30,7 @@ enum SettingsKey {
     static let soundTaskError = "soundTaskError"
     static let soundApprovalNeeded = "soundApprovalNeeded"
     static let soundPromptSubmit = "soundPromptSubmit"
+    static let soundBoot = "soundBoot"
 
     // Advanced
     static let maxToolHistory = "maxToolHistory"
@@ -59,6 +60,7 @@ struct SettingsDefaults {
     static let soundTaskError = true
     static let soundApprovalNeeded = true
     static let soundPromptSubmit = false
+    static let soundBoot = true
 
     static let maxToolHistory = 20
 
@@ -90,6 +92,7 @@ class SettingsManager {
             SettingsKey.soundTaskError: SettingsDefaults.soundTaskError,
             SettingsKey.soundApprovalNeeded: SettingsDefaults.soundApprovalNeeded,
             SettingsKey.soundPromptSubmit: SettingsDefaults.soundPromptSubmit,
+            SettingsKey.soundBoot: SettingsDefaults.soundBoot,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.sessionGroupingMode: SettingsDefaults.sessionGroupingMode,
         ])

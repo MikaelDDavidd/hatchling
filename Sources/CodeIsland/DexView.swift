@@ -133,9 +133,35 @@ struct DexView: View {
     // SLEEP — floating gently, cursor blinking slow
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private var sleepScene: some View {
-        TimelineView(.periodic(from: .now, by: 0.06)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            sleepCanvas(t: t)
+        ZStack {
+            TimelineView(.periodic(from: .now, by: 0.06)) { ctx in
+                let t = ctx.date.timeIntervalSinceReferenceDate
+                sleepCanvas(t: t)
+            }
+            TimelineView(.periodic(from: .now, by: 0.05)) { ctx in
+                let t = ctx.date.timeIntervalSinceReferenceDate
+                floatingZs(t: t)
+            }
+        }
+    }
+
+    private func floatingZs(t: Double) -> some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { i in
+                let ci = Double(i)
+                let cycle = 2.8 + ci * 0.3
+                let delay = ci * 0.9
+                let phase = max(0, ((t - delay).truncatingRemainder(dividingBy: cycle)) / cycle)
+                let fontSize = max(6, size * CGFloat(0.18 + phase * 0.10))
+                let baseOpacity = 0.7 - ci * 0.1
+                let opacity = phase < 0.8 ? baseOpacity : (1.0 - phase) * 3.5 * baseOpacity
+                let xOff = size * CGFloat(0.08 + ci * 0.06 + sin(phase * .pi * 2) * 0.03)
+                let yOff = -size * CGFloat(0.15 + phase * 0.38)
+                Text("z")
+                    .font(.system(size: fontSize, weight: .black, design: .monospaced))
+                    .foregroundStyle(.white.opacity(opacity))
+                    .offset(x: xOff, y: yOff)
+            }
         }
     }
 

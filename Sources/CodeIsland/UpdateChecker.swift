@@ -12,6 +12,9 @@ final class UpdateChecker {
     }
 
     func checkForUpdates(silent: Bool = true) {
+        // Skip silent check when version is unknown (debug without Info.plist)
+        if silent && currentVersion == "0.0.0" { return }
+
         let urlString = "https://api.github.com/repos/\(repo)/releases/latest"
         guard let url = URL(string: urlString) else { return }
 

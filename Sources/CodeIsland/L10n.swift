@@ -49,6 +49,7 @@ final class L10n: ObservableObject {
         "launch_at_login": "Launch at Login",
         "display": "Display",
         "auto": "Auto",
+        "builtin_display": "Built-in Display",
         "notch": "(Notch)",
 
         // Behavior
@@ -102,6 +103,9 @@ final class L10n: ObservableObject {
         "ai_completed_reply": "AI completed this round's reply",
         "task_error": "Task Error",
         "tool_or_api_error": "Tool failure or API error",
+        "system_section": "System",
+        "boot_sound": "Boot Sound",
+        "boot_sound_desc": "Play a jingle when CodeIsland starts",
         "interaction": "Interaction",
         "approval_needed": "Approval Needed",
         "waiting_approval_desc": "Waiting for permission approval or answer",
@@ -183,6 +187,7 @@ final class L10n: ObservableObject {
         "launch_at_login": "登录时打开",
         "display": "显示器",
         "auto": "自动",
+        "builtin_display": "内建显示器",
         "notch": "(刘海)",
 
         // Behavior
@@ -236,6 +241,9 @@ final class L10n: ObservableObject {
         "ai_completed_reply": "AI 完成了本轮回复",
         "task_error": "任务错误",
         "tool_or_api_error": "工具失败或 API 错误",
+        "system_section": "系统",
+        "boot_sound": "启动音效",
+        "boot_sound_desc": "CodeIsland 启动时播放提示音",
         "interaction": "交互",
         "approval_needed": "需要审批",
         "waiting_approval_desc": "等待权限审批或回答问题",
