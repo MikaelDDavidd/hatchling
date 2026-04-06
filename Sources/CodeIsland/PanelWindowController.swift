@@ -202,10 +202,6 @@ class PanelWindowController {
                     self.appState.surface = .collapsed
                     self.appState.cancelCompletionQueue()
                 }
-                // Repost click to underlying app
-                if let cgEvent = event.cgEvent?.copy() {
-                    cgEvent.post(tap: .cghidEventTap)
-                }
             }
         }
     }

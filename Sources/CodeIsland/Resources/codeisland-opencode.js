@@ -25,6 +25,7 @@ function sendAndWaitResponse(json, timeoutMs = 300000) {
     try {
       const sock = connect({ path: SOCKET }, () => {
         sock.write(JSON.stringify(json));
+        sock.end();
       });
       let buf = "";
       sock.on("data", (data) => { buf += data.toString(); });

@@ -91,10 +91,12 @@ public struct ChatMessage: Identifiable {
 public struct QuestionPayload {
     public let question: String
     public let options: [String]?
+    public let header: String?
 
-    public init(question: String, options: [String]?) {
+    public init(question: String, options: [String]?, header: String? = nil) {
         self.question = question
         self.options = options
+        self.header = header
     }
 
     /// Try to extract question from a Notification hook event

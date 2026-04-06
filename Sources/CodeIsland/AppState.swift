@@ -376,7 +376,29 @@ final class AppState {
             sessions[sessionId]?.model = model
         }
 
+        let wasWaiting = sessions[sessionId]?.status == .waitingApproval
+            || sessions[sessionId]?.status == .waitingQuestion
+
         let effects = reduceEvent(sessions: &sessions, event: event, maxHistory: maxHistory)
+
+        // If session was waiting but received an activity event, the question/permission
+        // was answered externally (e.g. user replied in terminal). Clear pending items.
+        if wasWaiting {
+            let en = EventNormalizer.normalize(event.eventName)
+            // Events that should NOT clear waiting state
+            let keepWaiting: Set<String> = ["Notification", "SessionStart", "SessionEnd", "PreCompact"]
+            if !keepWaiting.contains(en) {
+                drainPermissions(forSession: sessionId)
+                drainQuestions(forSession: sessionId)
+                if sessions[sessionId]?.status == .waitingApproval
+                    || sessions[sessionId]?.status == .waitingQuestion {
+                    sessions[sessionId]?.status = (en == "Stop") ? .idle : .processing
+                    sessions[sessionId]?.currentTool = nil
+                    sessions[sessionId]?.toolDescription = nil
+                }
+                showNextPending()
+            }
+        }
 
         // Detect Cursor YOLO mode once per session (nil = unchecked)
         if event.rawJSON["_source"] as? String == "cursor",
@@ -522,9 +544,21 @@ final class AppState {
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
-        let questionText = event.toolInput?["question"] as? String ?? "Question"
-        let options = event.toolInput?["options"] as? [String]
-        let payload = QuestionPayload(question: questionText, options: options)
+        let payload: QuestionPayload
+        if let questions = event.toolInput?["questions"] as? [[String: Any]],
+           let first = questions.first {
+            let questionText = first["question"] as? String ?? "Question"
+            let header = first["header"] as? String
+            var optionLabels: [String]?
+            if let opts = first["options"] as? [[String: Any]] {
+                optionLabels = opts.compactMap { $0["label"] as? String }
+            }
+            payload = QuestionPayload(question: questionText, options: optionLabels, header: header)
+        } else {
+            let questionText = event.toolInput?["question"] as? String ?? "Question"
+            let options = event.toolInput?["options"] as? [String]
+            payload = QuestionPayload(question: questionText, options: options)
+        }
 
         drainPermissions(forSession: sessionId)
         drainQuestions(forSession: sessionId)
@@ -547,7 +581,19 @@ final class AppState {
         let pending = questionQueue.removeFirst()
         let responseData: Data
         if pending.isFromPermission {
-            responseData = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8)
+            let answerKey = pending.question.header ?? "answer"
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedInput": [
+                            "answers": [answerKey: answer]
+                        ]
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         } else {
             let obj: [String: Any] = [
                 "hookSpecificOutput": [
