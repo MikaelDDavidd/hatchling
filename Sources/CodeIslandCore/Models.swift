@@ -91,11 +91,13 @@ public struct ChatMessage: Identifiable {
 public struct QuestionPayload {
     public let question: String
     public let options: [String]?
+    public let descriptions: [String]?
     public let header: String?
 
-    public init(question: String, options: [String]?, header: String? = nil) {
+    public init(question: String, options: [String]?, descriptions: [String]? = nil, header: String? = nil) {
         self.question = question
         self.options = options
+        self.descriptions = descriptions
         self.header = header
     }
 

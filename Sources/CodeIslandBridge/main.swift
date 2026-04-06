@@ -264,6 +264,9 @@ if let source = sourceTag {
     json["_source"] = source
 }
 
+// Parent PID — the CLI process that spawned this hook (works for any CLI)
+json["_ppid"] = getppid()
+
 // --- Serialize enriched JSON ---
 guard let enriched = try? JSONSerialization.data(withJSONObject: json) else { exit(1) }
 

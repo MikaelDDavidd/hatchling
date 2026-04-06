@@ -22,6 +22,8 @@ private class NotchHostingView<Content: View>: NSHostingView<Content> {
         super.mouseDown(with: event)
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     /// Always defer `needsUpdateConstraints = true` to the next run-loop turn.
     /// During AppKit's display-cycle (constraint-update or layout phases),
     /// calling setNeedsUpdateConstraints synchronously re-enters
@@ -116,6 +118,8 @@ class PanelWindowController {
             backing: .buffered,
             defer: false
         )
+        panel.isFloatingPanel = true
+        panel.acceptsMouseMovedEvents = true
         panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 2)
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -138,6 +142,10 @@ class PanelWindowController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.rebuildForCurrentScreen()
+                // macOS may not have finished updating NSScreen.screens when the notification fires.
+                // Rebuild again after a short delay to pick up the final screen configuration.
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 self?.rebuildForCurrentScreen()
             }
         }
@@ -197,6 +205,11 @@ class PanelWindowController {
                 switch self.appState.surface {
                 case .approvalCard, .questionCard: return
                 default: break
+                }
+                // Don't collapse if click is within the panel frame (event leaked on external display)
+                if let panelFrame = self.panel?.frame {
+                    let clickLocation = NSEvent.mouseLocation
+                    if panelFrame.contains(clickLocation) { return }
                 }
                 withAnimation(NotchAnimation.close) {
                     self.appState.surface = .collapsed

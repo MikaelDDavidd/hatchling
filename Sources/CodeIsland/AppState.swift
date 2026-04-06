@@ -17,6 +17,8 @@ final class AppState {
     var pendingPermission: PermissionRequest? { permissionQueue.first }
     /// Computed: first item in question queue
     var pendingQuestion: QuestionRequest? { questionQueue.first }
+    /// Preview-only: mock question payload for DebugHarness (no continuation needed)
+    var previewQuestionPayload: QuestionPayload?
     var surface: IslandSurface = .collapsed
 
     var justCompletedSessionId: String? {
@@ -210,10 +212,19 @@ final class AppState {
         }
     }
 
-    /// Try to find the Claude PID for a session and start monitoring it
+    /// Start monitoring the CLI process for a session.
+    /// Prefers the PID captured by the bridge (_ppid), falls back to scanning for Claude processes by CWD.
     private func tryMonitorSession(_ sessionId: String) {
-        guard processMonitors[sessionId] == nil,
-              let cwd = sessions[sessionId]?.cwd else { return }
+        guard processMonitors[sessionId] == nil else { return }
+
+        // Primary: use PID from bridge (works for any CLI)
+        if let pid = sessions[sessionId]?.cliPid, pid > 0, kill(pid, 0) == 0 {
+            monitorProcess(sessionId: sessionId, pid: pid)
+            return
+        }
+
+        // Fallback: scan for Claude Code processes by CWD
+        guard let cwd = sessions[sessionId]?.cwd else { return }
         Task.detached {
             let pid = Self.findPidForCwd(cwd)
             await MainActor.run { [weak self] in
@@ -454,6 +465,10 @@ final class AppState {
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
+        // Extract metadata so blocking-first sessions have cwd, source, cliPid, terminal info
+        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        tryMonitorSession(sessionId)
+
         // Clear any pending questions for THIS session (mutually exclusive within a session)
         drainQuestions(forSession: sessionId)
 
@@ -530,6 +545,9 @@ final class AppState {
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
+        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        tryMonitorSession(sessionId)
+
         guard let question = QuestionPayload.from(event: event) else {
             continuation.resume(returning: Data("{}".utf8))
             return
@@ -544,7 +562,9 @@ final class AppState {
 
         if questionQueue.count == 1 {
             activeSessionId = sessionId
-            surface = .questionCard(sessionId: sessionId)
+            withAnimation(NotchAnimation.open) {
+                surface = .questionCard(sessionId: sessionId)
+            }
             SoundManager.shared.handleEvent("PermissionRequest")
         }
         refreshDerivedState()
@@ -555,19 +575,29 @@ final class AppState {
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
+        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        tryMonitorSession(sessionId)
+
         let payload: QuestionPayload
         if let questions = event.toolInput?["questions"] as? [[String: Any]],
            let first = questions.first {
             let questionText = first["question"] as? String ?? "Question"
             let header = first["header"] as? String
             var optionLabels: [String]?
+            var optionDescs: [String]?
             if let opts = first["options"] as? [[String: Any]] {
                 optionLabels = opts.compactMap { $0["label"] as? String }
+                optionDescs = opts.compactMap { $0["description"] as? String }
             }
-            payload = QuestionPayload(question: questionText, options: optionLabels, header: header)
+            payload = QuestionPayload(question: questionText, options: optionLabels, descriptions: optionDescs, header: header)
         } else {
             let questionText = event.toolInput?["question"] as? String ?? "Question"
-            let options = event.toolInput?["options"] as? [String]
+            var options: [String]?
+            if let stringOpts = event.toolInput?["options"] as? [String] {
+                options = stringOpts
+            } else if let dictOpts = event.toolInput?["options"] as? [[String: Any]] {
+                options = dictOpts.compactMap { $0["label"] as? String }
+            }
             payload = QuestionPayload(question: questionText, options: options)
         }
 
@@ -582,7 +612,9 @@ final class AppState {
 
         if questionQueue.count == 1 {
             activeSessionId = sessionId
-            surface = .questionCard(sessionId: sessionId)
+            withAnimation(NotchAnimation.open) {
+                surface = .questionCard(sessionId: sessionId)
+            }
             SoundManager.shared.handleEvent("PermissionRequest")
         }
         refreshDerivedState()
@@ -648,6 +680,24 @@ final class AppState {
             item.continuation.resume(returning: denyResponse)
             return true
         }
+    }
+
+    /// Called when the bridge socket disconnects — the question/permission was answered externally (e.g. user replied in terminal)
+    func handlePeerDisconnect(sessionId: String) {
+        let hadPending = !questionQueue.filter({ $0.event.sessionId == sessionId }).isEmpty
+            || !permissionQueue.filter({ $0.event.sessionId == sessionId }).isEmpty
+        guard hadPending else { return }
+
+        drainQuestions(forSession: sessionId)
+        drainPermissions(forSession: sessionId)
+        if sessions[sessionId]?.status == .waitingApproval
+            || sessions[sessionId]?.status == .waitingQuestion {
+            sessions[sessionId]?.status = .processing
+            sessions[sessionId]?.currentTool = nil
+            sessions[sessionId]?.toolDescription = nil
+        }
+        showNextPending()
+        refreshDerivedState()
     }
 
     /// Drain all queued questions for a specific session, resuming their continuations with empty
@@ -758,7 +808,6 @@ final class AppState {
             snapshot.model = p.model
             snapshot.lastUserPrompt = p.lastUserPrompt
             snapshot.lastAssistantMessage = p.lastAssistantMessage
-            // Rebuild recentMessages from persisted data
             if let prompt = p.lastUserPrompt {
                 snapshot.addRecentMessage(ChatMessage(isUser: true, text: prompt))
             }
@@ -773,9 +822,40 @@ final class AppState {
             snapshot.tmuxClientTty = p.tmuxClientTty
             snapshot.termBundleId = p.termBundleId
             snapshot.lastActivity = p.lastActivity
+            // Restore persisted cliPid — enables immediate process monitoring for all CLIs
+            if let pid = p.cliPid, pid > 0 {
+                snapshot.cliPid = pid
+            }
             sessions[p.sessionId] = snapshot
+            // Synchronous path: if cliPid is set and process is alive, attach immediately
+            if let pid = snapshot.cliPid, pid > 0, kill(pid, 0) == 0 {
+                monitorProcess(sessionId: p.sessionId, pid: pid)
+                sessions[p.sessionId]?.status = .processing
+            } else {
+                // Async fallback: scan for Claude processes by CWD
+                let sid = p.sessionId
+                Task.detached {
+                    let pid = Self.findPidForCwd(snapshot.cwd ?? "")
+                    await MainActor.run { [weak self] in
+                        guard let self = self, let pid = pid,
+                              self.sessions[sid] != nil,
+                              self.processMonitors[sid] == nil else { return }
+                        self.monitorProcess(sessionId: sid, pid: pid)
+                        self.sessions[sid]?.status = .processing
+                        // Re-select active session now that we know it's alive
+                        if self.activeSessionId == nil || self.sessions[self.activeSessionId ?? ""]?.status == .idle {
+                            self.activeSessionId = sid
+                        }
+                        self.refreshDerivedState()
+                    }
+                }
+            }
         }
         SessionPersistence.clear()
+        if activeSessionId == nil {
+            activeSessionId = sessions.first(where: { $0.value.status != .idle })?.key
+                ?? sessions.keys.sorted().first
+        }
         refreshDerivedState()
     }
 
@@ -854,6 +934,14 @@ final class AppState {
             if sessions[info.sessionId] != nil {
                 if processMonitors[info.sessionId] == nil, let pid = info.pid {
                     monitorProcess(sessionId: info.sessionId, pid: pid)
+                    // If process is alive and session was idle, reactivate it
+                    if sessions[info.sessionId]?.status == .idle {
+                        sessions[info.sessionId]?.status = .processing
+                    }
+                    // Switch focus if current active session is idle
+                    if activeSessionId == nil || sessions[activeSessionId ?? ""]?.status == .idle {
+                        activeSessionId = info.sessionId
+                    }
                 }
                 continue
             }
@@ -1138,26 +1226,22 @@ final class AppState {
     }
 
     /// Find the most recent Codex session file matching a CWD
+    /// Scans back up to 7 days to cover long-running sessions that span day boundaries
     private nonisolated static func findRecentCodexSession(base: String, cwd: String, after: Date?, fm: FileManager) -> String? {
-        // Build today's path: ~/.codex/sessions/YYYY/MM/DD
         let cal = Calendar.current
         let now = Date()
-        let y = String(format: "%04d", cal.component(.year, from: now))
-        let m = String(format: "%02d", cal.component(.month, from: now))
-        let d = String(format: "%02d", cal.component(.day, from: now))
-
-        let dirs = [
-            "\(base)/\(y)/\(m)/\(d)",  // today
-        ]
-        // Also check yesterday in case session started before midnight
-        if let yesterday = cal.date(byAdding: .day, value: -1, to: now) {
-            let yd = String(format: "%02d", cal.component(.day, from: yesterday))
-            let ym = String(format: "%02d", cal.component(.month, from: yesterday))
-            let yy = String(format: "%04d", cal.component(.year, from: yesterday))
-            let yesterdayDir = "\(base)/\(yy)/\(ym)/\(yd)"
-            // dirs is let, so rebuild
-            return scanCodexDir(dirs: [dirs[0], yesterdayDir], cwd: cwd, after: after, fm: fm)
+        var dirs: [String] = []
+        for daysBack in 0..<7 {
+            guard let date = cal.date(byAdding: .day, value: -daysBack, to: now) else { continue }
+            let y = String(format: "%04d", cal.component(.year, from: date))
+            let m = String(format: "%02d", cal.component(.month, from: date))
+            let d = String(format: "%02d", cal.component(.day, from: date))
+            let dir = "\(base)/\(y)/\(m)/\(d)"
+            if fm.fileExists(atPath: dir) {
+                dirs.append(dir)
+            }
         }
+        guard !dirs.isEmpty else { return nil }
         return scanCodexDir(dirs: dirs, cwd: cwd, after: after, fm: fm)
     }
 
@@ -1242,28 +1326,38 @@ final class AppState {
                     ?? payload["model_provider"] as? String
             }
 
-            // Extract messages from response_item
+            // Prefer event_msg (cleaner user/agent messages from Codex)
+            if type == "event_msg",
+               let payload = json["payload"] as? [String: Any],
+               let msgType = payload["type"] as? String,
+               let msg = payload["message"] as? String, !msg.isEmpty {
+                if msgType == "user_message" {
+                    userMessages.append((index, msg))
+                } else if msgType == "agent_message" {
+                    assistantMessages.append((index, msg))
+                }
+            }
+
+            // Fallback: extract from response_item only if event_msg didn't provide the same content
+            // (user messages come from event_msg which is cleaner — response_item user entries
+            //  often contain injected system/tool context, not actual user input)
             if type == "response_item",
                let payload = json["payload"] as? [String: Any],
                let role = payload["role"] as? String {
 
-                var textContent: String?
                 if let content = payload["content"] as? [[String: Any]] {
                     for item in content {
                         let itemType = item["type"] as? String ?? ""
-                        if itemType == "input_text" || itemType == "output_text",
-                           let t = item["text"] as? String, !t.isEmpty {
-                            textContent = t
+                        if let t = item["text"] as? String, !t.isEmpty {
+                            if role == "user" && itemType == "input_text" && userMessages.isEmpty {
+                                // Only use response_item for user messages if no event_msg was found
+                                userMessages.append((index, t))
+                            } else if role == "assistant" && itemType == "output_text" && assistantMessages.last?.1 != t {
+                                // Only add if not a duplicate of the last event_msg entry
+                                assistantMessages.append((index, t))
+                            }
                             break
                         }
-                    }
-                }
-
-                if let text = textContent {
-                    if role == "user" {
-                        userMessages.append((index, text))
-                    } else if role == "assistant" {
-                        assistantMessages.append((index, text))
                     }
                 }
             }

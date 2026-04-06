@@ -79,15 +79,32 @@ struct NotchPanelView: View {
                             )
                             .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
-                    case .questionCard:
+                    case .questionCard(let sid):
+                        let session = appState.sessions[sid]
                         if let q = appState.pendingQuestion {
                             QuestionBar(
                                 question: q.question.question,
                                 options: q.question.options,
+                                descriptions: q.question.descriptions,
+                                sessionSource: session?.source,
+                                sessionContext: session?.cwd,
                                 queuePosition: 1,
                                 queueTotal: appState.questionQueue.count,
                                 onAnswer: { appState.answerQuestion($0) },
                                 onSkip: { appState.skipQuestion() }
+                            )
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                        } else if let preview = appState.previewQuestionPayload {
+                            QuestionBar(
+                                question: preview.question,
+                                options: preview.options,
+                                descriptions: preview.descriptions,
+                                sessionSource: session?.source,
+                                sessionContext: session?.cwd,
+                                queuePosition: 1,
+                                queueTotal: 1,
+                                onAnswer: { _ in },
+                                onSkip: { }
                             )
                             .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
@@ -538,6 +555,9 @@ private struct ApprovalBar: View {
 private struct QuestionBar: View {
     let question: String
     let options: [String]?
+    let descriptions: [String]?
+    let sessionSource: String?
+    let sessionContext: String?
     let queuePosition: Int
     let queueTotal: Int
     let onAnswer: (String) -> Void
@@ -551,6 +571,27 @@ private struct QuestionBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // Session context
+            if sessionSource != nil || sessionContext != nil {
+                HStack(spacing: 5) {
+                    if let src = sessionSource, let icon = cliIcon(source: src, size: 12) {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 12, height: 12)
+                    }
+                    if let cwd = sessionContext {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.white.opacity(0.5))
+                        Text((cwd as NSString).lastPathComponent)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+            }
+
             // Header
             HStack(spacing: 6) {
                 Text("?")
@@ -577,7 +618,8 @@ private struct QuestionBar: View {
             if let options = options, !options.isEmpty {
                 VStack(spacing: 4) {
                     ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
-                        OptionRow(index: idx + 1, label: option, isSelected: selectedIndex == idx, accent: cyan) {
+                        let desc = descriptions?.indices.contains(idx) == true ? descriptions?[idx] : nil
+                        OptionRow(index: idx + 1, label: option, description: desc, isSelected: selectedIndex == idx, accent: cyan) {
                             selectedIndex = idx
                             onAnswer(option)
                         }
@@ -641,6 +683,7 @@ private struct QuestionBar: View {
 private struct OptionRow: View {
     let index: Int
     let label: String
+    let description: String?
     let isSelected: Bool
     let accent: Color
     let action: () -> Void
@@ -658,10 +701,18 @@ private struct OptionRow: View {
                 Text("\(index).")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(accent.opacity(hovering ? 1 : 0.6))
-                // Label
-                Text(label)
-                    .font(.system(size: 10.5, weight: hovering ? .semibold : .regular, design: .monospaced))
-                    .foregroundStyle(.white.opacity(hovering ? 1 : 0.75))
+                // Label + Description
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.system(size: 10.5, weight: hovering ? .semibold : .regular, design: .monospaced))
+                        .foregroundStyle(.white.opacity(hovering ? 1 : 0.75))
+                    if let description, !description.isEmpty {
+                        Text(description)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .lineLimit(2)
+                    }
+                }
                 Spacer()
             }
             .padding(.horizontal, 10)
@@ -817,19 +868,12 @@ private struct SessionListView: View {
                 ForEach(group.ids, id: \.self) { sessionId in
                     if let session = appState.sessions[sessionId] {
                         let hasDuplicate = duplicateNames.contains(session.displayName)
-                        let isStale = session.status == .idle && session.lastActivity.timeIntervalSinceNow < -900
-                        Group {
-                            if isStale {
-                                CollapsedSessionRow(session: session, sessionId: sessionId)
-                            } else {
-                                SessionCard(
-                                    sessionId: sessionId,
-                                    session: session,
-                                    showIdSuffix: hasDuplicate,
-                                    isCompletion: onlySessionId != nil
-                                )
-                            }
-                        }
+                        SessionCard(
+                            sessionId: sessionId,
+                            session: session,
+                            showIdSuffix: hasDuplicate,
+                            isCompletion: onlySessionId != nil
+                        )
                     }
                 }
             }
@@ -1334,35 +1378,6 @@ private struct NotchPanelShape: Shape {
         )
         p.closeSubpath()
         return p
-    }
-}
-
-/// Collapsed single-line row for idle sessions >15 min
-private struct CollapsedSessionRow: View {
-    let session: SessionSnapshot
-    let sessionId: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(.white.opacity(0.2))
-                .frame(width: 6, height: 6)
-            Text(session.displayName)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.4))
-                .lineLimit(1)
-            if let prompt = session.lastUserPrompt {
-                Text("– \(prompt)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.25))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer()
-            TerminalJumpButton(session: session, sessionId: sessionId)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 4)
     }
 }
 
