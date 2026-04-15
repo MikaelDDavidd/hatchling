@@ -5,11 +5,11 @@
       "layers" : [
         {
           "blend-mode" : "normal",
-          "glass" : true,
-          "image-name" : "logo 2.svg",
-          "name" : "logo 2",
+          "glass" : false,
+          "image-name" : "notch-ico.png",
+          "name" : "notch-ico",
           "position" : {
-            "scale" : 2,
+            "scale" : 1,
             "translation-in-points" : [
               0,
               0
@@ -19,11 +19,11 @@
       ],
       "shadow" : {
         "kind" : "neutral",
-        "opacity" : 0.5
+        "opacity" : 0.4
       },
       "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
+        "enabled" : false,
+        "value" : 0
       }
     }
   ],

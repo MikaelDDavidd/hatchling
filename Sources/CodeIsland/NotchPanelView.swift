@@ -53,6 +53,38 @@ struct NotchPanelView: View {
         return notchW * scale
     }
 
+    /// How many CLI sources currently have a session (for sizing the mascot strip).
+    private var activeSourceCount: Int {
+        let sources = Set(appState.sessions.values.map { $0.source ?? "claude" })
+        return max(sources.count, 1)
+    }
+
+    /// Width needed by the left mascot strip — grows with active source count.
+    private var leftWingWidth: CGFloat {
+        let n = min(activeSourceCount, 4)
+        // mirrors stripMascotSize() in CompactLeftWing
+        let perSize: CGFloat = {
+            switch n {
+            case ...1: return mascotSize
+            case 2:    return mascotSize * 0.85
+            case 3:    return mascotSize * 0.75
+            default:   return mascotSize * 0.65
+            }
+        }()
+        return CGFloat(n) * perSize + CGFloat(max(n - 1, 0)) * 3 + 14
+    }
+
+    /// Width needed by the right wing — biggest when a usage alert shows,
+    /// medium for gerund verb, smallest for the idle counter.
+    private var rightWingWidth: CGFloat {
+        if UsageAlertCenter.shared.pending != nil { return 130 } // "Codex 5h: 85%"
+        let baseCounter: CGFloat = 26
+        guard appState.sessions.values.contains(where: {
+            $0.status == .processing || $0.status == .running
+        }) else { return baseCounter + 14 }
+        return 90 // "Murmuring…"
+    }
+
     /// Total panel width — adapts based on state and screen geometry
     private var panelWidth: CGFloat {
         let nw = effectiveNotchW
@@ -60,11 +92,10 @@ struct NotchPanelView: View {
         if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 80 : nw + compactWingWidth * 2 }
         if !isActive { return hasNotch ? notchW - 20 : nw }
         if shouldShowExpanded { return min(max(nw + 200, 580), maxWidth) }
-        let wing = compactWingWidth
-        let extra: CGFloat = appState.status == .idle ? 0 : 20
+        let extra: CGFloat = appState.status == .idle ? 0 : 8
         // Reserve space for tool status — proportional to screen width
         let toolExtra: CGFloat = displayedToolStatus ? (hasNotch ? screenWidth * 0.03 : screenWidth * 0.04) : 0
-        return nw + wing * 2 + extra + toolExtra
+        return nw + leftWingWidth + rightWingWidth + extra + toolExtra
     }
 
     var body: some View {
@@ -106,6 +137,11 @@ struct NotchPanelView: View {
                         .stroke(.white.opacity(0.15), style: StrokeStyle(lineWidth: 0.5, dash: [4, 3]))
                         .frame(height: 0.5)
                         .padding(.horizontal, 12)
+
+                    // Anthropic public status (compact pill)
+                    StatusBar()
+                    // Live usage bar (Codex local; per-session % on each card)
+                    UsageBar()
 
                     switch appState.surface {
                     case .approvalCard:
@@ -160,12 +196,26 @@ struct NotchPanelView: View {
                     case .sessionList:
                         SessionListView(appState: appState, onlySessionId: nil)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
+                    case .buddySpeech:
+                        if let speech = appState.pendingBuddySpeech {
+                            BuddySpeechBubble(
+                                speech: speech,
+                                buddy: BuddyReader.shared.buddy,
+                                onDismiss: { appState.dismissBuddySpeech() }
+                            )
+                            .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+                        }
                     case .collapsed:
                         EmptyView()
                     }
                 }
             }
             .frame(width: panelWidth)
+            // Fit content vertically — the NSHostingView gives us the full
+            // panel height, but the black notch shape should hug the actual
+            // content (especially in completion mode where 1 card otherwise
+            // leaves a huge empty void below it).
+            .fixedSize(horizontal: false, vertical: true)
             .clipped()
             .background(
                 NotchPanelShape(
@@ -318,6 +368,44 @@ private struct CompactLeftWing: View {
     private var displaySource: String { displaySession?.source ?? appState.primarySource }
     private var displayStatus: AgentStatus { displaySession?.status ?? .idle }
     private var liveTool: String? { displaySession?.currentTool }
+
+    /// One mascot per CLI source — picks the most-active session per source
+    /// (alert > processing > idle) so the strip stays compact and readable.
+    /// Sources with no sessions fall through; ordering follows attention rank.
+    private var rankedSessions: [SessionSnapshot] {
+        func rank(_ s: SessionSnapshot) -> Int {
+            switch s.status {
+            case .waitingApproval, .waitingQuestion: return 0
+            case .processing, .running: return 1
+            case .idle: return 2
+            }
+        }
+        // Bucket per source, keep the lowest-ranked (most attention-grabbing)
+        var byKey: [String: SessionSnapshot] = [:]
+        for s in appState.sessions.values {
+            let key = s.source ?? "claude"
+            if let existing = byKey[key] {
+                if rank(s) < rank(existing) { byKey[key] = s }
+            } else {
+                byKey[key] = s
+            }
+        }
+        return byKey.values.sorted { a, b in
+            let ra = rank(a), rb = rank(b)
+            if ra != rb { return ra < rb }
+            return (a.source ?? "") < (b.source ?? "")
+        }
+    }
+
+    /// Per-mascot size when stacking multiple — shrinks gracefully.
+    private func stripMascotSize(count: Int) -> CGFloat {
+        switch count {
+        case ...1: return mascotSize
+        case 2:    return mascotSize * 0.85
+        case 3:    return mascotSize * 0.75
+        default:   return mascotSize * 0.65
+        }
+    }
     @State private var shownTool: String?
     @State private var lingerTimer: Timer?
 
@@ -350,12 +438,36 @@ private struct CompactLeftWing: View {
                     .overlay(Rectangle().stroke(.white.opacity(0.1), lineWidth: 1))
                 }
             } else {
-                MascotView(source: displaySource, status: displayStatus, size: mascotSize)
-                    .id(displaySource)
-                    .transition(.opacity)
-                    .animation(.easeInOut(duration: 0.3), value: displaySource)
+                let sessions = rankedSessions
+                let visible = Array(sessions.prefix(4))
+                let hidden = max(0, sessions.count - visible.count)
+                let perSize = stripMascotSize(count: max(visible.count, 1))
 
-                // On notch screens, show tool name only (no description, space is tight)
+                if visible.isEmpty {
+                    MascotView(source: displaySource, status: displayStatus, size: mascotSize)
+                        .transition(.opacity)
+                } else {
+                    HStack(spacing: 3) {
+                        ForEach(visible.indices, id: \.self) { i in
+                            let s = visible[i]
+                            MascotView(
+                                source: s.source ?? "claude",
+                                status: s.status,
+                                size: perSize
+                            )
+                            .id((s.source ?? "claude") + "-" + (s.cliPid.map(String.init) ?? "\(i)"))
+                            .transition(.opacity)
+                        }
+                        if hidden > 0 {
+                            Text("+\(hidden)")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: visible.count)
+                }
+
+                // On notch screens, show tool name from the focus session
                 if hasNotch, showToolStatus, let tool = shownTool {
                     Text(tool)
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -395,8 +507,10 @@ private struct CompactRightWing: View {
     let expanded: Bool
     let hasNotch: Bool
     @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var alerts = UsageAlertCenter.shared
     @AppStorage(SettingsKey.soundEnabled) private var soundEnabled = SettingsDefaults.soundEnabled
     @AppStorage(SettingsKey.showToolStatus) private var showToolStatus = SettingsDefaults.showToolStatus
+    @AppStorage(SettingsKey.autoAcceptPermissions) private var autoAcceptPermissions = SettingsDefaults.autoAcceptPermissions
 
     private var displaySessionId: String? {
         appState.rotatingSessionId ?? appState.activeSessionId ?? appState.sessions.keys.sorted().first
@@ -404,6 +518,38 @@ private struct CompactRightWing: View {
     private var projectName: String? {
         guard let sid = displaySessionId, let cwd = appState.sessions[sid]?.cwd, !cwd.isEmpty else { return nil }
         return (cwd as NSString).lastPathComponent
+    }
+
+    /// Returns a whimsical gerund verb when an agent is actively processing,
+    /// otherwise nil so the session counter shows. Seed includes currentTool
+    /// so the verb stays stable while the same tool runs.
+    private var activeGerundVerb: String? {
+        let processing = appState.sessions.values.contains {
+            $0.status == .processing || $0.status == .running
+        }
+        guard processing else { return nil }
+        guard let sid = displaySessionId, let snap = appState.sessions[sid] else {
+            return GerundVerbs.pick(seed: nil)
+        }
+        let seed = sid + "·" + (snap.currentTool ?? "")
+        return GerundVerbs.pick(seed: seed)
+    }
+
+    @ViewBuilder
+    private func sessionCounter(fontSize: CGFloat, weight: Font.Weight) -> some View {
+        HStack(spacing: 1) {
+            let active = appState.activeSessionCount
+            let total = appState.totalSessionCount
+            if active > 0 {
+                Text("\(active)")
+                    .foregroundStyle(Color(red: 0.4, green: 1.0, blue: 0.5))
+                Text("/")
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+            Text("\(total)")
+                .foregroundStyle(.white.opacity(0.9))
+        }
+        .font(.system(size: fontSize, weight: weight, design: .monospaced))
     }
 
     var body: some View {
@@ -419,6 +565,14 @@ private struct CompactRightWing: View {
                     NSApplication.shared.terminate(nil)
                 }
             } else {
+                // YOLO mode badge — always-visible when auto-accept is on
+                if autoAcceptPermissions {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.20))
+                        .help("YOLO mode active — permissions auto-accepted")
+                }
+
                 // Pending approval/question badge
                 if appState.status == .waitingApproval || appState.status == .waitingQuestion {
                     Image(systemName: "bell.fill")
@@ -427,40 +581,43 @@ private struct CompactRightWing: View {
                         .symbolEffect(.pulse, options: .repeating)
                 }
 
-                if showToolStatus {
-                    // Detailed mode: session count (project name is shown in center on non-notch)
-                    HStack(spacing: 1) {
-                        let active = appState.activeSessionCount
-                        let total = appState.totalSessionCount
-                        if active > 0 {
-                            Text("\(active)")
-                                .foregroundStyle(Color(red: 0.4, green: 1.0, blue: 0.5))
-                            Text("/")
-                                .foregroundStyle(.white.opacity(0.4))
-                        }
-                        Text("\(total)")
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                if let alert = alerts.pending {
+                    Text(alert.text)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(alert.color)
+                        .lineLimit(1)
+                        .transition(.opacity)
+                } else if let verb = activeGerundVerb {
+                    Text("\(verb)…")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color(red: 0.95, green: 0.78, blue: 0.4))
+                        .lineLimit(1)
+                        .transition(.opacity)
+                } else if showToolStatus {
+                    sessionCounter(fontSize: 12, weight: .semibold)
                 } else {
-                    // Simple mode: original session count only
-                    HStack(spacing: 1) {
-                        let active = appState.activeSessionCount
-                        let total = appState.totalSessionCount
-                        if active > 0 {
-                            Text("\(active)")
-                                .foregroundStyle(Color(red: 0.4, green: 1.0, blue: 0.5))
-                            Text("/")
-                                .foregroundStyle(.white.opacity(0.4))
-                        }
-                        Text("\(total)")
-                            .foregroundStyle(.white.opacity(0.9))
-                    }
-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    sessionCounter(fontSize: 13, weight: .bold)
                 }
             }
         }
         .padding(.trailing, 6)
+    }
+}
+
+private struct ContextProgressTrack: View {
+    let pct: Int
+    let color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color.opacity(0.15))
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color.gradient)
+                    .frame(width: geo.size.width * CGFloat(min(max(pct, 0), 100)) / 100.0)
+            }
+        }
     }
 }
 
@@ -723,11 +880,33 @@ private struct ApprovalBar: View {
                     .background(Color.white.opacity(0.04))
             }
 
-            // Pixel-style buttons
+            // Ghost-style action buttons — accent only on text/border, soft fills
             HStack(spacing: 6) {
-                PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), action: onDeny)
-                PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), action: onAllow)
-                PixelButton(label: L10n.shared["always"], fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), action: onAlwaysAllow)
+                let denyAccent   = Color(red: 1.00, green: 0.42, blue: 0.42)
+                let allowAccent  = Color(red: 0.36, green: 0.85, blue: 0.50)
+                let alwaysAccent = Color(red: 0.40, green: 0.65, blue: 1.00)
+
+                PixelButton(
+                    label: L10n.shared["deny"],
+                    fg: denyAccent,
+                    bg: denyAccent.opacity(0.10),
+                    border: denyAccent.opacity(0.40),
+                    action: onDeny
+                )
+                PixelButton(
+                    label: L10n.shared["allow_once"],
+                    fg: allowAccent,
+                    bg: allowAccent.opacity(0.10),
+                    border: allowAccent.opacity(0.40),
+                    action: onAllow
+                )
+                PixelButton(
+                    label: L10n.shared["always"],
+                    fg: alwaysAccent,
+                    bg: alwaysAccent.opacity(0.10),
+                    border: alwaysAccent.opacity(0.40),
+                    action: onAlwaysAllow
+                )
             }
             .padding(.horizontal, 14)
         }
@@ -1389,16 +1568,21 @@ private struct PixelButton: View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(fg)
+                .foregroundStyle(fg.opacity(hovering ? 1.0 : 0.85))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 7)
                 .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(hovering ? bg.opacity(1.5) : bg)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(bg)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(hovering ? border : border.opacity(0.4), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(hovering ? border : border.opacity(0.5), lineWidth: 1)
+                )
+                .overlay(
+                    // Subtle hover wash — uses a neutral white so colored bgs don't blow out
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(hovering ? 0.06 : 0))
                 )
         }
         .buttonStyle(.plain)
@@ -1696,6 +1880,7 @@ private struct SessionCard: View {
     let session: SessionSnapshot
     var isCompletion: Bool = false
     @State private var hovering = false
+    @ObservedObject private var contextStore = ContextUsageStore.shared
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -1712,125 +1897,264 @@ private struct SessionCard: View {
         }
     }
 
+    // ── Status semantics ────────────────────────────────────────────
+    private var statusAccent: Color {
+        if session.status == .idle && session.interrupted {
+            return Color(red: 1.0, green: 0.45, blue: 0.35)
+        }
+        switch session.status {
+        case .processing, .running:               return Color(red: 0.36, green: 0.85, blue: 0.50)
+        case .waitingApproval, .waitingQuestion:  return Color(red: 1.0,  green: 0.65, blue: 0.25)
+        case .idle:                               return Color.white.opacity(0.35)
+        }
+    }
+    private var statusLabel: String {
+        if session.status == .idle && session.interrupted { return "INTERRUPTED" }
+        switch session.status {
+        case .processing, .running:               return "WORKING"
+        case .waitingApproval:                    return "WAITING APPROVAL"
+        case .waitingQuestion:                    return "WAITING ANSWER"
+        case .idle:                               return "IDLE"
+        }
+    }
+
     var body: some View {
         Button {
             TerminalActivator.activate(session: session, sessionId: sessionId)
         } label: {
-        HStack(alignment: .center, spacing: 8) {
-            // Column 1: Character + subagent icons
-            VStack(spacing: 3) {
-                MascotView(source: session.source, status: session.status, size: 32)
-                if showAgentDetails && !session.subagents.isEmpty {
-                    let sorted = session.subagents.values.sorted { $0.startTime < $1.startTime }
-                    // Grid: 4 per row, 8px icons
-                    let rows = stride(from: 0, to: sorted.count, by: 4).map {
-                        Array(sorted[$0..<min($0 + 4, sorted.count)])
-                    }
-                    VStack(spacing: 1) {
-                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                            HStack(spacing: 1) {
-                                ForEach(row, id: \.agentId) { sub in
-                                    MiniAgentIcon(active: sub.status != .idle, size: 8)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(width: 36)
-
-            // Column 2: Content
-            VStack(alignment: .leading, spacing: 6) {
-                // Header: project name + optional session label + short ID
-                HStack(alignment: .center, spacing: 8) {
-                    SessionIdentityLine(
-                        session: session,
-                        sessionId: sessionId,
-                        projectFontSize: fontSize + 2,
-                        projectColor: statusNameColor,
-                        sessionFontSize: fontSize,
-                        sessionColor: .white.opacity(0.76),
-                        dividerColor: .white.opacity(0.28)
-                    )
-                    Spacer(minLength: 8)
-
-                    HStack(spacing: 4) {
-                        if let remote = session.remoteDisplayName {
-                            SessionTag("@\(remote)", color: Color(red: 0.45, green: 0.72, blue: 1.0))
-                        }
-                        if session.interrupted {
-                            SessionTag("INT", color: Color(red: 1.0, green: 0.6, blue: 0.2))
-                        }
-                        if session.isYoloMode == true {
-                            SessionTag("YOLO", color: Color(red: 1.0, green: 0.35, blue: 0.35))
-                        }
-                        SessionTag(timeAgo(session.startTime))
-                        TerminalBadge(session: session)
-                    }
-                }
-
-                // Session title: first user prompt (hide when detailed mode shows chat history)
-                if let prompt = session.lastUserPrompt,
-                   session.recentMessages.isEmpty {
-                    Text(prompt)
-                        .font(.system(size: fontSize, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-            // Chat history + live status
-            if !session.recentMessages.isEmpty || session.status != .idle {
-                VStack(alignment: .leading, spacing: 3) {
-                    // Chat messages (detailed mode only)
-                    let visibleMessages = session.status != .idle
-                        ? Array(session.recentMessages.suffix(2))
-                        : session.recentMessages
-                    ForEach(visibleMessages) { msg in
-                        // Extracted to separate view so SwiftUI skips re-rendering
-                        // when only the parent's hover state changes (#52 perf).
-                        ChatMessageRow(
-                            text: msg.text,
-                            isUser: msg.isUser,
-                            fontSize: fontSize,
-                            aiLineLimit: aiLineLimit
-                        )
-                    }
-
-                    // Working indicator: show what AI is doing right now
-                    if session.status != .idle {
-                        HStack(spacing: 4) {
-                            Text("$")
-                                .font(.system(size: fontSize, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color(red: 0.85, green: 0.47, blue: 0.34))
-                            if let tool = session.currentTool {
-                                MorphText(
-                                    text: session.toolDescription ?? tool,
-                                    font: .system(size: fontSize, design: .monospaced),
-                                    color: .white.opacity(0.75)
-                                )
-                                .truncationMode(.tail)
-                            } else {
-                                TypingIndicator(fontSize: fontSize, label: "thinking")
-                            }
-                        }
-                    }
-                }
-                .padding(.leading, 4)
-            }
-            } // end Column 2 VStack
-        } // end HStack
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(hovering ? Color.white.opacity(0.10) : Color.white.opacity(0.05))
-        )
-        .padding(.horizontal, 6)
+            cardContent
         } // end Button label
         .buttonStyle(.plain)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
+    }
+
+    @ViewBuilder
+    private var cardContent: some View {
+        HStack(alignment: .top, spacing: 0) {
+            statusBar
+            mascotColumn
+            contentColumn
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(hovering ? Color.white.opacity(0.07) : Color.white.opacity(0.035))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(statusAccent.opacity(hovering ? 0.25 : 0.10), lineWidth: 1)
+        )
+        .padding(.horizontal, 6)
+    }
+
+    // ── Status bar (left edge) ──────────────────────────────────────
+    private var statusBar: some View {
+        RoundedRectangle(cornerRadius: 1.5)
+            .fill(statusAccent)
+            .frame(width: 3)
+            .padding(.vertical, 8)
+    }
+
+    // ── Mascot column ───────────────────────────────────────────────
+    @ViewBuilder
+    private var mascotColumn: some View {
+        VStack(spacing: 3) {
+            MascotView(source: session.source, status: session.status, size: 30)
+            if showAgentDetails && !session.subagents.isEmpty {
+                subagentGrid
+            }
+        }
+        .frame(width: 36)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.top, 10)
+    }
+
+    @ViewBuilder
+    private var subagentGrid: some View {
+        let sorted = session.subagents.values.sorted { $0.startTime < $1.startTime }
+        let rows = stride(from: 0, to: sorted.count, by: 4).map {
+            Array(sorted[$0..<min($0 + 4, sorted.count)])
+        }
+        VStack(spacing: 1) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 1) {
+                    ForEach(row, id: \.agentId) { sub in
+                        MiniAgentIcon(active: sub.status != .idle, size: 7)
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Content column ──────────────────────────────────────────────
+    @ViewBuilder
+    private var contentColumn: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            headerRow
+            contextRow
+            messagesBlock
+            metaFooter
+        }
+        .padding(.trailing, 14)
+        .padding(.vertical, 10)
+    }
+
+    /// Model + tokens-used / context-window. Hidden when we can't read it.
+    @ViewBuilder
+    private var contextRow: some View {
+        // Touch the published property so SwiftUI re-renders on cache updates
+        let _ = contextStore.objectWillChange
+        if let usage = ContextUsageStore.shared.lookup(for: session, sessionId: sessionId) {
+            HStack(spacing: 6) {
+                Text(usage.modelShort)
+                    .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+                ContextProgressTrack(pct: usage.pct, color: usage.color)
+                    .frame(width: 70, height: 4)
+                Text("\(usage.pct)%")
+                    .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(usage.color.opacity(0.92))
+                    .monospacedDigit()
+                Text(usage.tokensCompact)
+                    .font(.system(size: fontSize - 3, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.32))
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var headerRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            SessionIdentityLine(
+                session: session,
+                sessionId: sessionId,
+                projectFontSize: fontSize + 2,
+                projectColor: .white,
+                sessionFontSize: fontSize - 1,
+                sessionColor: .white.opacity(0.45),
+                dividerColor: .white.opacity(0.25)
+            )
+            if let remote = session.remoteDisplayName {
+                SessionTag("@\(remote)", color: Color(red: 0.45, green: 0.72, blue: 1.0))
+            }
+            if session.isYoloMode == true {
+                SessionTag("YOLO", color: Color(red: 1.0, green: 0.35, blue: 0.35))
+            }
+            Spacer(minLength: 6)
+            statusPill
+        }
+    }
+
+    private var visibleMessages: [ChatMessage] {
+        if !session.recentMessages.isEmpty {
+            return Array(session.recentMessages.suffix(2))
+        }
+        if let prompt = session.lastUserPrompt {
+            return [ChatMessage(isUser: true, text: prompt)]
+        }
+        return []
+    }
+
+    @ViewBuilder
+    private var messagesBlock: some View {
+        if !visibleMessages.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(visibleMessages) { msg in
+                    cleanMessageRow(msg)
+                }
+            }
+        }
+    }
+
+    // ── Status pill (top-right of header) ───────────────────────────
+    @ViewBuilder
+    private var statusPill: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(statusAccent)
+                .frame(width: 6, height: 6)
+                .opacity(session.status == .idle ? 0.55 : 1.0)
+            Text(statusLabel)
+                .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
+                .foregroundStyle(statusAccent.opacity(session.status == .idle ? 0.55 : 0.95))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            Capsule().fill(statusAccent.opacity(0.10))
+        )
+    }
+
+    // ── Message row without "$" / ">" prefixes — uses subtle marker ─
+    @ViewBuilder
+    private func cleanMessageRow(_ msg: ChatMessage) -> some View {
+        if msg.isUser {
+            HStack(alignment: .top, spacing: 6) {
+                Text("❯")
+                    .font(.system(size: fontSize - 1, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.30))
+                Text(ChatMessageTextFormatter.literalText(msg.text))
+                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                    .italic()
+                    .foregroundStyle(.white.opacity(0.62))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        } else {
+            Text(ChatMessageTextFormatter.inlineMarkdown(compactedText(msg.text)))
+                .font(.system(size: fontSize, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(aiLineLimit)
+                .truncationMode(.tail)
+                .padding(.leading, 14) // align with "❯ " indent
+        }
+    }
+
+    private func compactedText(_ text: String) -> String {
+        text.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .reduce(into: [String]()) { result, line in
+                if line.isEmpty && (result.last?.isEmpty ?? true) { return }
+                result.append(line)
+            }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // ── Compact meta line: gerund verb · tool · time · terminal ─────
+    @ViewBuilder
+    private var metaFooter: some View {
+        HStack(spacing: 6) {
+            if session.status == .processing || session.status == .running {
+                let verb = GerundVerbs.pick(seed: sessionId + "·" + (session.currentTool ?? ""))
+                Text("\(verb)…")
+                    .font(.system(size: fontSize - 1, weight: .medium, design: .monospaced))
+                    .foregroundStyle(statusAccent.opacity(0.95))
+                if let tool = session.currentTool {
+                    Text("·")
+                        .foregroundStyle(.white.opacity(0.20))
+                    Text(tool)
+                        .font(.system(size: fontSize - 1, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                }
+            } else if session.status == .waitingApproval || session.status == .waitingQuestion {
+                Text("Needs you")
+                    .font(.system(size: fontSize - 1, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(statusAccent)
+            }
+            Spacer(minLength: 6)
+            Text(timeAgo(session.startTime))
+                .font(.system(size: fontSize - 2, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.40))
+            TerminalBadge(session: session)
+        }
+        .padding(.leading, 14)
     }
 
     private func timeAgo(_ date: Date) -> String {

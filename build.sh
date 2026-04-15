@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-APP_NAME="CodeIsland"
+APP_NAME="Hatchling"
+BIN_TARGET="CodeIsland"
 BUILD_DIR=".build/release"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 ICON_CATALOG="Assets.xcassets"
@@ -22,7 +23,7 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Helpers"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 
-lipo -create "$ARM_DIR/$APP_NAME" "$X86_DIR/$APP_NAME" \
+lipo -create "$ARM_DIR/$BIN_TARGET" "$X86_DIR/$BIN_TARGET" \
      -output "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 lipo -create "$ARM_DIR/codeisland-bridge" "$X86_DIR/codeisland-bridge" \
      -output "$APP_BUNDLE/Contents/Helpers/codeisland-bridge"
@@ -51,7 +52,7 @@ for bundle in .build/*/release/*.bundle; do
     fi
 done
 
-ENTITLEMENTS="CodeIsland.entitlements"
+ENTITLEMENTS="Hatchling.entitlements"
 
 # Use SIGN_ID env var, or auto-detect: prefer "Developer ID Application" for distribution,
 # fall back to any valid identity, then ad-hoc
@@ -77,11 +78,11 @@ if [[ "$*" == *"--notarize"* ]] && [[ "$SIGN_ID" == *"Developer ID"* ]]; then
     ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_PATH"
 
     echo "Submitting for notarization..."
-    if xcrun notarytool submit "$ZIP_PATH" --keychain-profile "CodeIsland" --wait 2>&1 | tee /dev/stderr | grep -q "status: Accepted"; then
+    if xcrun notarytool submit "$ZIP_PATH" --keychain-profile "Hatchling" --wait 2>&1 | tee /dev/stderr | grep -q "status: Accepted"; then
         echo "Stapling notarization ticket..."
         xcrun stapler staple "$APP_BUNDLE"
     else
-        echo "ERROR: Notarization failed. Run 'xcrun notarytool log <submission-id> --keychain-profile CodeIsland' for details."
+        echo "ERROR: Notarization failed. Run 'xcrun notarytool log <submission-id> --keychain-profile Hatchling' for details."
         rm -f "$ZIP_PATH"
         exit 1
     fi
@@ -103,7 +104,7 @@ if [[ "$*" == *"--notarize"* ]] && [[ "$SIGN_ID" == *"Developer ID"* ]]; then
     # Sign and notarize the DMG too
     codesign --force --sign "$SIGN_ID" "$DMG_PATH"
     echo "Notarizing DMG..."
-    if xcrun notarytool submit "$DMG_PATH" --keychain-profile "CodeIsland" --wait 2>&1 | tee /dev/stderr | grep -q "status: Accepted"; then
+    if xcrun notarytool submit "$DMG_PATH" --keychain-profile "Hatchling" --wait 2>&1 | tee /dev/stderr | grep -q "status: Accepted"; then
         xcrun stapler staple "$DMG_PATH"
         echo "DMG ready: $DMG_PATH"
     else

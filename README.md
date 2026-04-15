@@ -1,137 +1,102 @@
-<h1 align="center">
-  <img src="logo.png" width="48" height="48" alt="CodeIsland Logo" valign="middle">&nbsp;
-  CodeIsland
-</h1>
-<p align="center">
-  <b>Real-time AI coding agent status panel for macOS Dynamic Island (Notch)</b><br>
-  <a href="#installation">Install</a> •
-  <a href="#features">Features</a> •
-  <a href="#supported-tools">Supported Tools</a> •
-  <a href="#build-from-source">Build</a><br>
-  English | <a href="README.zh-CN.md">简体中文</a>
-</p>
+# Hatchling
 
----
+> Your AI coding agents, hatched into a tiny notch.
 
-<p align="center">
-  <img src="docs/images/notch-panel.png" width="700" alt="CodeIsland Panel Preview">
-</p>
+Hatchling is a macOS menu‑bar app that turns your MacBook's notch into a
+live status panel for every AI coding agent you have running — Claude
+Code, Codex, Gemini CLI, Cursor, Copilot, and 12 other CLIs. Pet‑style
+mascots tell you who's working, who's waiting, and who's idle, all
+without leaving the menu bar.
 
-## What is CodeIsland?
-
-CodeIsland lives in your MacBook's notch area and shows you what your AI coding agents are doing — in real time. No more switching windows to check if Claude is waiting for approval or if Codex finished its task.
-
-It connects to **9 AI coding tools** via Unix socket IPC, displaying session status, tool calls, permission requests, and more — all in a compact, pixel-art styled panel.
+<p align="center"><img src="notch-ico.png" width="160" alt="Hatchling icon"></p>
 
 ## Features
 
-- **Notch-native UI** — Expands from the MacBook notch, collapses when idle
-- **9 AI tools supported** — Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qoder, Factory, CodeBuddy, OpenCode
-- **Live status tracking** — See active sessions, tool calls, and AI responses in real time
-- **Permission management** — Approve/deny tool permissions directly from the panel
-- **Question answering** — Respond to agent questions without leaving your current app
-- **Pixel-art mascots** — Each AI tool has its own animated character
-- **One-click jump** — Click a session to jump to its terminal tab or IDE window
-- **Smart suppress** — Tab-level terminal detection: only suppresses notifications when you're looking at the specific session tab, not just the terminal app
-- **Sound effects** — Optional 8-bit sound notifications for session events
-- **Auto hook install** — Automatically configures hooks for all detected CLI tools, with auto-repair and version tracking
-- **Bilingual UI** — English and Chinese, auto-detects system language
-- **Multi-display** — Works with external monitors, auto-detects notch displays
+- **17 CLIs supported** out of the box via Unix‑socket hooks: Claude
+  Code, Codex, Gemini, Cursor, Trae (CN), Copilot, Qoder, Factory,
+  CodeBuddy (CN), StepFun, AntiGravity, WorkBuddy, Hermes, Qwen Code,
+  OpenCode.
+- **One mascot per CLI source**, side‑by‑side in the notch — alerts
+  first, working next, idle last.
+- **Whimsical gerund verbs** (`Hatching…`, `Brewing…`, `Pondering…`,
+  `Enchanting…`, …) replace the session counter while an agent is
+  thinking.
+- **Approval cards** with ghost‑style buttons. Optional **YOLO mode**
+  to auto‑accept every permission request — with a bolt badge in the
+  notch so you never forget it's on.
+- **Per‑session context‑window meter**: model name + tokens used /
+  context limit, parsed live from `~/.claude/projects/*.jsonl`.
+- **Buddy ASCII pet** in Settings — 18 species, 5 rarities, hats,
+  shiny variants, derived deterministically from `~/.claude.json`
+  via wyhash. Even works after Anthropic removed `/buddy` from the
+  CLI in v2.1.97.
+- **Buddy speech bubbles**: occasional in‑character musings ("HONK!
+  Esse commit tá horrível", "naptime in 5… 4… 3…"). Click to dismiss.
+- **Anthropic status pill** at the top of the expanded panel — pulls
+  status.claude.com every 5min; click opens the page.
+- **Codex usage bar**: parses local rollout JSONL for primary (5h) /
+  secondary (7d) rate‑limit windows.
+- **Claude rate‑limit capture** via statusline wrapper (Claude Code
+  v2.1.80+) — surfaces the same numbers as `claude.ai/settings/usage`
+  in the notch, with transient `Claude 5h: 80%` warnings each time
+  usage crosses a 5% bucket.
+- **i18n**: English, Português (Brasil), 中文, Türkçe.
 
-## Supported Tools
+## Install
 
-| | Tool | Events | Jump | Status |
-|:---:|------|--------|------|--------|
-| <img src="docs/images/mascots/claude.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/claude.png" width="16"> Claude Code | 13 | Terminal tab | Full |
-| <img src="docs/images/mascots/codex.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/codex.png" width="16"> Codex | 3 | Terminal | Basic |
-| <img src="docs/images/mascots/gemini.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/gemini.png" width="16"> Gemini CLI | 6 | Terminal | Full |
-| <img src="docs/images/mascots/cursor.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/cursor.png" width="16"> Cursor | 10 | IDE | Full |
-| <img src="docs/images/mascots/copilot.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/copilot.png" width="16"> Copilot | 6 | Terminal | Full |
-| <img src="docs/images/mascots/qoder.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/qoder.png" width="16"> Qoder | 10 | IDE | Full |
-| <img src="docs/images/mascots/factory.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/factory.png" width="16"> Factory | 10 | IDE | Full |
-| <img src="docs/images/mascots/codebuddy.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/codebuddy.png" width="16"> CodeBuddy | 10 | APP/Terminal | Full |
-| <img src="docs/images/mascots/opencode.gif" width="28"> | <img src="Sources/CodeIsland/Resources/cli-icons/opencode.png" width="16"> OpenCode | All | APP/Terminal | Full |
+Download the latest `.dmg` from
+[Releases](https://github.com/MikaelDDavidd/hatchling/releases),
+open it, and drag **Hatchling.app** into **Applications**.
 
-## Installation
+First launch will install hooks into every CLI you have configured
+(`~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`,
+`~/.cursor/hooks.json`, etc.). It also wraps your Claude Code statusline
+so it can capture rate‑limit numbers; your existing statusline command is
+preserved at `~/.codeisland/statusline-original.cmd` and called transparently.
 
-### Homebrew (Recommended)
-
-```bash
-brew tap wxtsky/tap
-brew install --cask codeisland
-```
-
-### Manual Download
-
-1. Go to [Releases](https://github.com/wxtsky/CodeIsland/releases)
-2. Download `CodeIsland.dmg`
-3. Open the DMG and drag `CodeIsland.app` to your Applications folder
-4. Launch CodeIsland — it will automatically install hooks for all detected AI tools
-
-> **Note:** On first launch, macOS may show a security warning. Go to **System Settings → Privacy & Security** and click **Open Anyway**.
-
-### Build from Source
-
-Requires **macOS 14+** and **Swift 5.9+**.
+## Build from source
 
 ```bash
-git clone https://github.com/wxtsky/CodeIsland.git
-cd CodeIsland
-
-# Development (debug build + launch)
-swift build && ./.build/debug/CodeIsland
-
-# Release (universal binary: Apple Silicon + Intel)
+git clone https://github.com/MikaelDDavidd/hatchling.git
+cd hatchling
 ./build.sh
-open .build/release/CodeIsland.app
+open .build/release/Hatchling.app
 ```
 
-## How It Works
+Universal binary (arm64 + x86_64). Code‑signed with whatever Apple
+identity is in your keychain (falls back to ad‑hoc).
 
-```
-AI Tool (Claude/Codex/Gemini/Cursor/Copilot/...)
-  → Hook event triggered
-    → codeisland-bridge (native Swift binary, ~86KB)
-      → Unix socket → /tmp/codeisland-<uid>.sock
-        → CodeIsland app receives event
-          → Updates UI in real time
-```
+## Heritage
 
-CodeIsland installs lightweight hooks into each AI tool's config. When the tool triggers an event (session start, tool call, permission request, etc.), the hook sends a JSON message through a Unix socket. CodeIsland listens on this socket and updates the notch panel instantly.
+Hatchling is a hard fork of [`wxtsky/CodeIsland`][cs], itself
+inspired by [`farouqaldori/claude-island`][ci]. The Buddy ASCII
+pet system, WyHash and species table are adapted from
+[`MioMioOS/MioIsland`][mio] (CC BY‑NC 4.0). Big thanks to all of
+them — Hatchling wouldn't exist without their work.
 
-For **OpenCode**, a JS plugin connects directly to the socket — no bridge binary needed.
+What Hatchling adds on top:
 
-## Settings
-
-CodeIsland provides a 7-tab settings panel:
-
-- **General** — Language, launch at login, display selection
-- **Behavior** — Auto-hide, smart suppress, session cleanup
-- **Appearance** — Panel height, font size, AI reply lines
-- **Mascots** — Preview all pixel-art characters and their animations
-- **Sound** — 8-bit sound effects for session events
-- **Hooks** — View CLI installation status, reinstall or uninstall hooks
-- **About** — Version info and links
-
-## Requirements
-
-- macOS 14.0 (Sonoma) or later
-- Works best on MacBooks with a notch, but also works on external displays
-
-## Acknowledgments
-
-This project was inspired by [claude-island](https://github.com/farouqaldori/claude-island) by [@farouqaldori](https://github.com/farouqaldori). Thanks for the original idea of bringing AI agent status into the macOS notch.
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=wxtsky%2FCodeIsland&type=date&legend=bottom-right">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=wxtsky/CodeIsland&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=wxtsky/CodeIsland&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=wxtsky/CodeIsland&type=date&legend=top-left" />
- </picture>
-</a>
+- New brand + icon (the cyber‑eyed notch)
+- Buddy ASCII surfaced as a first‑class Settings page (with stats
+  and pet animation), independent of `/buddy` which Anthropic
+  removed
+- Buddy speech bubbles
+- Anthropic statuspage pill
+- Per‑session context meter
+- Whimsical gerund verbs
+- One‑per‑source mascot strip with attention ranking
+- Claude rate‑limit capture via statusline wrapper
+- YOLO auto‑accept toggle with always‑on indicator
+- Português (BR) localization
+- Adaptive panel width for non‑notch displays
+- Auto‑fit panel height in completion mode
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT, matching the upstream `wxtsky/CodeIsland` license. The Buddy
+ASCII data files inherit CC BY‑NC 4.0 from MioIsland and are not
+redistributed for commercial use.
+
+[cs]: https://github.com/wxtsky/CodeIsland
+[ci]: https://github.com/farouqaldori/claude-island
+[mio]: https://github.com/MioMioOS/MioIsland

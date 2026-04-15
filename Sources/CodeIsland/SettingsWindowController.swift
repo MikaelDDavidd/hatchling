@@ -72,7 +72,15 @@ class SettingsWindowController {
         self.window = window
     }
 
+    /// Read AppIcon directly from the bundle's compiled .icns. Bypasses
+    /// IconServices cache so a fresh build's icon shows correctly even
+    /// when macOS still holds a stale icon for the same bundle id.
     static func bundleAppIcon() -> NSImage {
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            image.size = NSSize(width: 256, height: 256)
+            return image
+        }
         let image = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
         image.size = NSSize(width: 256, height: 256)
         return image
