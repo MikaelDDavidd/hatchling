@@ -42,6 +42,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.startSessionDiscovery()
         RemoteManager.shared.startup()
 
+        // Usage monitors:
+        //   - Codex: parses local rollout JSONL.
+        //   - Claude: real numbers from the Claude Code statusline JSON
+        //     (v2.1.80+) captured by our wrapper script. We install the
+        //     wrapper on launch so it kicks in next session start.
+        CodexUsageMonitor.shared.start()
+        StatuslineInstaller.install()
+        ClaudeRateLimitReader.shared.start()
+        // Public Anthropic statuspage poller (every 5 min).
+        AnthropicStatusMonitor.shared.start()
+
         // Hooks auto-recovery: periodic + app activation trigger
         hookRecoveryTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in

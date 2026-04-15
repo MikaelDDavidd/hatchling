@@ -14,14 +14,28 @@ extension EnvironmentValues {
     }
 }
 
-/// Routes a CLI source identifier to the correct pixel mascot view.
+/// Routes a CLI source identifier to the correct mascot view.
+/// Honors `mascotStyle` setting: "pixel" → pixel-art mascots, "brand" → official brand icon animated.
 struct MascotView: View {
     let source: String
     let status: AgentStatus
     var size: CGFloat = 27
     @AppStorage(SettingsKey.mascotSpeed) private var speedPct = SettingsDefaults.mascotSpeed
+    @AppStorage(SettingsKey.mascotStyle) private var mascotStyle = SettingsDefaults.mascotStyle
 
     var body: some View {
+        Group {
+            if mascotStyle == "brand" {
+                BrandMascotView(source: source, status: status, size: size)
+            } else {
+                pixelMascot
+            }
+        }
+        .environment(\.mascotSpeed, Double(speedPct) / 100.0)
+    }
+
+    @ViewBuilder
+    private var pixelMascot: some View {
         Group {
             switch source {
             case "codex":
@@ -58,6 +72,5 @@ struct MascotView: View {
                 ClawdView(status: status, size: size)
             }
         }
-        .environment(\.mascotSpeed, Double(speedPct) / 100.0)
     }
 }

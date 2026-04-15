@@ -9,6 +9,7 @@ enum SettingsPage: String, Identifiable, Hashable {
     case behavior
     case appearance
     case mascots
+    case buddy
     case sound
     case shortcuts
     case remote
@@ -23,6 +24,7 @@ enum SettingsPage: String, Identifiable, Hashable {
         case .behavior: return "slider.horizontal.3"
         case .appearance: return "paintbrush.fill"
         case .mascots: return "person.2.fill"
+        case .buddy: return "pawprint.fill"
         case .sound: return "speaker.wave.2.fill"
         case .shortcuts: return "command.circle.fill"
         case .remote: return "network"
@@ -37,6 +39,7 @@ enum SettingsPage: String, Identifiable, Hashable {
         case .behavior: return .orange
         case .appearance: return .blue
         case .mascots: return .pink
+        case .buddy: return .yellow
         case .sound: return .green
         case .shortcuts: return .indigo
         case .remote: return .mint
@@ -52,8 +55,8 @@ private struct SidebarGroup: Hashable {
 }
 
 private let sidebarGroups: [SidebarGroup] = [
-    SidebarGroup(title: nil, pages: [.general, .behavior, .appearance, .mascots, .sound, .shortcuts]),
-    SidebarGroup(title: "CodeIsland", pages: [.remote, .hooks, .about]),
+    SidebarGroup(title: nil, pages: [.general, .behavior, .appearance, .mascots, .buddy, .sound, .shortcuts]),
+    SidebarGroup(title: "Hatchling", pages: [.remote, .hooks, .about]),
 ]
 
 // MARK: - Main View
@@ -87,6 +90,7 @@ struct SettingsView: View {
                 case .behavior: BehaviorPage()
                 case .appearance: AppearancePage()
                 case .mascots: MascotsPage()
+                case .buddy: BuddyPage()
                 case .sound: SoundPage()
                 case .shortcuts: ShortcutsPage()
                 case .remote: RemoteHostsPage()
@@ -292,6 +296,7 @@ private struct GeneralPage: View {
                 Picker(l10n["language"], selection: $l10n.language) {
                     Text(l10n["system_language"]).tag("system")
                     Text("English").tag("en")
+                    Text("Português").tag("pt")
                     Text("中文").tag("zh")
                     Text("Türkçe").tag("tr")
                 }
@@ -336,9 +341,45 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.sessionTimeout) private var sessionTimeout = SettingsDefaults.sessionTimeout
     @AppStorage(SettingsKey.rotationInterval) private var rotationInterval = SettingsDefaults.rotationInterval
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
+    @AppStorage(SettingsKey.autoAcceptPermissions) private var autoAcceptPermissions = SettingsDefaults.autoAcceptPermissions
 
     var body: some View {
         Form {
+            Section {
+                Toggle(isOn: $autoAcceptPermissions) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(autoAcceptPermissions
+                                             ? Color(red: 1.0, green: 0.55, blue: 0.20)
+                                             : .secondary)
+                            .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text("YOLO mode — auto-accept permissions")
+                                    .font(.system(size: 13, weight: .semibold))
+                                if autoAcceptPermissions {
+                                    Text("ACTIVE")
+                                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(
+                                            Capsule().fill(Color(red: 1.0, green: 0.45, blue: 0.20))
+                                        )
+                                }
+                            }
+                            Text("Skip every approval card and immediately allow whatever the agent wants to run. Useful for trusted projects, dangerous everywhere else.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            } header: {
+                Text("Permissions")
+            }
+
             Section(l10n["display_section"]) {
                 BehaviorToggleRow(
                     title: l10n["hide_in_fullscreen"],
@@ -862,6 +903,7 @@ private struct MascotsPage: View {
     @ObservedObject private var l10n = L10n.shared
     @State private var previewStatus: AgentStatus = .processing
     @AppStorage(SettingsKey.mascotSpeed) private var mascotSpeed = SettingsDefaults.mascotSpeed
+    @AppStorage(SettingsKey.mascotStyle) private var mascotStyle = SettingsDefaults.mascotStyle
 
     private let mascotList: [(name: String, source: String, desc: String, color: Color)] = [
         ("Clawd", "claude", "Claude Code", Color(red: 0.871, green: 0.533, blue: 0.427)),
@@ -906,6 +948,12 @@ private struct MascotsPage: View {
                     get: { Double(mascotSpeed) },
                     set: { mascotSpeed = Int($0) }
                 ), in: 0...300, step: 25)
+
+                Picker("Mascot style", selection: $mascotStyle) {
+                    Text("Pixel art").tag("pixel")
+                    Text("Brand icons").tag("brand")
+                }
+                .pickerStyle(.segmented)
             }
 
             Section {
@@ -1112,169 +1160,111 @@ private struct SoundEventRow: View {
 
 private struct AboutPage: View {
     @ObservedObject private var l10n = L10n.shared
-    @ObservedObject private var updater = UpdateChecker.shared
+
+    private let features: [(icon: String, label: String)] = [
+        ("pawprint.fill",         "Buddy ASCII (18 species, rarity, stats)"),
+        ("bubble.left.fill",      "Buddy speech bubbles (occasional musings)"),
+        ("chart.bar.fill",        "Per-session context window % (model + tokens)"),
+        ("circle.dotted",         "Anthropic status panel (live)"),
+        ("text.alignleft",        "Whimsical gerund verbs while working"),
+        ("rectangle.3.group.fill", "1 mascot per CLI source, side-by-side"),
+        ("link.circle.fill",      "Hooks for 17 CLIs (Claude, Codex, Gemini, Cursor…)"),
+    ]
 
     var body: some View {
-        VStack {
-            Spacer()
-
+        ScrollView {
             VStack(spacing: 24) {
-                AppLogoView(size: 100)
-
-                VStack(spacing: 6) {
-                    Text("CodeIsland")
-                        .font(.system(size: 26, weight: .bold))
-                    Text("Version \(AppVersion.current)")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(spacing: 4) {
-                    Text(l10n["about_desc1"])
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                    Text(l10n["about_desc2"])
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-
-                HStack(spacing: 12) {
-                    aboutLink("GitHub", icon: "chevron.left.forwardslash.chevron.right", url: "https://github.com/wxtsky/CodeIsland")
-                    aboutLink("Issues", icon: "ladybug", url: "https://github.com/wxtsky/CodeIsland/issues")
-                }
-
-                // In-app update section
-                updateSection
-
-                Button {
-                    DiagnosticsExporter.export()
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "ladybug")
-                            .font(.system(size: 11))
-                        Text(l10n["export_diagnostics"])
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
-                }
-                .buttonStyle(.plain)
-                .onHover { h in
-                    if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                }
-            }
-            .frame(maxWidth: .infinity)
-
-            Spacer()
-        }
-    }
-
-    @ViewBuilder
-    private var updateSection: some View {
-        switch updater.state {
-        case .idle:
-            aboutButton(l10n["check_for_updates"], icon: "arrow.triangle.2.circlepath") {
-                updater.checkForUpdates()
-            }
-
-        case .checking:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(l10n["check_for_updates"])
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-        case .upToDate:
-            Button {
-                updater.checkForUpdates()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["no_update_body"], AppVersion.current))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .onHover { h in
-                if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
-
-        case let .available(version, _, _):
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundStyle(.blue)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["update_available_body"], version, AppVersion.current))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                if updater.isHomebrewInstall {
-                    HStack(spacing: 8) {
-                        Text(l10n["update_homebrew_command"])
-                            .font(.system(size: 11, design: .monospaced))
+                VStack(spacing: 12) {
+                    AppLogoView(size: 96)
+                    VStack(spacing: 4) {
+                        Text("Hatchling")
+                            .font(.system(size: 26, weight: .bold))
+                        Text("v\(AppVersion.current) · early hatch")
+                            .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-                        aboutButton(l10n["update_copy_command"], icon: "doc.on.doc") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(l10n["update_homebrew_command"], forType: .string)
+                    }
+                }
+                .padding(.top, 18)
+
+                Text("Your AI coding agents, hatched into a tiny notch.\nPet-companions, live tool status, context-window meters, and Anthropic uptime — without leaving your menu bar.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+
+                // Feature highlights
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("WHAT'S NEW IN HATCHLING")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .padding(.bottom, 4)
+                    ForEach(features, id: \.label) { f in
+                        HStack(spacing: 10) {
+                            Image(systemName: f.icon)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(red: 1.0, green: 0.65, blue: 0.25))
+                                .frame(width: 18)
+                            Text(f.label)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Spacer()
                         }
                     }
-                } else {
-                    aboutButton(l10n["update_now"], icon: "arrow.down.to.line") {
-                        updater.performUpdate()
+                }
+                .padding(16)
+                .frame(maxWidth: 440)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                )
+
+                // Quick links
+                VStack(spacing: 8) {
+                    HStack(spacing: 10) {
+                        aboutLink("Anthropic Status", icon: "circle.dotted", url: "https://status.claude.com")
+                        aboutLink("Plan Usage", icon: "chart.pie", url: "https://claude.ai/settings/usage")
+                    }
+                    HStack(spacing: 10) {
+                        aboutLink("Claude Code", icon: "ant", url: "https://github.com/anthropics/claude-code")
+                        Button {
+                            DiagnosticsExporter.export()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "doc.zipper")
+                                    .font(.system(size: 11))
+                                Text(l10n["export_diagnostics"])
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { h in
+                            if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
                     }
                 }
-            }
 
-        case let .downloading(progress):
-            VStack(spacing: 6) {
-                Text(l10n["update_downloading"])
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                ProgressView(value: progress)
-                    .frame(width: 200)
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-            }
-
-        case .installing:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(l10n["update_installing"])
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-        case let .failed(message):
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["update_failed_body"], message))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                // Credits
+                VStack(spacing: 4) {
+                    Text("CREDITS")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                    Text("Forked from Code Island by xiang wang (wxtsky/CodeIsland), originally inspired by Claude Island by farouqaldori. Buddy ASCII pet, WyHash and species table adapted from MioIsland by MioMioOS (xmqywx/CodeIsland), CC BY-NC 4.0.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
                 }
-                aboutButton(l10n["update_retry"], icon: "arrow.clockwise") {
-                    updater.checkForUpdates()
-                }
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -1575,28 +1565,24 @@ private struct NotchMiniAnim: View {
 struct AppLogoView: View {
     var size: CGFloat = 100
     var showBackground: Bool = true
-    private let orange = Color(red: 0.96, green: 0.65, blue: 0.14)
 
     var body: some View {
-        Canvas { ctx, sz in
-            // macOS icon standard: ~10% padding on each side
-            let inset = sz.width * 0.1
-            let contentRect = CGRect(x: inset, y: inset, width: sz.width - inset * 2, height: sz.height - inset * 2)
-            let px = contentRect.width / 16
-            if showBackground {
-                let bgPath = Path(roundedRect: contentRect, cornerRadius: contentRect.width * 0.22, style: .continuous)
-                ctx.fill(bgPath, with: .color(.white))
+        Group {
+            if let appIcon = NSApp.applicationIconImage {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                // Fallback if icon hasn't been set yet (e.g. very early launch)
+                ZStack {
+                    RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                        .fill(Color(red: 0.10, green: 0.12, blue: 0.16))
+                    Image(systemName: "pawprint.fill")
+                        .font(.system(size: size * 0.45))
+                        .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.20))
+                }
             }
-            // Notch pill
-            let pillColor = showBackground ? Color(white: 0.1) : Color(white: 0.5)
-            let pillRect = CGRect(x: contentRect.minX + px * 3, y: contentRect.minY + px * 6, width: px * 10, height: px * 4)
-            ctx.fill(Path(roundedRect: pillRect, cornerRadius: px * 2, style: .continuous), with: .color(pillColor))
-            // Eyes
-            ctx.fill(Path(CGRect(x: contentRect.minX + px * 5, y: contentRect.minY + px * 7, width: px * 2, height: px * 2)), with: .color(orange))
-            ctx.fill(Path(CGRect(x: contentRect.minX + px * 9, y: contentRect.minY + px * 7, width: px * 2, height: px * 2)), with: .color(orange))
-            // Pupils
-            ctx.fill(Path(CGRect(x: contentRect.minX + px * 6, y: contentRect.minY + px * 7, width: px, height: px)), with: .color(.white))
-            ctx.fill(Path(CGRect(x: contentRect.minX + px * 10, y: contentRect.minY + px * 7, width: px, height: px)), with: .color(.white))
         }
         .frame(width: size, height: size)
         .shadow(color: .black.opacity(showBackground ? 0.15 : 0), radius: size * 0.12, y: size * 0.04)

@@ -131,6 +131,15 @@ class HookServer {
         if event.eventName == "PermissionRequest" {
             let sessionId = event.sessionId ?? "default"
 
+            // YOLO mode — user opted into auto-accept everything.
+            // Still skips AskUserQuestion (that's a question, not a permission).
+            if event.toolName != "AskUserQuestion",
+               UserDefaults.standard.bool(forKey: SettingsKey.autoAcceptPermissions) {
+                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+                sendResponse(connection: connection, data: Data(response.utf8))
+                return
+            }
+
             // Auto-approve safe internal tools without showing UI
             if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
                 let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#

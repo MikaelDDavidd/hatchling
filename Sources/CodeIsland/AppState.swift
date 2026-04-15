@@ -67,6 +67,16 @@ final class AppState {
     }
     private var rotationTimer: Timer?
 
+    // ── Buddy speech (occasional musings from the pet companion) ─────
+    var pendingBuddySpeech: BuddySpeech?
+    private var buddySpeechTimer: Timer?
+    private var buddySpeechDismissTask: Task<Void, Never>?
+    private var lastBuddySpeechAt: Date = .distantPast
+    /// Minimum gap between musings; bias toward "quiet" rather than chatty.
+    private let buddySpeechCooldown: TimeInterval = 4 * 60
+    /// Per-tick probability when conditions allow — keeps it occasional.
+    private let buddySpeechChancePerTick: Double = 0.10
+
     private func startCleanupTimer() {
         guard cleanupTimer == nil else { return }
         cleanupTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
@@ -1671,6 +1681,73 @@ final class AppState {
         requestDiscoveryScan()
         // Watch all known session-store roots so discovery keeps working when hooks are missed.
         startProjectsWatcher()
+        // Periodic buddy musings — quiet by default
+        startBuddySpeechScheduler()
+    }
+
+    // MARK: - Buddy Speech
+
+    /// Kick off a 60-second tick that occasionally surfaces a buddy musing.
+    private func startBuddySpeechScheduler() {
+        guard buddySpeechTimer == nil else { return }
+        buddySpeechTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.maybeShowBuddySpeech(mood: .philosopher) }
+        }
+    }
+
+    /// Conditional, randomized show — respects cooldown, only when collapsed
+    /// and nothing important is happening.
+    func maybeShowBuddySpeech(mood: BuddyMood) {
+        // Don't interrupt anything important
+        guard surface == .collapsed else { return }
+        guard pendingPermission == nil, pendingQuestion == nil else { return }
+        // No spammy musings while sessions are working
+        let busy = sessions.values.contains { s in
+            switch s.status {
+            case .processing, .running, .waitingApproval, .waitingQuestion: return true
+            case .idle: return false
+            }
+        }
+        if busy && mood != .afterTask && mood != .onError { return }
+        // Cooldown
+        if Date().timeIntervalSince(lastBuddySpeechAt) < buddySpeechCooldown { return }
+        // Roll the dice (skip for triggered moods like afterTask)
+        if mood == .philosopher || mood == .idle {
+            if Double.random(in: 0...1) > buddySpeechChancePerTick { return }
+        }
+        showBuddySpeech(mood: mood)
+    }
+
+    /// Force-show a speech regardless of cooldown/probability.
+    func showBuddySpeech(mood: BuddyMood) {
+        let buddy = BuddyReader.shared.buddy
+        let text = BuddyLines.pick(buddy: buddy, mood: mood)
+        let speech = BuddySpeech(text: text, mood: mood)
+        pendingBuddySpeech = speech
+        lastBuddySpeechAt = Date()
+        withAnimation(NotchAnimation.open) {
+            surface = .buddySpeech
+        }
+        // Schedule auto-dismiss
+        buddySpeechDismissTask?.cancel()
+        buddySpeechDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 5_500_000_000) // 5.5s
+            guard let self = self else { return }
+            // Only dismiss if still showing the same speech (no override happened)
+            if self.pendingBuddySpeech?.id == speech.id, self.surface == .buddySpeech {
+                self.dismissBuddySpeech()
+            }
+        }
+    }
+
+    func dismissBuddySpeech() {
+        buddySpeechDismissTask?.cancel()
+        pendingBuddySpeech = nil
+        if surface == .buddySpeech {
+            withAnimation(NotchAnimation.close) {
+                surface = .collapsed
+            }
+        }
     }
 
     /// FSEventStream on known session-store roots — fires when transcript/event files change.

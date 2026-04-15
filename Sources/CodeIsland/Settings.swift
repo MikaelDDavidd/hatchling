@@ -70,6 +70,10 @@ enum SettingsKey {
 
     // Mascot
     static let mascotSpeed = "mascotSpeed"
+    static let mascotStyle = "mascotStyle"                 // "pixel" | "brand"
+
+    // Permissions — YOLO toggle that auto-allows every PermissionRequest
+    static let autoAcceptPermissions = "autoAcceptPermissions"
 
     // Session grouping
     static let sessionGroupingMode = "sessionGroupingMode"
@@ -116,6 +120,8 @@ struct SettingsDefaults {
     static let maxToolHistory = 20
 
     static let mascotSpeed = 100  // percentage: 0–300, 0 = silent
+    static let mascotStyle = "pixel"  // "pixel" = pixel-art mascots, "brand" = official brand icons animated
+    static let autoAcceptPermissions = false  // OFF — opt-in YOLO mode
 
     static let sessionGroupingMode = "all"
 
@@ -160,6 +166,8 @@ class SettingsManager {
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.mascotSpeed: SettingsDefaults.mascotSpeed,
+            SettingsKey.mascotStyle: SettingsDefaults.mascotStyle,
+            SettingsKey.autoAcceptPermissions: SettingsDefaults.autoAcceptPermissions,
             SettingsKey.sessionGroupingMode: SettingsDefaults.sessionGroupingMode,
             SettingsKey.showToolStatus: SettingsDefaults.showToolStatus,
             SettingsKey.collapsedWidthScale: SettingsDefaults.collapsedWidthScale,
