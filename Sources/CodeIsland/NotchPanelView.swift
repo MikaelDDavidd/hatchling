@@ -467,13 +467,17 @@ private struct CompactLeftWing: View {
                     .animation(.easeInOut(duration: 0.25), value: visible.count)
                 }
 
-                // On notch screens, show tool name from the focus session
+                // On notch screens, show tool name from the focus session.
+                // Long MCP names like "mcp__playwright__browser_console_messages"
+                // get shortened & truncated so they don't blow out the layout.
                 if hasNotch, showToolStatus, let tool = shownTool {
-                    Text(tool)
+                    Text(shortenToolName(tool))
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(toolStatusColor(tool))
                         .lineLimit(1)
-                        .fixedSize()
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 160)
+                        .help(tool)
                         .transition(.opacity)
                 }
             }
@@ -619,6 +623,17 @@ private struct ContextProgressTrack: View {
             }
         }
     }
+}
+
+/// Make a tool identifier fit in the notch. MCP names look like
+/// "mcp__playwright__browser_console_messages" — we strip the `mcp__`
+/// prefix and replace the remaining `__` with a middle-dot so the
+/// server is still visible but short.
+private func shortenToolName(_ raw: String) -> String {
+    var t = raw
+    if t.hasPrefix("mcp__") { t.removeFirst("mcp__".count) }
+    t = t.replacingOccurrences(of: "__", with: "·")
+    return t
 }
 
 // MARK: - Tool Status Helpers
