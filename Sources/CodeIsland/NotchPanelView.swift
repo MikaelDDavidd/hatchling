@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import CodeIslandCore
 
 struct NotchPanelView: View {
@@ -16,11 +17,14 @@ struct NotchPanelView: View {
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.hapticOnHover) private var hapticOnHover = SettingsDefaults.hapticOnHover
     @AppStorage(SettingsKey.hapticIntensity) private var hapticIntensity = SettingsDefaults.hapticIntensity
+    @AppStorage(SettingsKey.selectedPanelTab) private var selectedPanelTab = SettingsDefaults.selectedPanelTab
 
     /// Delayed hover: prevents accidental expansion when mouse passes through
     @State private var hoverTimer: Timer?
     @State private var isHovered = false
     @State private var idleHovered = false
+    /// File drag is hovering over the notch (auto-expands and switches to FILES tab)
+    @State private var isFileDragTargeted = false
     /// Curtain animation for tool status toggle
     @State private var curtainOffset: CGFloat = 0
     @State private var curtainOpacity: Double = 1
@@ -194,7 +198,7 @@ struct NotchPanelView: View {
                         SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
                     case .sessionList:
-                        SessionListView(appState: appState, onlySessionId: nil)
+                        PanelTabContent(appState: appState)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
                     case .buddySpeech:
                         if let speech = appState.pendingBuddySpeech {
@@ -246,6 +250,17 @@ struct NotchPanelView: View {
                 }
             }
             .onAppear { displayedToolStatus = showToolStatus }
+            .onDrop(of: [UTType.fileURL], isTargeted: $isFileDragTargeted, perform: handleNotchFileDrop)
+            .onChange(of: isFileDragTargeted) { _, targeted in
+                if targeted {
+                    selectedPanelTab = PanelTab.files.rawValue
+                    if !appState.surface.isExpanded {
+                        withAnimation(NotchAnimation.open) {
+                            appState.surface = .sessionList
+                        }
+                    }
+                }
+            }
             .contentShape(Rectangle())
             .onHover { hovering in
                 // Idle indicator hover — delay un-hover to prevent oscillation when
@@ -346,6 +361,26 @@ struct NotchPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(NotchAnimation.open, value: appState.surface)
     }
+
+    private func handleNotchFileDrop(providers: [NSItemProvider]) -> Bool {
+        var didAccept = false
+        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
+                var url: URL?
+                if let urlData = data as? Data {
+                    url = URL(dataRepresentation: urlData, relativeTo: nil)
+                } else if let u = data as? URL {
+                    url = u
+                }
+                guard let fileURL = url else { return }
+                Task { @MainActor in
+                    TrayStore.shared.add(fileURL: fileURL)
+                }
+            }
+            didAccept = true
+        }
+        return didAccept
+    }
 }
 
 
@@ -358,7 +393,6 @@ private struct CompactLeftWing: View {
     let mascotSize: CGFloat
     let hasNotch: Bool
     let showToolStatus: Bool
-    @AppStorage(SettingsKey.sessionGroupingMode) private var groupingMode = SettingsDefaults.sessionGroupingMode
 
     private var displaySession: SessionSnapshot? {
         let sid = appState.rotatingSessionId ?? appState.activeSessionId ?? appState.sessions.keys.sorted().first
@@ -413,30 +447,7 @@ private struct CompactLeftWing: View {
         HStack(spacing: 6) {
             if expanded {
                 AppLogoView(size: 36, showBackground: false)
-                if appState.sessions.count > 1 {
-                    HStack(spacing: 1) {
-                        ForEach([("all", "ALL"), ("status", "STA"), ("cli", "CLI")], id: \.0) { tag, label in
-                            let selected = groupingMode == tag
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.15)) { groupingMode = tag }
-                            } label: {
-                                PixelText(
-                                    text: label,
-                                    color: selected ? Color(red: 0.3, green: 0.85, blue: 0.4) : .white.opacity(0.3),
-                                    pixelSize: 1.3
-                                )
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 4)
-                                .background(
-                                    Rectangle().fill(selected ? .white.opacity(0.1) : .clear)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .background(Rectangle().fill(.white.opacity(0.05)))
-                    .overlay(Rectangle().stroke(.white.opacity(0.1), lineWidth: 1))
-                }
+                PanelTabSelector()
             } else {
                 let sessions = rankedSessions
                 let visible = Array(sessions.prefix(4))
@@ -1607,7 +1618,7 @@ private struct PixelButton: View {
 
 // MARK: - Session List
 
-private struct SessionListView: View {
+struct SessionListView: View {
     var appState: AppState
     /// When set, only show this session (auto-expand on completion)
     var onlySessionId: String? = nil
@@ -2433,7 +2444,7 @@ private struct TerminalBadge: View {
 /// Collapsed single-line row for idle sessions >15 min
 // MARK: - Pixel Text (5×7 dot matrix style)
 
-private struct PixelText: View {
+struct PixelText: View {
     let text: String
     let color: Color
     var pixelSize: CGFloat = 2
