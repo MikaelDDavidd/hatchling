@@ -3,7 +3,7 @@ import ServiceManagement
 
 enum AppVersion {
     /// Update this each release. Used as fallback when Info.plist is unavailable (debug builds).
-    static let fallback = "1.0.20"
+    static let fallback = "0.2.0"
 
     static var current: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? fallback
@@ -78,6 +78,9 @@ enum SettingsKey {
     // Session grouping
     static let sessionGroupingMode = "sessionGroupingMode"
 
+    // Panel tab (top-level content) — "agents" | "files" | "notes"
+    static let selectedPanelTab = "selectedPanelTab"
+
     // Tool status display
     static let showToolStatus = "showToolStatus"              // true = detailed, false = simple
 
@@ -124,6 +127,7 @@ struct SettingsDefaults {
     static let autoAcceptPermissions = false  // OFF — opt-in YOLO mode
 
     static let sessionGroupingMode = "all"
+    static let selectedPanelTab = "agents"
 
     static let showToolStatus = true
 
@@ -169,6 +173,7 @@ class SettingsManager {
             SettingsKey.mascotStyle: SettingsDefaults.mascotStyle,
             SettingsKey.autoAcceptPermissions: SettingsDefaults.autoAcceptPermissions,
             SettingsKey.sessionGroupingMode: SettingsDefaults.sessionGroupingMode,
+            SettingsKey.selectedPanelTab: SettingsDefaults.selectedPanelTab,
             SettingsKey.showToolStatus: SettingsDefaults.showToolStatus,
             SettingsKey.collapsedWidthScale: SettingsDefaults.collapsedWidthScale,
         ])

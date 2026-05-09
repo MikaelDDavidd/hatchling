@@ -1,5 +1,24 @@
 # Changelog
 
+## [v0.2.0] - 2026-05-09
+
+### Added
+- **Files tray.** New `FILES` tab on the expanded notch — drag files onto the
+  tray to keep them handy, then drag them out into any Finder window when
+  you need them. Files are copied into `~/Library/Application Support/Hatchling/tray/`,
+  so renaming or moving the original doesn't break the tray.
+- **Notes.** New `NOTES` tab with a horizontal carousel of sticky notes.
+  Click a note to expand it inline into a full editor, right-click for color
+  cycling and delete. Persisted to `~/Library/Application Support/Hatchling/notes.json`.
+- **Auto-expand on file drag.** Drag a file from anywhere onto the collapsed
+  notch and the panel expands straight to the `FILES` tab so you can drop it
+  in one motion.
+
+### Changed
+- The old `ALL / STA / CLI` session-grouping pills were replaced by the new
+  top-level `FILES / NOTES / AGENTS` tab selector. The `AGENTS` tab keeps the
+  full session list view that lived behind those pills.
+
 ## [v1.0.15] - 2026-04-07
 
 ### English
