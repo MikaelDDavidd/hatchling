@@ -107,30 +107,22 @@ struct ClawdView: View {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // SLEEP — sploot pose, breathing, floating z's
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    /// Body and z's share one timeline and one canvas.
+    ///
+    /// The z's used to be three `Text` views inside their own `TimelineView`,
+    /// which made SwiftUI rebuild and diff a text hierarchy 20×/s — CoreText
+    /// layout plus AttributeGraph churn, for three glyphs. Drawing them into the
+    /// canvas keeps the motion identical while bypassing the retained-mode view
+    /// system entirely.
     private var sleepScene: some View {
-        ZStack {
-            // Character body (behind)
-            TimelineView(.periodic(from: .now, by: 0.06)) { ctx in
-                sleepCanvas(t: ctx.date.timeIntervalSinceReferenceDate * speed)
-            }
-
-            // Z's — continuous float-up loop, staggered timing
-            TimelineView(.periodic(from: .now, by: 0.05)) { ctx in
-                let t = ctx.date.timeIntervalSinceReferenceDate * speed
-                floatingZs(t: t)
-            }
+        TimelineView(.periodic(from: .now, by: 0.05)) { ctx in
+            sleepCanvas(t: ctx.date.timeIntervalSinceReferenceDate * speed)
         }
     }
 
-    private func floatingZs(t: Double) -> some View {
-        ZStack {
-            ForEach(0..<3, id: \.self) { i in
-                floatingZ(t: t, index: i)
-            }
-        }
-    }
-
-    private func floatingZ(t: Double, index: Int) -> some View {
+    /// Position/size/opacity of one floating z at time `t`. Unchanged math —
+    /// only the rendering path moved.
+    func floatingZState(t: Double, index: Int) -> (xOff: CGFloat, yOff: CGFloat, fontSize: CGFloat, opacity: Double) {
         let ci = Double(index)
         let cycle = 2.8 + ci * 0.3
         let delay = ci * 0.9
@@ -141,10 +133,29 @@ struct ClawdView: View {
         let opacity = p < 0.8 ? baseOpacity : (1.0 - p) * 3.5 * baseOpacity
         let xOff = size * CGFloat(0.08 + ci * 0.06 + sin(p * .pi * 2) * 0.03)
         let yOff = -size * CGFloat(0.15 + p * 0.38)
-        return Text("z")
-            .font(.system(size: fontSize, weight: .black, design: .monospaced))
-            .foregroundStyle(.white.opacity(opacity))
-            .offset(x: xOff, y: yOff)
+        return (xOff, yOff, fontSize, opacity)
+    }
+
+    /// Base size the glyph is resolved at; per-z sizes are reached by scaling
+    /// that single resolution instead of re-resolving text three times a frame.
+    private var zBaseFontSize: CGFloat { max(6, size * 0.18) }
+
+    private func drawFloatingZs(_ c: GraphicsContext, sz: CGSize, t: Double) {
+        let resolved = c.resolve(
+            Text("z").font(.system(size: zBaseFontSize, weight: .black, design: .monospaced))
+        )
+        let center = CGPoint(x: sz.width / 2, y: sz.height / 2)
+
+        for i in 0..<3 {
+            let z = floatingZState(t: t, index: i)
+            guard z.opacity > 0.001 else { continue }
+            c.drawLayer { layer in
+                layer.opacity = z.opacity
+                layer.translateBy(x: center.x + z.xOff, y: center.y + z.yOff)
+                layer.scaleBy(x: z.fontSize / zBaseFontSize, y: z.fontSize / zBaseFontSize)
+                layer.draw(resolved, at: .zero, anchor: .center)
+            }
+        }
     }
 
     private func sleepCanvas(t: Double) -> some View {
@@ -154,6 +165,7 @@ struct ClawdView: View {
         return Canvas { c, sz in
             let v = V(sz, svgW: 17, svgH: 7, svgY0: 9)
             drawSleeping(c, v: v, breathe: breathe)
+            drawFloatingZs(c, sz: sz, t: t)
         }
     }
 
