@@ -9,14 +9,20 @@ class SoundManager {
 
     /// Map event names to 8-bit WAV file names (without extension)
     static let eventSounds: [(event: String, sound: String, key: String, label: String)] = [
-        ("SessionStart",      "8bit_start",    SettingsKey.soundSessionStart,   "会话开始"),
-        ("Stop",              "8bit_complete",  SettingsKey.soundTaskComplete,   "任务完成"),
-        ("PostToolUseFailure","8bit_error",     SettingsKey.soundTaskError,      "任务错误"),
-        ("PermissionRequest", "8bit_approval",  SettingsKey.soundApprovalNeeded, "需要审批"),
-        ("UserPromptSubmit",  "8bit_submit",    SettingsKey.soundPromptSubmit,   "任务确认"),
+        ("SessionStart",      "chip_start",     SettingsKey.soundSessionStart,   "会话开始"),
+        ("Stop",              "notchy_complete", SettingsKey.soundTaskComplete,  "任务完成"),
+        ("PostToolUseFailure","chip_error",     SettingsKey.soundTaskError,      "任务错误"),
+        ("PermissionRequest", "notchy_approval", SettingsKey.soundApprovalNeeded, "需要审批"),
+        ("UserPromptSubmit",  "chip_submit",    SettingsKey.soundPromptSubmit,   "任务确认"),
     ]
 
     private var soundCache: [String: NSSound] = [:]
+
+    /// Last time each sound played. Debounced per sound rather than globally:
+    /// several sessions finishing at once should collapse into one chime, but a
+    /// permission prompt right after a submit is two distinct things to hear.
+    private var lastPlayedAt: [String: Date] = [:]
+    private let debounceInterval: TimeInterval = 1.0
 
     private init() {
         // Pre-load all sounds into cache
@@ -39,12 +45,12 @@ class SoundManager {
     func playBoot() {
         guard defaults.bool(forKey: SettingsKey.soundEnabled) else { return }
         guard defaults.bool(forKey: SettingsKey.soundBoot) else { return }
-        play("8bit_boot")
+        play("chip_boot")
     }
 
     /// Preview a specific sound (used by settings UI play buttons)
     func preview(_ soundName: String) {
-        play(soundName)
+        play(soundName, isPreview: true)
     }
 
     /// Preview a custom sound file by path (used by settings UI)
@@ -59,8 +65,23 @@ class SoundManager {
         sound.play()
     }
 
-    /// Play a named 8-bit WAV with volume control, checking for custom sound first
-    private func play(_ name: String) {
+    /// Play a named WAV with volume control, checking for custom sound first.
+    ///
+    /// `previews` bypass the call/debounce guards — the user explicitly asked to
+    /// hear that sound in Settings.
+    private func play(_ name: String, isPreview: Bool = false) {
+        if !isPreview {
+            if defaults.bool(forKey: SettingsKey.soundMuteDuringCalls),
+               MicrophoneActivityMonitor.isInputDeviceActive {
+                return
+            }
+            let now = Date()
+            if let last = lastPlayedAt[name], now.timeIntervalSince(last) < debounceInterval {
+                return
+            }
+            lastPlayedAt[name] = now
+        }
+
         let sound: NSSound? = loadCustomSound(name) ?? soundCache[name] ?? loadSound(name)
         guard let sound else {
             NSSound.beep()

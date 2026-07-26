@@ -14,6 +14,9 @@ A macOS menu‑bar status panel for every AI coding agent you have running — C
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Architecture](https://img.shields.io/badge/Universal-arm64%20%7C%20x86__64-lightgrey)]()
 
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mikaeldavid)
+[![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/MikaelDDavidd)
+
 </div>
 
 ---
@@ -140,10 +143,26 @@ What Hatchling adds on top of upstream:
 - Português (BR) localization
 - Adaptive panel width for non‑notch displays
 - Auto‑fit panel height in completion mode
+- Git checkpoints — snapshot the working tree before the agent edits it, as an orphan commit under a private ref (bindable shortcut)
+- Stays quiet while you're on a call, and keeps the Mac awake while an agent is working
+- Chiptune sound set, with per‑sound debounce
+
+## Support
+
+Hatchling is free and MIT-licensed. If it saves you a few glances at the terminal, you can
+say thanks:
+
+<a href="https://www.buymeacoffee.com/mikaeldavid"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=mikaeldavid&button_colour=5F7FFF&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" alt="Buy me a coffee" height="46"></a>
+<a href="https://github.com/sponsors/MikaelDDavidd"><img src="https://img.shields.io/badge/GitHub%20Sponsors-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors" height="46"></a>
+
+Starring the repo and reporting bugs helps just as much.
 
 ## License
 
 Distributed under the MIT License, matching the upstream `wxtsky/CodeIsland` license. See [LICENSE](LICENSE) for details. The Buddy ASCII data files inherit CC BY‑NC 4.0 from MioIsland and are not redistributed for commercial use.
+
+Third-party code and assets adapted into Hatchling — including sounds and features ported from
+[`bones7456/notchy`](https://github.com/bones7456/notchy) — are credited in [THIRD-PARTY.md](THIRD-PARTY.md).
 
 [cs]: https://github.com/wxtsky/CodeIsland
 [ci]: https://github.com/farouqaldori/claude-island

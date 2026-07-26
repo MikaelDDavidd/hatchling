@@ -1,5 +1,55 @@
 # Changelog
 
+## [v0.3.0] - 2026-07-26
+
+### Fixed
+- **The app no longer hangs on launch.** `CodexUsageLoader` read every Codex
+  rollout with `String(contentsOf:)` and walked it with `enumerateLines`, on the
+  main thread — a 4.4 GB rollout pulled the whole file into memory and stalled
+  before the UI ever drew. Rollouts are now read from the tail backwards, in
+  bounded windows, off the main thread. Same 4.4 GB file: never finished → 14 ms,
+  40 MB footprint. The fallback sweep is also capped at the 8 newest rollouts
+  instead of walking the entire session history.
+- **Multiple-choice questions work again.** Answering one used to crash the
+  client ("H.map"), which is why the feature had been switched off. A
+  `PermissionRequest` hook's `updatedInput` *replaces* the tool's whole input and
+  must still match its schema; we were sending only `{"answers": …}` and dropping
+  `questions`, so the client mapped over an undefined array. Answers are now
+  merged into the original input. There's a Settings toggle to turn the feature
+  on and off without a rebuild.
+- **Codex Desktop sessions are discovered.** One Electron process serves many
+  VS Code workspaces and its cwd is always `/`, so rollouts are matched by their
+  own `payload.cwd` instead of the process cwd.
+
+### Added
+- **Git checkpoints.** Snapshot the working tree before an agent edits it, as an
+  orphan commit under `refs/hatchling-snapshots/`. Staging happens in a throwaway
+  index, so your staging area, HEAD and branch list are untouched. Bindable
+  shortcut, no default binding.
+- **Quiet during calls.** Sounds are skipped while the default input device is in
+  use, so notifications don't fire mid-meeting. On by default.
+- **Sleep prevention.** The Mac won't idle-sleep while an agent is working.
+- **New sound set.** Two sounds adapted from Notchy (task complete, approval
+  needed) plus four chiptune pieces synthesised for this project — NES-style
+  pulse waves with decay envelopes and major-scale arpeggios. Repeats are
+  debounced per sound.
+- **Collapse button** in the expanded panel; a force-collapsed pending question
+  reopens on the next hover instead of being lost.
+
+### Changed
+- Rate-limit polling parses off the main thread and only republishes when the
+  value actually changed — it used to reassign its published state every 10s and
+  redraw the notch forever.
+- Discovery scans memoise process metadata for the duration of one scan, instead
+  of re-issuing `proc_pidpath` and `KERN_PROCARGS2` once per enabled source.
+- The sleeping mascot's floating z's are drawn into its canvas rather than
+  rebuilt as `Text` views 20×/s.
+
+### Docs
+- `THIRD-PARTY.md` credits what was ported from
+  [`bones7456/notchy`](https://github.com/bones7456/notchy) (MIT, Adam Lyttle).
+- README gains a Support section (Buy Me a Coffee, GitHub Sponsors).
+
 ## [v0.2.0] - 2026-05-09
 
 ### Added
