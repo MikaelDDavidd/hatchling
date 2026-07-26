@@ -715,6 +715,7 @@ private struct AppearancePage: View {
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
     @AppStorage(SettingsKey.showToolStatus) private var showToolStatus = SettingsDefaults.showToolStatus
+    @AppStorage(SettingsKey.questionFeatureEnabled) private var questionFeatureEnabled = SettingsDefaults.questionFeatureEnabled
     @AppStorage(SettingsKey.collapsedWidthScale) private var collapsedWidthScale = SettingsDefaults.collapsedWidthScale
     @AppStorage(SettingsKey.notchHeightMode) private var notchHeightModeRaw = SettingsDefaults.notchHeightMode
     @AppStorage(SettingsKey.customNotchHeight) private var customNotchHeight = SettingsDefaults.customNotchHeight
@@ -802,6 +803,14 @@ private struct AppearancePage: View {
                 }
                 Toggle(l10n["show_agent_details"], isOn: $showAgentDetails)
                 Toggle(l10n["show_tool_status"], isOn: $showToolStatus)
+                Toggle(isOn: $questionFeatureEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l10n["question_feature"])
+                        Text(l10n["question_feature_desc"])
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .formStyle(.grouped)
@@ -1021,6 +1030,7 @@ private struct SoundPage: View {
     @AppStorage(SettingsKey.soundApprovalNeeded) private var soundApprovalNeeded = SettingsDefaults.soundApprovalNeeded
     @AppStorage(SettingsKey.soundPromptSubmit) private var soundPromptSubmit = SettingsDefaults.soundPromptSubmit
     @AppStorage(SettingsKey.soundBoot) private var soundBoot = SettingsDefaults.soundBoot
+    @AppStorage(SettingsKey.soundMuteDuringCalls) private var soundMuteDuringCalls = SettingsDefaults.soundMuteDuringCalls
 
     var body: some View {
         Form {
@@ -1053,18 +1063,26 @@ private struct SoundPage: View {
 
             if soundEnabled {
                 Section(l10n["sessions"]) {
-                    SoundEventRow(title: l10n["session_start"], subtitle: l10n["new_claude_session"], soundName: "8bit_start", isOn: $soundSessionStart)
-                    SoundEventRow(title: l10n["task_complete"], subtitle: l10n["ai_completed_reply"], soundName: "8bit_complete", isOn: $soundTaskComplete)
-                    SoundEventRow(title: l10n["task_error"], subtitle: l10n["tool_or_api_error"], soundName: "8bit_error", isOn: $soundTaskError)
+                    SoundEventRow(title: l10n["session_start"], subtitle: l10n["new_claude_session"], soundName: "chip_start", isOn: $soundSessionStart)
+                    SoundEventRow(title: l10n["task_complete"], subtitle: l10n["ai_completed_reply"], soundName: "notchy_complete", isOn: $soundTaskComplete)
+                    SoundEventRow(title: l10n["task_error"], subtitle: l10n["tool_or_api_error"], soundName: "chip_error", isOn: $soundTaskError)
                 }
 
                 Section(l10n["interaction"]) {
-                    SoundEventRow(title: l10n["approval_needed"], subtitle: l10n["waiting_approval_desc"], soundName: "8bit_approval", isOn: $soundApprovalNeeded)
-                    SoundEventRow(title: l10n["task_confirmation"], subtitle: l10n["you_sent_message"], soundName: "8bit_submit", isOn: $soundPromptSubmit)
+                    SoundEventRow(title: l10n["approval_needed"], subtitle: l10n["waiting_approval_desc"], soundName: "notchy_approval", isOn: $soundApprovalNeeded)
+                    SoundEventRow(title: l10n["task_confirmation"], subtitle: l10n["you_sent_message"], soundName: "chip_submit", isOn: $soundPromptSubmit)
                 }
 
                 Section(l10n["system_section"]) {
-                    SoundEventRow(title: l10n["boot_sound"], subtitle: l10n["boot_sound_desc"], soundName: "8bit_boot", isOn: $soundBoot)
+                    SoundEventRow(title: l10n["boot_sound"], subtitle: l10n["boot_sound_desc"], soundName: "chip_boot", isOn: $soundBoot)
+                    Toggle(isOn: $soundMuteDuringCalls) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(l10n["mute_during_calls"])
+                            Text(l10n["mute_during_calls_desc"])
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }

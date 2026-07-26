@@ -69,6 +69,8 @@ final class AppState {
 
     // ── Buddy speech (occasional musings from the pet companion) ─────
     var pendingBuddySpeech: BuddySpeech?
+    /// Held while any session is working — see `updateSleepPrevention()`.
+    private var sleepActivity: NSObjectProtocol?
     private var buddySpeechTimer: Timer?
     private var buddySpeechDismissTask: Task<Void, Never>?
     private var lastBuddySpeechAt: Date = .distantPast
@@ -699,6 +701,25 @@ final class AppState {
         if primarySource != summary.primarySource { primarySource = summary.primarySource }
         if activeSessionCount != summary.activeSessionCount { activeSessionCount = summary.activeSessionCount }
         if totalSessionCount != summary.totalSessionCount { totalSessionCount = summary.totalSessionCount }
+        updateSleepPrevention()
+    }
+
+    /// Keeps the Mac awake while an agent is mid-task, so a long build or a
+    /// deep-thinking turn isn't cut short by idle sleep. Only idle *system*
+    /// sleep is held — closing the lid still sleeps normally.
+    ///
+    /// Idea borrowed from Notchy (MIT) — https://github.com/bones7456/notchy
+    private func updateSleepPrevention() {
+        let anyWorking = sessions.values.contains { $0.status == .processing || $0.status == .running }
+        if anyWorking, sleepActivity == nil {
+            sleepActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.idleSystemSleepDisabled, .suddenTerminationDisabled],
+                reason: "Agent is working"
+            )
+        } else if !anyWorking, let activity = sleepActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            sleepActivity = nil
+        }
     }
 
     private func refreshProviderTitle(for trackedSessionId: String, providerSessionId: String? = nil) {
@@ -955,6 +976,22 @@ final class AppState {
         refreshDerivedState()
     }
 
+    /// Builds the `updatedInput` for an answered AskUserQuestion.
+    ///
+    /// `updatedInput` *replaces* the tool's input, so it must still satisfy the
+    /// tool's schema — we start from the original input and only fill in the
+    /// `answers` field ("User answers collected by the permission component").
+    /// Sending just `{"answers": …}` drops `questions`, and the client then maps
+    /// over an undefined array and crashes.
+    private static func askUserQuestionUpdatedInput(
+        from event: HookEvent,
+        answers: [String: String]
+    ) -> [String: Any] {
+        var input = event.toolInput ?? [:]
+        input["answers"] = answers
+        return input
+    }
+
     func handleAskUserQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
         let sessionId = event.sessionId ?? "default"
         if sessions[sessionId] == nil {
@@ -1019,7 +1056,7 @@ final class AppState {
                     "hookEventName": "PermissionRequest",
                     "decision": [
                         "behavior": "allow",
-                        "updatedInput": ["answers": [:] as [String: String]]
+                        "updatedInput": Self.askUserQuestionUpdatedInput(from: event, answers: [:])
                     ] as [String: Any]
                 ] as [String: Any]
             ]
@@ -1071,9 +1108,10 @@ final class AppState {
                     "hookEventName": "PermissionRequest",
                     "decision": [
                         "behavior": "allow",
-                        "updatedInput": [
-                            "answers": [answerKey: answer]
-                        ]
+                        "updatedInput": Self.askUserQuestionUpdatedInput(
+                            from: pending.event,
+                            answers: [answerKey: answer]
+                        )
                     ] as [String: Any]
                 ] as [String: Any]
             ]
@@ -1117,9 +1155,10 @@ final class AppState {
                     "hookEventName": "PermissionRequest",
                     "decision": [
                         "behavior": "allow",
-                        "updatedInput": [
-                            "answers": answersDict
-                        ]
+                        "updatedInput": Self.askUserQuestionUpdatedInput(
+                            from: pending.event,
+                            answers: answersDict
+                        )
                     ] as [String: Any]
                 ] as [String: Any]
             ]
@@ -1200,6 +1239,34 @@ final class AppState {
             }
             return true
         }
+    }
+
+    /// True when a question or permission card is waiting for the user.
+    var hasPendingInteraction: Bool {
+        !permissionQueue.isEmpty || !questionQueue.isEmpty
+    }
+
+    /// User force-collapsed the panel while a question/permission was pending.
+    /// The next hover reopens that card instead of the regular session list.
+    var userCollapsedPendingSurface: Bool = false
+
+    /// Collapse the expanded panel without answering any pending question/permission.
+    /// The pending item stays queued; the next hover (or a new event) reopens it.
+    func collapsePanel() {
+        if hasPendingInteraction {
+            userCollapsedPendingSurface = true
+        }
+        withAnimation(NotchAnimation.close) {
+            surface = .collapsed
+        }
+        refreshDerivedState()
+    }
+
+    /// Reopen the next pending question/permission card if one exists.
+    @discardableResult
+    func reopenPendingSurface() -> Bool {
+        userCollapsedPendingSurface = false
+        return showNextPending()
     }
 
     /// After dequeuing, show next pending item or collapse
@@ -1594,6 +1661,12 @@ final class AppState {
     }
 
     private nonisolated static func findDiscoveredSessions() -> [DiscoveredSession] {
+        // Every enabled source filters the same pid list; share one metadata
+        // lookup per pid across the whole scan instead of per source.
+        ProcessScan.withCache { findDiscoveredSessionsInScan() }
+    }
+
+    private nonisolated static func findDiscoveredSessionsInScan() -> [DiscoveredSession] {
         let candidatePids = allProcessIds()
         var discovered: [DiscoveredSession] = []
         if ConfigInstaller.isEnabled(source: "claude") {
@@ -1721,7 +1794,12 @@ final class AppState {
     /// Force-show a speech regardless of cooldown/probability.
     func showBuddySpeech(mood: BuddyMood) {
         let buddy = BuddyReader.shared.buddy
-        let text = BuddyLines.pick(buddy: buddy, mood: mood)
+        showBuddySpeech(text: BuddyLines.pick(buddy: buddy, mood: mood), mood: mood)
+    }
+
+    /// Same bubble, but with caller-supplied text — used to report the outcome
+    /// of an explicit action (e.g. creating a checkpoint) in the notch itself.
+    func showBuddySpeech(text: String, mood: BuddyMood = .idle) {
         let speech = BuddySpeech(text: text, mood: mood)
         pendingBuddySpeech = speech
         lastBuddySpeechAt = Date()
@@ -2024,7 +2102,14 @@ final class AppState {
         return Array(pids.prefix(count)).filter { $0 > 0 }
     }
 
+    /// Cached during a discovery scan — see `ProcessScan`. Outside a scan this
+    /// falls through to the kernel, unchanged.
     private nonisolated static func executablePath(for pid: pid_t) -> String? {
+        guard let cache = ProcessScan.cache else { return rawExecutablePath(for: pid) }
+        return cache.path(for: pid, compute: rawExecutablePath(for:))
+    }
+
+    private nonisolated static func rawExecutablePath(for pid: pid_t) -> String? {
         var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let len = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
         guard len > 0 else { return nil }
@@ -2891,7 +2976,14 @@ final class AppState {
     }
 
     /// Get command-line arguments for a process via sysctl KERN_PROCARGS2.
+    /// Cached during a discovery scan — see `ProcessScan`. The underlying sysctl
+    /// copies the whole argv block, so repeating it per source is expensive.
     private nonisolated static func getProcessArgs(_ pid: pid_t) -> [String]? {
+        guard let cache = ProcessScan.cache else { return rawProcessArgs(pid) }
+        return cache.args(for: pid, compute: rawProcessArgs)
+    }
+
+    private nonisolated static func rawProcessArgs(_ pid: pid_t) -> [String]? {
         var mib = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
         guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
@@ -2924,7 +3016,16 @@ final class AppState {
         return args
     }
 
-    /// Find active Codex sessions by matching running processes to session files
+    /// Find active Codex sessions by matching running processes to session files.
+    ///
+    /// Two flavors of Codex coexist:
+    ///   - CLI (`codex` binary, or `node @openai/codex`) — one pid per workspace,
+    ///     so we match the rollout file whose `payload.cwd` equals the process cwd.
+    ///   - Desktop (`/Applications/Codex.app`) — one long-running Electron app
+    ///     spawns rollouts for many VS Code workspaces; the desktop process cwd
+    ///     is `/` and never matches the session cwd. For Desktop we instead
+    ///     enumerate every rollout that was written to recently and trust the
+    ///     `payload.cwd` field inside each file.
     private nonisolated static func findActiveCodexSessions(candidatePids: [pid_t]? = nil) -> [DiscoveredSession] {
         let codexPids = findCodexPids(candidatePids: candidatePids)
         guard !codexPids.isEmpty else { return [] }
@@ -2934,38 +3035,39 @@ final class AppState {
         let sessionsBase = "\(home)/.codex/sessions"
         guard fm.fileExists(atPath: sessionsBase) else { return [] }
 
+        // Split detected pids into Desktop vs CLI by looking at the executable path.
+        var desktopPids: [pid_t] = []
+        var cliPids: [pid_t] = []
+        for pid in codexPids {
+            if isCodexDesktopPid(pid) {
+                desktopPids.append(pid)
+            } else {
+                cliPids.append(pid)
+            }
+        }
+
         var results: [DiscoveredSession] = []
         var seenSessionIds: Set<String> = []
 
-        for pid in codexPids {
+        // CLI: one pid per workspace, match rollout by process cwd.
+        for pid in cliPids {
             guard let cwd = getCwd(for: pid), !cwd.isEmpty, !isSubagentWorktree(cwd) else {
-                // getCwd failed
                 continue
             }
-            // pid found
             let processStart = getProcessStartTime(pid)
-
-            // Codex stores sessions in date-based dirs: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
-            // Scan recent directories for matching session files
             guard let bestFile = findRecentCodexSession(base: sessionsBase, cwd: cwd, after: processStart, fm: fm) else {
-                // no session file found
                 continue
             }
-
-            // Extract session ID from filename: rollout-{date}-{uuid}.jsonl
             let fileName = (bestFile as NSString).lastPathComponent
             let sessionId = extractCodexSessionId(from: fileName)
             guard !sessionId.isEmpty, !seenSessionIds.contains(sessionId) else { continue }
             seenSessionIds.insert(sessionId)
 
             let modifiedAt = (try? fm.attributesOfItem(atPath: bestFile))?[.modificationDate] as? Date ?? Date()
-
-            // Skip stale transcripts: tighter window when processStart is unknown
             let codexFreshnessLimit: TimeInterval = processStart != nil ? -300 : -30
             if modifiedAt.timeIntervalSinceNow < codexFreshnessLimit { continue }
 
             let (model, messages) = readRecentFromCodexTranscript(path: bestFile)
-
             results.append(DiscoveredSession(
                 sessionId: sessionId,
                 cwd: cwd,
@@ -2977,7 +3079,105 @@ final class AppState {
                 source: "codex"
             ))
         }
+
+        // Desktop: enumerate all recently-written rollouts, read their own cwd.
+        if !desktopPids.isEmpty {
+            let representativePid = desktopPids.first!
+            for rolloutPath in findRecentCodexRollouts(base: sessionsBase, withinSeconds: 600, fm: fm) {
+                guard let sessionCwd = readCodexSessionCwd(path: rolloutPath),
+                      !sessionCwd.isEmpty,
+                      !isSubagentWorktree(sessionCwd) else { continue }
+
+                let fileName = (rolloutPath as NSString).lastPathComponent
+                let sessionId = extractCodexSessionId(from: fileName)
+                guard !sessionId.isEmpty, !seenSessionIds.contains(sessionId) else { continue }
+                seenSessionIds.insert(sessionId)
+
+                let modifiedAt = (try? fm.attributesOfItem(atPath: rolloutPath))?[.modificationDate] as? Date ?? Date()
+                let (model, messages) = readRecentFromCodexTranscript(path: rolloutPath)
+                results.append(DiscoveredSession(
+                    sessionId: sessionId,
+                    cwd: sessionCwd,
+                    tty: nil,
+                    model: model,
+                    pid: representativePid,
+                    modifiedAt: modifiedAt,
+                    recentMessages: messages,
+                    source: "codex"
+                ))
+            }
+        }
+
         return results
+    }
+
+    /// True if pid resolves to an executable inside `/Applications/Codex.app`.
+    private nonisolated static func isCodexDesktopPid(_ pid: pid_t) -> Bool {
+        guard let path = executablePath(for: pid) else { return false }
+        return path.lowercased().contains("codex.app/contents/")
+    }
+
+    /// Enumerate rollout files modified within the last `withinSeconds`, newest first.
+    private nonisolated static func findRecentCodexRollouts(base: String, withinSeconds: TimeInterval, fm: FileManager) -> [String] {
+        let cal = Calendar.current
+        let now = Date()
+        var dirs: [String] = []
+        for daysBack in 0..<7 {
+            guard let date = cal.date(byAdding: .day, value: -daysBack, to: now) else { continue }
+            let y = String(format: "%04d", cal.component(.year, from: date))
+            let m = String(format: "%02d", cal.component(.month, from: date))
+            let d = String(format: "%02d", cal.component(.day, from: date))
+            let dir = "\(base)/\(y)/\(m)/\(d)"
+            if fm.fileExists(atPath: dir) { dirs.append(dir) }
+        }
+
+        var fresh: [(path: String, modified: Date)] = []
+        let cutoff = now.addingTimeInterval(-withinSeconds)
+        for dir in dirs {
+            guard let files = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for file in files where file.hasSuffix(".jsonl") {
+                let fullPath = "\(dir)/\(file)"
+                guard let attrs = try? fm.attributesOfItem(atPath: fullPath),
+                      let modified = attrs[.modificationDate] as? Date,
+                      modified >= cutoff else { continue }
+                fresh.append((fullPath, modified))
+            }
+        }
+        return fresh.sorted { $0.modified > $1.modified }.map { $0.path }
+    }
+
+    /// Reads `payload.cwd` from the first line of a Codex rollout file.
+    ///
+    /// The first line of a Codex Desktop rollout is `session_meta`, which now
+    /// embeds a multi-page `base_instructions.text` and easily exceeds 4 KB,
+    /// so we stream chunks until we hit the line terminator instead of capping
+    /// at a fixed prefix.
+    private nonisolated static func readCodexSessionCwd(path: String) -> String? {
+        guard let firstLine = readFirstLine(path: path, maxBytes: 1_048_576) else { return nil }
+        guard let lineData = firstLine.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+              let payload = json["payload"] as? [String: Any],
+              let cwd = payload["cwd"] as? String else { return nil }
+        return cwd
+    }
+
+    /// Reads the first newline-terminated line from a file by streaming chunks.
+    /// Caps at `maxBytes` to avoid pathological reads on a malformed file.
+    private nonisolated static func readFirstLine(path: String, maxBytes: Int) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { handle.closeFile() }
+        var buffer = Data()
+        let chunkSize = 8192
+        while buffer.count < maxBytes {
+            let chunk = handle.readData(ofLength: chunkSize)
+            if chunk.isEmpty { break }
+            buffer.append(chunk)
+            if let newlineIdx = buffer.firstIndex(of: 0x0A) {
+                let lineData = buffer.prefix(newlineIdx)
+                return String(data: lineData, encoding: .utf8)
+            }
+        }
+        return String(data: buffer, encoding: .utf8)
     }
 
     /// Find the most recent Codex session file matching a CWD

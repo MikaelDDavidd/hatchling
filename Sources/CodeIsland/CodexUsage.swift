@@ -65,7 +65,11 @@ final class CodexUsageMonitor: ObservableObject {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
-        snapshot = try? CodexUsageLoader.load()
+        // Parsing touches the filesystem and can walk multi-MB rollouts —
+        // keep it off the main thread so the notch stays responsive.
+        snapshot = await Task.detached(priority: .utility) {
+            try? CodexUsageLoader.load()
+        }.value
     }
 }
 
@@ -79,6 +83,11 @@ enum CodexUsageLoader {
         var fileURL: URL
         var modifiedAt: Date
     }
+
+    /// How many of the newest rollouts we're willing to probe before giving up.
+    /// Without this, a run of rate-limit-less files would drag us through the
+    /// entire session history.
+    private static let maxCandidates = 8
 
     static func load(
         fromRootURL rootURL: URL = defaultRootURL,
@@ -111,7 +120,7 @@ enum CodexUsageLoader {
                 ? lhs.fileURL.path.localizedStandardCompare(rhs.fileURL.path) == .orderedDescending
                 : lhs.modifiedAt > rhs.modifiedAt
         }
-        for cand in sorted {
+        for cand in sorted.prefix(maxCandidates) {
             if let snap = loadLatestSnapshot(from: cand.fileURL, modifiedAt: cand.modifiedAt) {
                 return snap
             }
@@ -119,18 +128,15 @@ enum CodexUsageLoader {
         return nil
     }
 
+    /// Reads the newest `token_count` event from a rollout by scanning its tail.
+    /// Rollouts grow without bound, so the file is never loaded whole.
     private static func loadLatestSnapshot(from fileURL: URL, modifiedAt: Date) -> CodexUsageSnapshot? {
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
-        var latest: CodexUsageSnapshot?
-        contents.enumerateLines { line, _ in
-            if let s = snapshot(from: line, filePath: fileURL.path, fallbackTimestamp: modifiedAt) {
-                latest = s
-            }
+        TranscriptTail.scanBackwards(url: fileURL) { line in
+            snapshot(from: line, filePath: fileURL.path, fallbackTimestamp: modifiedAt)
         }
-        return latest
     }
 
-    private static func snapshot(from line: String, filePath: String, fallbackTimestamp: Date) -> CodexUsageSnapshot? {
+    private static func snapshot(from line: Data, filePath: String, fallbackTimestamp: Date) -> CodexUsageSnapshot? {
         guard let object = jsonObject(for: line),
               object["type"] as? String == "event_msg" else { return nil }
 
@@ -176,18 +182,23 @@ enum CodexUsageLoader {
         return "\(minutes)m"
     }
 
-    private static func jsonObject(for line: String) -> [String: Any]? {
-        guard let data = line.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data),
+    private static func jsonObject(for line: Data) -> [String: Any]? {
+        guard let obj = try? JSONSerialization.jsonObject(with: line),
               let dict = obj as? [String: Any] else { return nil }
         return dict
     }
 
-    private static func timestamp(from value: Any?) -> Date? {
-        guard let s = value as? String else { return nil }
+    /// Formatter allocation shows up in profiles when scanning many lines —
+    /// build it once. `ISO8601DateFormatter` is thread-safe for parsing.
+    private static let iso8601: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.date(from: s)
+        return f
+    }()
+
+    private static func timestamp(from value: Any?) -> Date? {
+        guard let s = value as? String else { return nil }
+        return iso8601.date(from: s)
     }
 
     private static func number(from value: Any?) -> Double? {
