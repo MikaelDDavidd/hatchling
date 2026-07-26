@@ -43,7 +43,9 @@ struct UsageBar: View {
     @ViewBuilder
     private func codexSegment(snapshot: CodexUsageSnapshot) -> some View {
         HStack(spacing: 8) {
-            sourceTag("Codex", color: Color(red: 0.42, green: 0.78, blue: 0.50))
+            // Blue, matching Codex's own accent — green read as a status colour
+            // and blended with the "operational" pill right above it.
+            sourceTag("Codex", color: Color(red: 0.35, green: 0.60, blue: 0.95))
             ForEach(snapshot.windows) { w in
                 window(
                     label: w.label,
