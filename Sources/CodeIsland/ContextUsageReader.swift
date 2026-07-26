@@ -132,27 +132,23 @@ enum ContextUsageReader {
 
     private static func readClaude(sessionId: String, cwd: String?) -> ContextUsage? {
         guard let url = locateClaudeJSONL(sessionId: sessionId, cwd: cwd) else { return nil }
-        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return nil }
 
-        // Walk lines from the bottom to find the most recent assistant turn with usage.
-        var lastUsage: (model: String, used: Int)?
-        let lines = raw.split(separator: "\n", omittingEmptySubsequences: true)
-        for line in lines.reversed() {
-            guard let data = String(line).data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { continue }
+        // Walk lines from the bottom to find the most recent assistant turn with
+        // usage. Session files reach hundreds of MB, so we scan the tail instead
+        // of loading the transcript into memory.
+        let lastUsage: (model: String, used: Int)? = TranscriptTail.scanBackwards(url: url) { line in
+            guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
             // Only consider assistant turns
-            guard (json["type"] as? String) == "assistant" else { continue }
+            guard (json["type"] as? String) == "assistant" else { return nil }
             let msg = (json["message"] as? [String: Any]) ?? json
             guard let model = msg["model"] as? String,
-                  let usage = msg["usage"] as? [String: Any] else { continue }
+                  let usage = msg["usage"] as? [String: Any] else { return nil }
             let inTok    = (usage["input_tokens"] as? Int) ?? 0
             let cacheCr  = (usage["cache_creation_input_tokens"] as? Int) ?? 0
             let cacheRd  = (usage["cache_read_input_tokens"] as? Int) ?? 0
             let total = inTok + cacheCr + cacheRd
-            guard total > 0 else { continue }
-            lastUsage = (model, total)
-            break
+            guard total > 0 else { return nil }
+            return (model, total)
         }
 
         guard let last = lastUsage else { return nil }

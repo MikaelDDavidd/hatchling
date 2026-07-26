@@ -25,6 +25,18 @@ struct ClaudeRateLimits: Equatable {
     }
 }
 
+/// File-scope so the background parser can reach them without crossing the
+/// reader's main-actor isolation.
+private let rateLimitCachePath: URL = FileManager.default
+    .homeDirectoryForCurrentUser
+    .appendingPathComponent(".codeisland/rate-limits.json")
+
+private let rateLimitISO8601: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+
 @MainActor
 final class ClaudeRateLimitReader: ObservableObject {
     static let shared = ClaudeRateLimitReader()
@@ -34,10 +46,6 @@ final class ClaudeRateLimitReader: ObservableObject {
 
     private var timer: Timer?
     private(set) var isRunning = false
-
-    private static let cachePath: URL = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent(".codeisland/rate-limits.json")
 
     private init() {}
 
@@ -57,18 +65,30 @@ final class ClaudeRateLimitReader: ObservableObject {
         timer = nil
     }
 
+    /// Polls the cache off the main thread and republishes only on change —
+    /// an unconditional assignment every 10s would redraw the notch forever.
     func refresh() {
-        isInstalled = StatuslineInstaller.isInstalled
-        guard let data = try? Data(contentsOf: Self.cachePath),
+        Task.detached(priority: .utility) {
+            let installed = StatuslineInstaller.isInstalled
+            let parsed = Self.parseCache()
+            await MainActor.run {
+                if self.isInstalled != installed { self.isInstalled = installed }
+                if let parsed, self.limits != parsed { self.limits = parsed }
+            }
+        }
+    }
+
+    private nonisolated static func parseCache() -> ClaudeRateLimits? {
+        guard let data = try? Data(contentsOf: rateLimitCachePath),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
+        else { return nil }
 
         let captured = (json["capturedAt"] as? Double).map { Date(timeIntervalSince1970: $0) } ?? Date()
         let rl = json["rate_limits"] as? [String: Any] ?? [:]
         let five = rl["five_hour"] as? [String: Any]
         let seven = rl["seven_day"] as? [String: Any]
 
-        limits = ClaudeRateLimits(
+        return ClaudeRateLimits(
             fiveHourPercent: percent(five?["used_percentage"]),
             sevenDayPercent: percent(seven?["used_percentage"]),
             fiveHourResetAt: resetDate(five?["resets_at"]),
@@ -78,7 +98,7 @@ final class ClaudeRateLimitReader: ObservableObject {
         )
     }
 
-    private func percent(_ v: Any?) -> Int? {
+    private nonisolated static func percent(_ v: Any?) -> Int? {
         switch v {
         case let n as NSNumber: return Int(n.doubleValue.rounded())
         case let s as String: return Double(s).map { Int($0.rounded()) }
@@ -86,14 +106,12 @@ final class ClaudeRateLimitReader: ObservableObject {
         }
     }
 
-    private func resetDate(_ v: Any?) -> Date? {
+    private nonisolated static func resetDate(_ v: Any?) -> Date? {
         switch v {
         case let n as NSNumber: return Date(timeIntervalSince1970: n.doubleValue)
         case let s as String:
             if let d = Double(s) { return Date(timeIntervalSince1970: d) }
-            let f = ISO8601DateFormatter()
-            f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return f.date(from: s)
+            return rateLimitISO8601.date(from: s)
         default: return nil
         }
     }
