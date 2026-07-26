@@ -14,7 +14,7 @@ A macOS menu‑bar status panel for every AI coding agent you have running — C
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Architecture](https://img.shields.io/badge/Universal-arm64%20%7C%20x86__64-lightgrey)]()
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mikaeldavid)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mikaeldavidd)
 [![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/MikaelDDavidd)
 
 </div>
@@ -152,7 +152,7 @@ What Hatchling adds on top of upstream:
 Hatchling is free and MIT-licensed. If it saves you a few glances at the terminal, you can
 say thanks:
 
-<a href="https://buymeacoffee.com/mikaeldavid"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
+<a href="https://buymeacoffee.com/mikaeldavidd"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
 <a href="https://github.com/sponsors/MikaelDDavidd"><img src="https://img.shields.io/badge/GitHub%20Sponsors-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors"></a>
 
 Starring the repo and reporting bugs helps just as much.
