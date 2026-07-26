@@ -31,10 +31,14 @@ INPUT=$(cat)
 
 # 1. Capture rate_limits (best-effort)
 {
-  printf '%s' "$INPUT" | /usr/bin/python3 - "$CACHE_FILE" <<'PY' 2>/dev/null || true
+  # Read the payload from the file we just wrote, NOT from stdin: the heredoc
+  # below already occupies stdin (it carries the script itself), so a piped
+  # stdin would be discarded and rate_limits would always come out empty.
+  /usr/bin/python3 - "$CACHE_FILE" "$CACHE_DIR/statusline-last-input.json" <<'PY' 2>/dev/null || true
 import json, sys, time, os
 try:
-    raw = sys.stdin.read()
+    with open(sys.argv[2]) as fh:
+        raw = fh.read()
     d = json.loads(raw) if raw.strip() else {}
     rl = d.get("rate_limits") or {}
     out = {
