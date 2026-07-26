@@ -186,6 +186,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let id = appState.activeSessionId, let session = appState.sessions[id] {
                 TerminalActivator.activate(session: session, sessionId: id)
             }
+        case .createCheckpoint:
+            createCheckpointForActiveSession()
+        }
+    }
+
+    /// Snapshots the active session's project so the agent's next edits can be
+    /// undone. Runs git off the main thread; reports the outcome as a notice.
+    private func createCheckpointForActiveSession() {
+        guard let id = appState.activeSessionId,
+              let session = appState.sessions[id],
+              let cwd = session.cwd, !cwd.isEmpty else {
+            SoundManager.shared.handleEvent("PostToolUseFailure")
+            Self.log.warning("Checkpoint skipped: no active session with a working directory")
+            return
+        }
+        let projectName = (cwd as NSString).lastPathComponent
+        let state = appState
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                let checkpoint = try CheckpointManager.createCheckpoint(
+                    projectName: projectName,
+                    projectDirectory: cwd
+                )
+                await MainActor.run {
+                    Self.log.info("Checkpoint created: \(checkpoint.id)")
+                    state.showBuddySpeech(
+                        text: "\(L10n.shared["checkpoint_created"]) · \(checkpoint.commitHash)"
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    Self.log.error("Checkpoint failed: \(error.localizedDescription)")
+                    state.showBuddySpeech(text: L10n.shared["checkpoint_failed"])
+                }
+            }
         }
     }
 
