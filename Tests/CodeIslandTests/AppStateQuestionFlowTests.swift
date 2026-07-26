@@ -201,6 +201,75 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
     // MARK: - Helpers
 
+    // MARK: - updatedInput must stay schema-valid
+
+    /// Regression: `updatedInput` replaces the tool's whole input, so dropping
+    /// `questions` leaves the client mapping over an undefined array (the
+    /// "H.map" crash). Answers must be merged into the original input.
+    func testUpdatedInputKeepsOriginalQuestionsWhenAnsweringMulti() async throws {
+        let appState = AppState()
+        let event = try makeAskUserQuestionEvent(
+            sessionId: "s-schema-multi",
+            questions: [
+                question(header: "Mode", text: "How should we work?", options: ["Plan", "Execute"]),
+                question(header: "Style", text: "Which tone?", options: ["Terse", "Balanced"]),
+            ]
+        )
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handleAskUserQuestion(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.answerQuestionMulti([
+            (question: "How should we work?", answer: "Plan"),
+            (question: "Which tone?", answer: "Balanced"),
+        ])
+
+        let updatedInput = try extractUpdatedInput(from: await responseTask.value)
+        let questions = try XCTUnwrap(updatedInput["questions"] as? [[String: Any]])
+        XCTAssertEqual(questions.count, 2)
+        XCTAssertEqual(questions.first?["question"] as? String, "How should we work?")
+        XCTAssertNotNil(questions.first?["options"] as? [[String: Any]])
+
+        let answers = try XCTUnwrap(updatedInput["answers"] as? [String: Any])
+        XCTAssertEqual(answers["Mode"] as? String, "Plan")
+    }
+
+    /// Single-question case still goes through the wizard — `answerQuestion` is
+    /// deliberately a no-op for AskUserQuestion.
+    func testUpdatedInputKeepsOriginalQuestionsWhenAnsweringSingle() async throws {
+        let appState = AppState()
+        let event = try makeAskUserQuestionEvent(
+            sessionId: "s-schema-single",
+            questions: [question(header: "Mode", text: "How should we work?", options: ["Plan", "Execute"])]
+        )
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handleAskUserQuestion(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.answerQuestionMulti([(question: "How should we work?", answer: "Plan")])
+
+        let updatedInput = try extractUpdatedInput(from: await responseTask.value)
+        let questions = try XCTUnwrap(updatedInput["questions"] as? [[String: Any]])
+        XCTAssertEqual(questions.count, 1)
+        XCTAssertEqual(questions.first?["question"] as? String, "How should we work?")
+        XCTAssertNotNil(updatedInput["answers"] as? [String: Any])
+    }
+
+    private func extractUpdatedInput(from responseData: Data) throws -> [String: Any] {
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let hookSpecificOutput = try XCTUnwrap(json["hookSpecificOutput"] as? [String: Any])
+        let decision = try XCTUnwrap(hookSpecificOutput["decision"] as? [String: Any])
+        return try XCTUnwrap(decision["updatedInput"] as? [String: Any])
+    }
+
     private func makeAskUserQuestionEvent(sessionId: String, questions: [[String: Any]]) throws -> HookEvent {
         let payload: [String: Any] = [
             "hook_event_name": "PermissionRequest",

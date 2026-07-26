@@ -53,6 +53,8 @@ enum SettingsKey {
     static let soundApprovalNeeded = "soundApprovalNeeded"
     static let soundPromptSubmit = "soundPromptSubmit"
     static let soundBoot = "soundBoot"
+    // Stay silent while the default input device is in use (i.e. you're on a call)
+    static let soundMuteDuringCalls = "soundMuteDuringCalls"
 
     // Shortcuts (per-action: shortcut_{action}_enabled, shortcut_{action}_keyCode, shortcut_{action}_modifiers)
     static func shortcutEnabled(_ action: String) -> String { "shortcut_\(action)_enabled" }
@@ -83,6 +85,18 @@ enum SettingsKey {
 
     // Tool status display
     static let showToolStatus = "showToolStatus"              // true = detailed, false = simple
+
+    // Question feature — when off, Hatchling does NOT intercept AskUserQuestion /
+    // question notifications; the CLI/client handles them natively.
+    //
+    // This was disabled after answered questions crashed the client ("H.map").
+    // Root cause was ours: `updatedInput` replaces the tool's entire input, and
+    // we were sending only `{"answers": …}`, dropping `questions` — the client
+    // then mapped over an undefined array. Fixed in
+    // `AppState.askUserQuestionUpdatedInput(from:answers:)`, which merges the
+    // answers into the original input. Still defaults off so the fix can be
+    // switched on (and off again) from Settings without a rebuild.
+    static let questionFeatureEnabled = "questionFeatureEnabled"
 
     // Island collapsed width scale for non-notch screens (percentage: 50–150, default 100)
     static let collapsedWidthScale = "collapsedWidthScale"
@@ -117,6 +131,7 @@ struct SettingsDefaults {
     static let soundApprovalNeeded = true
     static let soundPromptSubmit = false
     static let soundBoot = true
+    static let soundMuteDuringCalls = true
 
     static let rotationInterval = 5
 
@@ -130,6 +145,8 @@ struct SettingsDefaults {
     static let selectedPanelTab = "agents"
 
     static let showToolStatus = true
+
+    static let questionFeatureEnabled = false  // OFF — client AskUserQuestion renderer is broken
 
     static let collapsedWidthScale = 100  // percentage
 }
@@ -167,6 +184,7 @@ class SettingsManager {
             SettingsKey.soundApprovalNeeded: SettingsDefaults.soundApprovalNeeded,
             SettingsKey.soundPromptSubmit: SettingsDefaults.soundPromptSubmit,
             SettingsKey.soundBoot: SettingsDefaults.soundBoot,
+            SettingsKey.soundMuteDuringCalls: SettingsDefaults.soundMuteDuringCalls,
             SettingsKey.rotationInterval: SettingsDefaults.rotationInterval,
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.mascotSpeed: SettingsDefaults.mascotSpeed,
@@ -175,6 +193,7 @@ class SettingsManager {
             SettingsKey.sessionGroupingMode: SettingsDefaults.sessionGroupingMode,
             SettingsKey.selectedPanelTab: SettingsDefaults.selectedPanelTab,
             SettingsKey.showToolStatus: SettingsDefaults.showToolStatus,
+            SettingsKey.questionFeatureEnabled: SettingsDefaults.questionFeatureEnabled,
             SettingsKey.collapsedWidthScale: SettingsDefaults.collapsedWidthScale,
         ])
     }
@@ -325,6 +344,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case deny
     case skipQuestion
     case jumpToTerminal
+    case createCheckpoint
 
     var id: String { rawValue }
 
@@ -336,6 +356,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .approveAlways:  return nil
         case .skipQuestion:   return nil
         case .jumpToTerminal: return nil
+        // Opt-in only: git snapshots touch the user's repo, so no default binding.
+        case .createCheckpoint: return nil
         }
     }
 

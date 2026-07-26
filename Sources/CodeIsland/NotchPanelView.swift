@@ -333,10 +333,16 @@ struct NotchPanelView: View {
                                 }
                             }
                             withAnimation(NotchAnimation.open) {
-                                appState.surface = .sessionList
-                                appState.cancelCompletionQueue()
-                                if appState.activeSessionId == nil {
-                                    appState.activeSessionId = appState.sessions.keys.sorted().first
+                                // If the user force-collapsed a pending question/permission,
+                                // reopen that card instead of the regular session list.
+                                if appState.hasPendingInteraction {
+                                    appState.reopenPendingSurface()
+                                } else {
+                                    appState.surface = .sessionList
+                                    appState.cancelCompletionQueue()
+                                    if appState.activeSessionId == nil {
+                                        appState.activeSessionId = appState.sessions.keys.sorted().first
+                                    }
                                 }
                             }
                         }
@@ -570,6 +576,9 @@ private struct CompactRightWing: View {
     var body: some View {
         HStack(spacing: 6) {
             if expanded {
+                NotchIconButton(icon: "chevron.up", tooltip: l10n["collapse"]) {
+                    appState.collapsePanel()
+                }
                 NotchIconButton(icon: soundEnabled ? "speaker.wave.2" : "speaker.slash", tooltip: soundEnabled ? l10n["mute"] : l10n["enable_sound_tooltip"]) {
                     soundEnabled.toggle()
                 }
