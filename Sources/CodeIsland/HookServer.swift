@@ -149,6 +149,12 @@ class HookServer {
 
             // AskUserQuestion is a question, not a permission — route to QuestionBar
             if event.toolName == "AskUserQuestion" {
+                // Question feature disabled — don't intercept; let the CLI/client ask
+                // natively. Respond with no decision so the agent isn't blocked.
+                guard UserDefaults.standard.bool(forKey: SettingsKey.questionFeatureEnabled) else {
+                    sendResponse(connection: connection, data: Data("{}".utf8))
+                    return
+                }
                 monitorPeerDisconnect(connection: connection, sessionId: sessionId)
                 Task {
                     let responseBody = await withCheckedContinuation { continuation in
@@ -166,7 +172,8 @@ class HookServer {
                 self.sendResponse(connection: connection, data: responseBody)
             }
         } else if EventNormalizer.normalize(event.eventName) == "Notification",
-                  QuestionPayload.from(event: event) != nil {
+                  QuestionPayload.from(event: event) != nil,
+                  UserDefaults.standard.bool(forKey: SettingsKey.questionFeatureEnabled) {
             let questionSessionId = event.sessionId ?? "default"
             monitorPeerDisconnect(connection: connection, sessionId: questionSessionId)
             Task {
