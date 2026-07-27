@@ -86,28 +86,19 @@ enum SettingsKey {
     // Tool status display
     static let showToolStatus = "showToolStatus"              // true = detailed, false = simple
 
-    // Question feature — when off, Hatchling does NOT intercept AskUserQuestion /
-    // question notifications; the CLI/client handles them natively.
+    // Question feature — when off, Hatchling does NOT intercept AskUserQuestion;
+    // the CLI asks natively in the terminal instead.
     //
-    // KEEP THIS OFF. Answering AskUserQuestion through a PermissionRequest hook
-    // does not work, and the failure is silent.
+    // Answering from the notch works, but only if the answers are keyed by the
+    // QUESTION TEXT. Keying them by `header` made the client display our answers
+    // ("User answered Claude's questions") while still telling the model "The
+    // user did not answer the questions" — it echoed what the hook sent, then
+    // looked the answers up under keys that did not exist. The schema says as
+    // much for the sibling field: `annotations` is "keyed by question text".
     //
-    // History:
-    //  1. Answering crashed the client ("H.map"). That was ours: `updatedInput`
-    //     replaces the tool's whole input and we dropped `questions`, so the
-    //     client mapped over undefined. Fixed in
-    //     `AppState.askUserQuestionUpdatedInput(from:answers:)`.
-    //  2. With that fixed the crash stopped, but the model still received
-    //     "The user did not answer the questions." Measured across real
-    //     transcripts: 267 natively-answered calls all returned "Your questions
-    //     have been answered", and none of them carried `answers` in the tool input;
-    //     the 8 answered through this hook all failed.
-    //
-    // The `answers` field is filled by the client's own permission component
-    // through an internal channel — a hook writing into `updatedInput` is not
-    // read. Hooks can change a tool's input, never supply its result, so there
-    // is no fix available from this side. Re-enabling only makes answered
-    // questions vanish without any error.
+    // See AppState.askUserQuestionUpdatedInput(from:answers:), which merges the
+    // answers into the original input — `updatedInput` replaces a tool's whole
+    // input, so dropping `questions` crashes the client's renderer.
     static let questionFeatureEnabled = "questionFeatureEnabled"
 
     // Island collapsed width scale for non-notch screens (percentage: 50–150, default 100)
@@ -158,7 +149,7 @@ struct SettingsDefaults {
 
     static let showToolStatus = true
 
-    static let questionFeatureEnabled = false  // OFF, and must stay off. See SettingsKey.questionFeatureEnabled.
+    static let questionFeatureEnabled = true   // answering in the notch works; see SettingsKey.questionFeatureEnabled
 
     static let collapsedWidthScale = 100  // percentage
 }
