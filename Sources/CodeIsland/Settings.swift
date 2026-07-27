@@ -89,13 +89,25 @@ enum SettingsKey {
     // Question feature — when off, Hatchling does NOT intercept AskUserQuestion /
     // question notifications; the CLI/client handles them natively.
     //
-    // This was disabled after answered questions crashed the client ("H.map").
-    // Root cause was ours: `updatedInput` replaces the tool's entire input, and
-    // we were sending only `{"answers": …}`, dropping `questions` — the client
-    // then mapped over an undefined array. Fixed in
-    // `AppState.askUserQuestionUpdatedInput(from:answers:)`, which merges the
-    // answers into the original input. Still defaults off so the fix can be
-    // switched on (and off again) from Settings without a rebuild.
+    // KEEP THIS OFF. Answering AskUserQuestion through a PermissionRequest hook
+    // does not work, and the failure is silent.
+    //
+    // History:
+    //  1. Answering crashed the client ("H.map"). That was ours: `updatedInput`
+    //     replaces the tool's whole input and we dropped `questions`, so the
+    //     client mapped over undefined. Fixed in
+    //     `AppState.askUserQuestionUpdatedInput(from:answers:)`.
+    //  2. With that fixed the crash stopped, but the model still received
+    //     "The user did not answer the questions." Measured across real
+    //     transcripts: 267 natively-answered calls all returned "Your questions
+    //     have been answered", and none of them carried `answers` in the tool input;
+    //     the 8 answered through this hook all failed.
+    //
+    // The `answers` field is filled by the client's own permission component
+    // through an internal channel — a hook writing into `updatedInput` is not
+    // read. Hooks can change a tool's input, never supply its result, so there
+    // is no fix available from this side. Re-enabling only makes answered
+    // questions vanish without any error.
     static let questionFeatureEnabled = "questionFeatureEnabled"
 
     // Island collapsed width scale for non-notch screens (percentage: 50–150, default 100)
@@ -146,7 +158,7 @@ struct SettingsDefaults {
 
     static let showToolStatus = true
 
-    static let questionFeatureEnabled = false  // OFF — client AskUserQuestion renderer is broken
+    static let questionFeatureEnabled = false  // OFF, and must stay off. See SettingsKey.questionFeatureEnabled.
 
     static let collapsedWidthScale = 100  // percentage
 }
