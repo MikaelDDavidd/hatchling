@@ -6,6 +6,12 @@ struct UsageBar: View {
     @ObservedObject private var codex = CodexUsageMonitor.shared
     @ObservedObject private var claude = ClaudeRateLimitReader.shared
 
+    // Cor de cada CLI. A barra herda a cor da fonte enquanto o uso está normal,
+    // para Claude e Codex se distinguirem de relance; quando o consumo sobe, o
+    // alerta vence a identidade (ver `colorFor(pct:accent:)`).
+    private static let claudeColor = Color(red: 0.85, green: 0.47, blue: 0.34)
+    private static let codexColor  = Color(red: 0.35, green: 0.60, blue: 0.95)
+
     var body: some View {
         HStack(spacing: 14) {
             if let lim = claude.limits {
@@ -30,12 +36,12 @@ struct UsageBar: View {
     @ViewBuilder
     private func claudeSegment(limits: ClaudeRateLimits) -> some View {
         HStack(spacing: 8) {
-            sourceTag("Claude", color: Color(red: 0.85, green: 0.47, blue: 0.34))
+            sourceTag("Claude", color: Self.claudeColor)
             if let pct = limits.fiveHourPercent {
-                window(label: "5h", pct: pct, resetsAt: limits.fiveHourResetAt)
+                window(label: "5h", pct: pct, resetsAt: limits.fiveHourResetAt, accent: Self.claudeColor)
             }
             if let pct = limits.sevenDayPercent, pct >= 1 {
-                window(label: "7d", pct: pct, resetsAt: limits.sevenDayResetAt)
+                window(label: "7d", pct: pct, resetsAt: limits.sevenDayResetAt, accent: Self.claudeColor)
             }
         }
     }
@@ -43,12 +49,13 @@ struct UsageBar: View {
     @ViewBuilder
     private func codexSegment(snapshot: CodexUsageSnapshot) -> some View {
         HStack(spacing: 8) {
-            sourceTag("Codex", color: Color(red: 0.42, green: 0.78, blue: 0.50))
+            sourceTag("Codex", color: Self.codexColor)
             ForEach(snapshot.windows) { w in
                 window(
                     label: w.label,
                     pct: w.roundedUsedPercentage,
-                    resetsAt: w.resetsAt
+                    resetsAt: w.resetsAt,
+                    accent: Self.codexColor
                 )
             }
         }
@@ -65,8 +72,8 @@ struct UsageBar: View {
     }
 
     @ViewBuilder
-    private func window(label: String, pct: Int, resetsAt: Date?) -> some View {
-        let accent = colorFor(pct: pct)
+    private func window(label: String, pct: Int, resetsAt: Date?, accent: Color) -> some View {
+        let accent = colorFor(pct: pct, accent: accent)
         HStack(spacing: 5) {
             Text(label)
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
@@ -86,10 +93,15 @@ struct UsageBar: View {
         }
     }
 
-    private func colorFor(pct: Int) -> Color {
+    /// Alerta acima de 70%, cor da fonte abaixo disso.
+    ///
+    /// Abaixo do limiar as barras carregam a identidade do CLI, senão Claude e
+    /// Codex ficam idênticos e só o badge os distingue. A partir de 70% o
+    /// alerta assume: aí o que importa é o consumo, não de quem ele é.
+    private func colorFor(pct: Int, accent: Color) -> Color {
         if pct >= 90 { return Color(red: 0.95, green: 0.30, blue: 0.30) }
         if pct >= 70 { return Color(red: 1.0,  green: 0.65, blue: 0.25) }
-        return Color(red: 0.36, green: 0.85, blue: 0.50)
+        return accent
     }
 
     private func resetTimeShort(_ date: Date?) -> String? {
