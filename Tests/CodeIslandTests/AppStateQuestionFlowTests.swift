@@ -33,8 +33,8 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["工作模式"] as? String, "先给方案")
-        XCTAssertEqual(answers["输出风格"] as? String, "平衡")
+        XCTAssertEqual(answers["你希望我接下来以哪种方式协作？"] as? String, "先给方案")
+        XCTAssertEqual(answers["你更喜欢我用哪种回答风格？"] as? String, "平衡")
     }
 
     // MARK: - Single question
@@ -61,7 +61,7 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["语言偏好"] as? String, "中文")
+        XCTAssertEqual(answers["你希望我主要使用哪种语言回复？"] as? String, "中文")
     }
 
     // MARK: - Skip returns deny
@@ -117,8 +117,10 @@ final class AppStateQuestionFlowTests: XCTestCase {
         XCTAssertEqual(appState.questionQueue.count, 0)
     }
 
-    // MARK: - Duplicate headers dedup
+    // MARK: - Duplicate headers no longer collide
 
+    /// Headers may repeat; question texts are what key the answers now, so two
+    /// questions sharing a header keep distinct entries with no de-duplication.
     func testDuplicateHeadersGetDedupedKeys() async throws {
         let appState = AppState()
         let event = try makeAskUserQuestionEvent(
@@ -143,12 +145,13 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["偏好"] as? String, "A")
-        XCTAssertEqual(answers["偏好_2"] as? String, "D")
+        XCTAssertEqual(answers["第一个问题"] as? String, "A")
+        XCTAssertEqual(answers["第二个问题"] as? String, "D")
     }
 
-    // MARK: - Missing/empty header fallback
+    // MARK: - Header is irrelevant to the key
 
+    /// A missing or empty header changes nothing: the key is the question text.
     func testMissingHeaderUsesIndexedFallbackKeys() async throws {
         let appState = AppState()
         let event = try makeAskUserQuestionEvent(
@@ -173,8 +176,8 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["answer_1"] as? String, "B")
-        XCTAssertEqual(answers["answer_2"] as? String, "C")
+        XCTAssertEqual(answers["没有 header"] as? String, "B")
+        XCTAssertEqual(answers["空 header"] as? String, "C")
     }
 
     // MARK: - Direct answerQuestion blocked
@@ -235,7 +238,7 @@ final class AppStateQuestionFlowTests: XCTestCase {
         XCTAssertNotNil(questions.first?["options"] as? [[String: Any]])
 
         let answers = try XCTUnwrap(updatedInput["answers"] as? [String: Any])
-        XCTAssertEqual(answers["Mode"] as? String, "Plan")
+        XCTAssertEqual(answers["How should we work?"] as? String, "Plan")
     }
 
     /// Single-question case still goes through the wizard — `answerQuestion` is

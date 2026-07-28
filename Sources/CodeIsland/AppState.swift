@@ -1021,8 +1021,13 @@ final class AppState {
                     descriptions: optionDescs,
                     header: header
                 )
-                let trimmedHeader = header?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let baseKey = (trimmedHeader?.isEmpty == false ? trimmedHeader : nil) ?? "answer_\(index + 1)"
+                // Key by the QUESTION TEXT, not the header. The sibling field in
+                // the same schema (`annotations`) is documented as "keyed by
+                // question text", and answering with header keys made the client
+                // display our answers while still reporting the questions
+                // unanswered — it never found them.
+                let trimmedQuestion = questionText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let baseKey = trimmedQuestion.isEmpty ? "answer_\(index + 1)" : trimmedQuestion
                 var answerKey = baseKey
                 if usedAnswerKeys.contains(answerKey) {
                     var suffix = 2
@@ -1102,7 +1107,7 @@ final class AppState {
         let pending = questionQueue.removeFirst()
         let responseData: Data
         if pending.isFromPermission {
-            let answerKey = pending.question.header ?? "answer"
+            let answerKey = pending.question.question
             let obj: [String: Any] = [
                 "hookSpecificOutput": [
                     "hookEventName": "PermissionRequest",
@@ -1147,7 +1152,7 @@ final class AppState {
                     }
                 }
             } else {
-                let answerKey = pending.question.header ?? "answer"
+                let answerKey = pending.question.question
                 answersDict[answerKey] = answers.first?.answer ?? ""
             }
             let obj: [String: Any] = [

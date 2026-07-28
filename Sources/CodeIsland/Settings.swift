@@ -86,16 +86,19 @@ enum SettingsKey {
     // Tool status display
     static let showToolStatus = "showToolStatus"              // true = detailed, false = simple
 
-    // Question feature — when off, Hatchling does NOT intercept AskUserQuestion /
-    // question notifications; the CLI/client handles them natively.
+    // Question feature — when off, Hatchling does NOT intercept AskUserQuestion;
+    // the CLI asks natively in the terminal instead.
     //
-    // This was disabled after answered questions crashed the client ("H.map").
-    // Root cause was ours: `updatedInput` replaces the tool's entire input, and
-    // we were sending only `{"answers": …}`, dropping `questions` — the client
-    // then mapped over an undefined array. Fixed in
-    // `AppState.askUserQuestionUpdatedInput(from:answers:)`, which merges the
-    // answers into the original input. Still defaults off so the fix can be
-    // switched on (and off again) from Settings without a rebuild.
+    // Answering from the notch works, but only if the answers are keyed by the
+    // QUESTION TEXT. Keying them by `header` made the client display our answers
+    // ("User answered Claude's questions") while still telling the model "The
+    // user did not answer the questions" — it echoed what the hook sent, then
+    // looked the answers up under keys that did not exist. The schema says as
+    // much for the sibling field: `annotations` is "keyed by question text".
+    //
+    // See AppState.askUserQuestionUpdatedInput(from:answers:), which merges the
+    // answers into the original input — `updatedInput` replaces a tool's whole
+    // input, so dropping `questions` crashes the client's renderer.
     static let questionFeatureEnabled = "questionFeatureEnabled"
 
     // Island collapsed width scale for non-notch screens (percentage: 50–150, default 100)
@@ -146,7 +149,7 @@ struct SettingsDefaults {
 
     static let showToolStatus = true
 
-    static let questionFeatureEnabled = false  // OFF — client AskUserQuestion renderer is broken
+    static let questionFeatureEnabled = true   // answering in the notch works; see SettingsKey.questionFeatureEnabled
 
     static let collapsedWidthScale = 100  // percentage
 }

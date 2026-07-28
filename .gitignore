@@ -4,3 +4,5 @@ HANDOFF.md
 docs/superpowers/
 dev.sh
 .DS_Store
+.swiftpm/
+.claude/
