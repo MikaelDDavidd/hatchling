@@ -1786,9 +1786,19 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
         scrollView.documentView = hosting
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        // A altura precisa acompanhar o conteúdo, senão o SwiftUI resolve a
+        // NSScrollView como 0pt (ela não tem intrinsicContentSize) e a lista
+        // some inteira — o que só acontecia acima de `maxVisibleSessions`,
+        // porque abaixo disso a VStack é usada direto, sem passar por aqui.
+        // Prioridade alta, não required, para o teto de `maxHeight` vencer
+        // quando houver sessões demais.
+        let fitContent = scrollView.heightAnchor.constraint(equalTo: hosting.heightAnchor)
+        fitContent.priority = .defaultHigh
         NSLayoutConstraint.activate([
+            hosting.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             hosting.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             hosting.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            fitContent,
             scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: maxHeight),
         ])
 

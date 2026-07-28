@@ -118,7 +118,11 @@ class PanelWindowController: NSObject, NSWindowDelegate {
 
     private func panelSize(for screen: NSScreen) -> NSSize {
         let maxSessions = CGFloat(max(2, UserDefaults.standard.integer(forKey: SettingsKey.maxVisibleSessions)))
-        let maxH = max(300, maxSessions * 90 + 60)
+        // A folga precisa cobrir tudo que fica acima da lista — faixa do notch,
+        // divisória, StatusBar e UsageBar —, senão o `.clipped()` do painel come
+        // o último card quando a lista chega no teto de `maxSessions * 90`.
+        let chromeHeight: CGFloat = 140
+        let maxH = max(300, maxSessions * 90 + chromeHeight)
         let screenW = screen.frame.width
         let width = min(620, screenW - 40)
         return NSSize(width: width, height: maxH)
