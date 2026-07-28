@@ -1,5 +1,32 @@
 # Changelog
 
+## [v0.3.1] - 2026-07-28
+
+### Fixed
+- **The session list no longer disappears when you have a lot of sessions.**
+  Above `maxVisibleSessions` (5 by default) the list is wrapped in a scroll
+  view, and that scroll view had no height constraint. `NSScrollView` has no
+  `intrinsicContentSize`, so SwiftUI resolved it to 0pt and the entire list
+  vanished — the header, status pill and usage bar stayed, so the panel looked
+  like it had found no sessions at all. With five sessions or fewer the list
+  renders directly and was never affected, which is what made it look
+  intermittent. Its height now tracks the content, and still stops at the cap.
+- **The last session card was clipped when the list was full.** The panel
+  window reserved 60pt above the list, which did not cover the notch strip,
+  divider, status pill and usage bar. Raised to 140pt.
+- **Answering a multiple-choice question now reaches the agent.** Answers were
+  keyed by each question's `header`, but `AskUserQuestion` expects them keyed by
+  the question *text* — the sibling `annotations` field is documented that way.
+  Answers came back and were silently ignored.
+- **The statusline wrapper never captured rate limits.** It fed the payload to
+  the statusline command through a heredoc while that command was already
+  reading stdin, so the two conflicted and the limits were dropped. It now reads
+  the payload from the file it had just written.
+- **Claude and Codex usage bars were both green**, so only the badge told them
+  apart. Each CLI now keeps its own colour until usage climbs; from 70% the
+  alert colour takes over.
+- **The checkpoint shortcut showed its raw localisation key** in Settings.
+
 ## [v0.3.0] - 2026-07-26
 
 ### Fixed
