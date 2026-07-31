@@ -30,6 +30,13 @@ extension AppState {
             payload[id] = mobileSession(id: id, session: session)
         }
         MobileBridge.shared.publish(sessions: payload)
+
+        // The open session also gets its transcript refreshed, so the detail screen stays live
+        // instead of showing whatever was true when it was opened.
+        if let watched = MobileBridge.shared.watchedSessionId,
+           let detail = mobileSessionDetail(for: watched) {
+            MobileBridge.shared.publish(detail: detail)
+        }
     }
 
     // MARK: - Mapping
@@ -142,6 +149,41 @@ extension AppState {
         ))
     }
 
+    // MARK: - Session detail
+
+    /// Full picture of one session, for the phone's detail screen.
+    ///
+    /// Only sent when a phone actually opens a session. Attaching this to every list update
+    /// would push a transcript through the relay every few seconds for rows nobody is reading.
+    func mobileSessionDetail(for sessionId: String) -> MobileSessionDetail? {
+        guard let session = sessions[sessionId] else { return nil }
+
+        // Newest first: on a phone the recent tools are what matter, and the list is read
+        // from the top. Capped because a long session can accumulate hundreds.
+        let tools = session.toolHistory.suffix(60).reversed().map { entry in
+            MobileToolEntry(
+                tool: entry.tool,
+                detail: entry.description,
+                at: Int(entry.timestamp.timeIntervalSince1970),
+                ok: entry.success,
+                agent: entry.agentType
+            )
+        }
+
+        let messages = session.recentMessages.map {
+            MobileMessage(user: $0.isUser, text: String($0.text.prefix(4000)))
+        }
+
+        return MobileSessionDetail(
+            sessionId: sessionId,
+            tools: Array(tools),
+            messages: messages,
+            permissionMode: session.permissionMode,
+            isYolo: session.isYoloMode,
+            subagents: session.subagents.values.map { $0.agentType }.sorted()
+        )
+    }
+
     // MARK: - Executing commands
 
     /// Returns nil on success, or a message explaining the refusal.
@@ -199,6 +241,16 @@ extension AppState {
 
         case .refresh:
             publishMobileState()
+            return nil
+
+        case .watch(let sessionId):
+            guard let detail = mobileSessionDetail(for: sessionId) else { return "Unknown session" }
+            MobileBridge.shared.publish(detail: detail)
+            MobileBridge.shared.watchedSessionId = sessionId
+            return nil
+
+        case .unwatch:
+            MobileBridge.shared.watchedSessionId = nil
             return nil
         }
     }
