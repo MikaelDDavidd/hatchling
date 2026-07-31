@@ -252,6 +252,35 @@ extension AppState {
         case .unwatch:
             MobileBridge.shared.watchedSessionId = nil
             return nil
+
+        case .history(let sessionId, let before):
+            guard let session = sessions[sessionId] else { return "Unknown session" }
+
+            guard let path = TranscriptReader.transcriptPath(for: session, sessionId: sessionId) else {
+                // Not an error worth an ack failure: the app shows "no transcript" instead of an
+                // empty chat that looks broken.
+                MobileBridge.shared.publish(history: MobileChatHistory(
+                    sessionId: sessionId,
+                    page: MobileChatPage(messages: [], nextBefore: nil, reachedStart: true),
+                    available: false
+                ))
+                return nil
+            }
+
+            // Reading megabytes off disk has no business on the main thread; the panel would
+            // stutter every time a phone scrolled up.
+            Task.detached(priority: .userInitiated) {
+                let page = TranscriptReader.page(path: path, before: before)
+                    ?? MobileChatPage(messages: [], nextBefore: nil, reachedStart: true)
+                await MainActor.run {
+                    MobileBridge.shared.publish(history: MobileChatHistory(
+                        sessionId: sessionId,
+                        page: page,
+                        available: true
+                    ))
+                }
+            }
+            return nil
         }
     }
 }

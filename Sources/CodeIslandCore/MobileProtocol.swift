@@ -214,6 +214,64 @@ public struct MobileSessionDetail: Codable, Equatable {
     }
 }
 
+/// One turn of the conversation, as the phone's chat renders it.
+public struct MobileChatMessage: Codable, Equatable {
+    public let user: Bool
+    public let text: String
+    public let at: Int
+    /// Tools this turn called, named but not expanded — the detail screen lists them in full.
+    public let tools: [String]
+
+    public init(user: Bool, text: String, at: Int, tools: [String]) {
+        self.user = user
+        self.text = text
+        self.at = at
+        self.tools = tools
+    }
+}
+
+/// A page of conversation, newest first.
+///
+/// Paged because a working day's transcript runs to tens of megabytes, and because a chat is
+/// scrolled from the bottom anyway: the last exchange opens, older pages load on scroll.
+public struct MobileChatPage: Codable, Equatable {
+    public let messages: [MobileChatMessage]
+    /// Cursor for the next page up, or nil at the beginning of the conversation.
+    public let nextBefore: Int?
+    public let reachedStart: Bool
+
+    public init(messages: [MobileChatMessage], nextBefore: Int?, reachedStart: Bool) {
+        self.messages = messages
+        self.nextBefore = nextBefore
+        self.reachedStart = reachedStart
+    }
+}
+
+/// Reply to `session.history`, carrying the page and which session it belongs to.
+public struct MobileChatHistory: Codable, Equatable {
+    public let sessionId: String
+    public let page: MobileChatPage
+    /// False when this CLI keeps no transcript we can read, so the app can say so rather than
+    /// showing an empty chat that looks broken.
+    public let available: Bool
+
+    public init(sessionId: String, page: MobileChatPage, available: Bool) {
+        self.sessionId = sessionId
+        self.page = page
+        self.available = available
+    }
+}
+
+public struct MobileHistoryRequest: Codable {
+    public let sessionId: String
+    public let before: Int?
+
+    public init(sessionId: String, before: Int?) {
+        self.sessionId = sessionId
+        self.before = before
+    }
+}
+
 public struct MobileSessionList: Codable {
     public let sessions: [MobileSession]
     public init(sessions: [MobileSession]) { self.sessions = sessions }
@@ -447,6 +505,9 @@ public enum MobileMessageType {
     public static let sessionWatch = "session.watch"
     public static let sessionUnwatch = "session.unwatch"
     public static let sessionDetail = "session.detail"
+    /// Phone asks for a page of the conversation; Mac replies with `chatHistory`.
+    public static let sessionHistory = "session.history"
+    public static let chatHistory = "chat.history"
 
     public static let pairCreate = "pair.create"
     public static let pairCreated = "pair.created"
