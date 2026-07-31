@@ -12,6 +12,8 @@ enum IslandSurface: Equatable {
     case completionCard(sessionId: String)
     /// Buddy says something — playful occasional musings
     case buddySpeech
+    /// One session's conversation, read from the CLI's own transcript
+    case sessionChat(sessionId: String)
 
     var isExpanded: Bool { self != .collapsed }
 
@@ -19,7 +21,7 @@ enum IslandSurface: Equatable {
     var sessionId: String? {
         switch self {
         case .collapsed, .sessionList, .buddySpeech: return nil
-        case .approvalCard(let id), .questionCard(let id), .completionCard(let id): return id
+        case .approvalCard(let id), .questionCard(let id), .completionCard(let id), .sessionChat(let id): return id
         }
     }
 }
