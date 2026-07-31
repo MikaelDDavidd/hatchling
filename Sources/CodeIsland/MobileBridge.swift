@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import CodeIslandCore
 import os
 
@@ -83,6 +84,14 @@ final class MobileBridge {
     /// every other session only sends its one-line summary.
     var watchedSessionId: String?
 
+    /// When the relay last proved it was still there.
+    ///
+    /// A dead WebSocket does not always announce itself — the socket can be gone while the task
+    /// reports nothing at all, which is how this Mac spent a night believing it was connected.
+    /// This is what the ping timer measures against.
+    private var lastPongAt = Date()
+    private var wakeObserver: NSObjectProtocol?
+
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -115,6 +124,7 @@ final class MobileBridge {
             return
         }
         deliberateStop = false
+        observeWake()
         connect(to: url)
     }
 
@@ -132,6 +142,12 @@ final class MobileBridge {
         state = .off
     }
 
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+    }
+
     func restart() {
         stop()
         start()
@@ -141,7 +157,13 @@ final class MobileBridge {
         state = .connecting
 
         let config = URLSessionConfiguration.default
-        config.waitsForConnectivity = true
+        // Deliberately NOT waitsForConnectivity. With it on, a task started while the network is
+        // gone — which is every time this Mac wakes from sleep — sits waiting forever and never
+        // reports an error, so `handleDisconnect` never runs and the retry is never scheduled.
+        // The bridge went on believing it was connected while the relay saw nothing. Failing
+        // fast and retrying on our own schedule is what actually reconnects.
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 20
         let session = URLSession(configuration: config)
         self.session = session
 
@@ -149,6 +171,7 @@ final class MobileBridge {
         self.task = task
         task.resume()
 
+        lastPongAt = Date()
         receiveLoop()
         sendHello()
         schedulePing()
@@ -184,6 +207,10 @@ final class MobileBridge {
     }
 
     private func handle(text: String) {
+        // Any frame at all is proof of life, and a busy connection should never be woken by the
+        // watchdog just because nothing happened to be a pong.
+        lastPongAt = Date()
+
         guard let data = text.data(using: .utf8),
               let header = try? decoder.decode(MobileEnvelopeHeader.self, from: data) else {
             Self.log.error("unparseable frame")
@@ -359,12 +386,44 @@ final class MobileBridge {
         pingTimer?.invalidate()
         pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.task?.sendPing { error in
-                    guard let error else { return }
+                guard let self else { return }
+
+                // The watchdog. A ping whose completion never fires leaves no trace, so silence
+                // has to be treated as death — otherwise the bridge waits forever on a socket
+                // that is not there.
+                if Date().timeIntervalSince(self.lastPongAt) > 90 {
+                    self.handleDisconnect(reason: "no answer from the relay in 90s")
+                    return
+                }
+
+                self.task?.sendPing { [weak self] error in
                     Task { @MainActor in
-                        self?.handleDisconnect(reason: "ping failed: \(error.localizedDescription)")
+                        guard let self else { return }
+                        if let error {
+                            self.handleDisconnect(reason: "ping failed: \(error.localizedDescription)")
+                        } else {
+                            self.lastPongAt = Date()
+                        }
                     }
                 }
+            }
+        }
+    }
+
+    /// Waking from sleep is the one moment this is guaranteed to be stale: the network went away
+    /// without the socket noticing. Reconnecting on the notification means the phone is useful
+    /// again in seconds instead of waiting out a backoff that may never have been scheduled.
+    private func observeWake() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !self.deliberateStop, self.isEnabled else { return }
+                Self.log.info("woke from sleep; reconnecting to the relay")
+                self.restart()
             }
         }
     }
