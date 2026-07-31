@@ -145,7 +145,11 @@ extension AppState {
     // MARK: - Executing commands
 
     /// Returns nil on success, or a message explaining the refusal.
-    private func handleMobileCommand(_ command: MobileBridge.Command) -> String? {
+    ///
+    /// Not private so tests can drive it directly. The interesting failures here are about
+    /// whether a remote answer actually unblocks the waiting hook, and going through a live
+    /// socket to assert that would be testing the socket.
+    func handleMobileCommand(_ command: MobileBridge.Command) -> String? {
         switch command {
         case .permissionRespond(let attentionId, let decision):
             // Match on identity, never on "whatever is at the front of the queue" — by the time
