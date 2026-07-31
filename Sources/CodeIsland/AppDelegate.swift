@@ -41,6 +41,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         appState.startSessionDiscovery()
         RemoteManager.shared.startup()
+        // Outbound connection to the relay, so the phone app can watch and drive sessions.
+        // No-op until the user pairs a device.
+        appState.setupMobileBridge()
 
         // Usage monitors:
         //   - Codex: parses local rollout JSONL.
@@ -115,6 +118,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         teardownGlobalShortcut()
         appState.saveSessions()
         RemoteManager.shared.shutdown()
+        MobileBridge.shared.stop()
         hookServer?.stop()
         appState.stopSessionDiscovery()
     }

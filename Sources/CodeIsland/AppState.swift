@@ -702,6 +702,7 @@ final class AppState {
         if activeSessionCount != summary.activeSessionCount { activeSessionCount = summary.activeSessionCount }
         if totalSessionCount != summary.totalSessionCount { totalSessionCount = summary.totalSessionCount }
         updateSleepPrevention()
+        publishMobileState()
     }
 
     /// Keeps the Mac awake while an agent is mid-task, so a long build or a
@@ -891,6 +892,7 @@ final class AppState {
             activeSessionId = sessionId
             surface = .approvalCard(sessionId: sessionId)
             SoundManager.shared.handleEvent("PermissionRequest")
+            publishMobileAttention(permission: request)
         }
         refreshDerivedState()
     }
@@ -972,6 +974,7 @@ final class AppState {
                 surface = .questionCard(sessionId: sessionId)
             }
             SoundManager.shared.handleEvent("PermissionRequest")
+            publishMobileAttention(question: request)
         }
         refreshDerivedState()
     }
@@ -1094,6 +1097,7 @@ final class AppState {
                 surface = .questionCard(sessionId: sessionId)
             }
             SoundManager.shared.handleEvent("PermissionRequest")
+            publishMobileAttention(question: request)
         }
         refreshDerivedState()
     }

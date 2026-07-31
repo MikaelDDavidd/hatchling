@@ -104,6 +104,15 @@ enum SettingsKey {
     // Island collapsed width scale for non-notch screens (percentage: 50–150, default 100)
     static let collapsedWidthScale = "collapsedWidthScale"
 
+    // Mobile bridge — lets the phone app watch and drive sessions through a relay.
+    // Off until paired: it opens an outbound connection carrying session state.
+    static let mobileBridgeEnabled = "mobileBridgeEnabled"
+    static let mobileRelayURL = "mobileRelayURL"
+    static let mobileRelayToken = "mobileRelayToken"
+    // Prompt injection outside tmux needs Accessibility and synthesises keystrokes into
+    // whatever terminal is frontmost. Opt-in, and off by default for a reason.
+    static let mobileAllowKeystrokeInjection = "mobileAllowKeystrokeInjection"
+
 }
 
 struct SettingsDefaults {
@@ -152,6 +161,11 @@ struct SettingsDefaults {
     static let questionFeatureEnabled = true   // answering in the notch works; see SettingsKey.questionFeatureEnabled
 
     static let collapsedWidthScale = 100  // percentage
+
+    static let mobileBridgeEnabled = false
+    static let mobileRelayURL = ""
+    static let mobileRelayToken = ""
+    static let mobileAllowKeystrokeInjection = false
 }
 
 @MainActor
@@ -198,6 +212,8 @@ class SettingsManager {
             SettingsKey.showToolStatus: SettingsDefaults.showToolStatus,
             SettingsKey.questionFeatureEnabled: SettingsDefaults.questionFeatureEnabled,
             SettingsKey.collapsedWidthScale: SettingsDefaults.collapsedWidthScale,
+            SettingsKey.mobileBridgeEnabled: SettingsDefaults.mobileBridgeEnabled,
+            SettingsKey.mobileAllowKeystrokeInjection: SettingsDefaults.mobileAllowKeystrokeInjection,
         ])
     }
 
