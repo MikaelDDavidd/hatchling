@@ -326,6 +326,46 @@ public struct MobileError: Codable {
     }
 }
 
+// MARK: - Pairing
+
+public struct MobileEmpty: Codable {
+    public init() {}
+}
+
+public struct MobilePairCode: Codable {
+    public let code: String?
+    /// Epoch milliseconds, matching what the relay's `Date.now()` produces.
+    public let expiresAt: Int?
+
+    public init(code: String?, expiresAt: Int?) {
+        self.code = code
+        self.expiresAt = expiresAt
+    }
+}
+
+public struct MobilePairedDevice: Codable {
+    public let id: String
+    public let name: String
+    public let lastSeen: Int?
+
+    public init(id: String, name: String, lastSeen: Int?) {
+        self.id = id
+        self.name = name
+        self.lastSeen = lastSeen
+    }
+}
+
+public struct MobilePairDevices: Codable {
+    public let devices: [MobilePairedDevice]?
+
+    public init(devices: [MobilePairedDevice]?) { self.devices = devices }
+}
+
+public struct MobilePairRevoke: Codable {
+    public let deviceId: String
+    public init(deviceId: String) { self.deviceId = deviceId }
+}
+
 /// Message type discriminators, in one place so the compiler catches a typo instead of the wire.
 public enum MobileMessageType {
     public static let hello = "hello"
@@ -345,4 +385,9 @@ public enum MobileMessageType {
     public static let sessionInterrupt = "session.interrupt"
     public static let sessionPrompt = "session.prompt"
     public static let sessionsRefresh = "sessions.refresh"
+
+    public static let pairCreate = "pair.create"
+    public static let pairCreated = "pair.created"
+    public static let pairList = "pair.list"
+    public static let pairRevoke = "pair.revoke"
 }

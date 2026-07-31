@@ -13,6 +13,7 @@ enum SettingsPage: String, Identifiable, Hashable {
     case sound
     case shortcuts
     case remote
+    case phone
     case hooks
     case about
 
@@ -28,6 +29,7 @@ enum SettingsPage: String, Identifiable, Hashable {
         case .sound: return "speaker.wave.2.fill"
         case .shortcuts: return "command.circle.fill"
         case .remote: return "network"
+        case .phone: return "iphone"
         case .hooks: return "link.circle.fill"
         case .about: return "info.circle.fill"
         }
@@ -43,6 +45,7 @@ enum SettingsPage: String, Identifiable, Hashable {
         case .sound: return .green
         case .shortcuts: return .indigo
         case .remote: return .mint
+        case .phone: return .teal
         case .hooks: return .purple
         case .about: return .cyan
         }
@@ -56,7 +59,7 @@ private struct SidebarGroup: Hashable {
 
 private let sidebarGroups: [SidebarGroup] = [
     SidebarGroup(title: nil, pages: [.general, .behavior, .appearance, .mascots, .buddy, .sound, .shortcuts]),
-    SidebarGroup(title: "Hatchling", pages: [.remote, .hooks, .about]),
+    SidebarGroup(title: "Hatchling", pages: [.remote, .phone, .hooks, .about]),
 ]
 
 // MARK: - Main View
@@ -94,6 +97,7 @@ struct SettingsView: View {
                 case .sound: SoundPage()
                 case .shortcuts: ShortcutsPage()
                 case .remote: RemoteHostsPage()
+                case .phone: MobileSettingsPage()
                 case .hooks: HooksPage()
                 case .about: AboutPage()
                 }
