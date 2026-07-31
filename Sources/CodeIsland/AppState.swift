@@ -1149,9 +1149,16 @@ final class AppState {
         if pending.isFromPermission {
             var answersDict: [String: String] = [:]
             if let askState = pending.askUserQuestionState {
-                // Match by position — wizard collects answers in the same order as items
+                // Match on the question text each answer carries, falling back to position.
+                //
+                // Position alone was enough while the notch wizard was the only caller, since
+                // it collects in item order. A remote client sends a map, which has no order at
+                // all, so matching by index silently swapped answers between questions — they
+                // arrived looking perfectly valid, attached to the wrong question.
                 for (index, item) in askState.items.enumerated() {
-                    if index < answers.count {
+                    if let match = answers.first(where: { $0.question == item.payload.question }) {
+                        answersDict[item.answerKey] = match.answer
+                    } else if index < answers.count {
                         answersDict[item.answerKey] = answers[index].answer
                     }
                 }
