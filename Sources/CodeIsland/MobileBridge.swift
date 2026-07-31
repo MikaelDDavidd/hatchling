@@ -68,6 +68,8 @@ final class MobileBridge {
         /// Phone opened a session and wants its transcript, and updates while it stays open.
         case watch(sessionId: String)
         case unwatch
+        /// A page of the conversation, for the chat.
+        case history(sessionId: String, before: Int?)
     }
 
     private var task: URLSessionWebSocketTask?
@@ -290,6 +292,10 @@ final class MobileBridge {
         case MobileMessageType.sessionUnwatch:
             run(.unwatch, ref: header.id)
 
+        case MobileMessageType.sessionHistory:
+            guard let body = (try? decoder.decode(MobileEnvelope<MobileHistoryRequest>.self, from: data))?.body else { return }
+            run(.history(sessionId: body.sessionId, before: body.before), ref: header.id)
+
         default:
             break
         }
@@ -343,6 +349,10 @@ final class MobileBridge {
 
     func publish(detail: MobileSessionDetail) {
         send(type: MobileMessageType.sessionDetail, body: detail)
+    }
+
+    func publish(history: MobileChatHistory) {
+        send(type: MobileMessageType.chatHistory, body: history)
     }
 
     // MARK: - Pairing

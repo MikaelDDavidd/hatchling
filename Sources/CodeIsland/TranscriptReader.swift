@@ -1,0 +1,169 @@
+import Foundation
+import CodeIslandCore
+import os
+
+/// Reads a session's conversation out of the CLI's own transcript, a page at a time.
+///
+/// The phone shows a chat, and a chat needs the whole conversation — but the transcript for a
+/// working day is tens of megabytes (33 MB for the session this was written in). So it is read
+/// backwards in bounded windows, newest first, which is also the order a chat is scrolled: the
+/// last exchange is what opens, and older pages load as you scroll up.
+///
+/// Nothing is cached. The file is the truth, it is append-only, and re-reading a 64 KB window is
+/// cheaper than holding a transcript in memory for every session a phone might open.
+enum TranscriptReader {
+
+    private static let log = Logger(subsystem: "com.mikaeldavid.CodeIsland", category: "TranscriptReader")
+
+    /// How much of the file to pull in one go while hunting for a page of messages. Sized so a
+    /// typical page lands in one or two reads without ever holding much.
+    private static let windowSize: UInt64 = 512 * 1024
+
+    // MARK: - Locating
+
+    /// Where a session's transcript lives, or nil when the CLI does not keep one we can read.
+    static func transcriptPath(for session: SessionSnapshot, sessionId: String) -> String? {
+        guard let cwd = session.cwd else { return nil }
+        let providerId = session.providerSessionId ?? sessionId
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+
+        switch session.source {
+        case "claude":
+            let encoded = cwd.replacingOccurrences(of: "/", with: "-")
+            let path = "\(home)/.claude/projects/\(encoded)/\(providerId).jsonl"
+            return FileManager.default.fileExists(atPath: path) ? path : nil
+        default:
+            // Codex and the rest keep their own shapes; the chat is Claude-only until one of
+            // them is actually used enough to be worth parsing.
+            return nil
+        }
+    }
+
+    // MARK: - Reading
+
+    /// One page of conversation, newest first.
+    ///
+    /// - Parameter before: line offset from the end returned by a previous page, or nil to start
+    ///   at the newest message.
+    static func page(
+        path: String,
+        before: Int?,
+        limit: Int = 30
+    ) -> MobileChatPage? {
+        guard let handle = try? FileHandle(forReadingFrom: path.asFileURL) else {
+            log.error("cannot open transcript")
+            return nil
+        }
+        defer { try? handle.close() }
+        guard let fileSize = try? handle.seekToEnd(), fileSize > 0 else { return nil }
+
+        var messages: [MobileChatMessage] = []
+        var linesScanned = 0
+        let skip = before ?? 0
+        var offset = fileSize
+        var reachedStart = false
+
+        // Walk backwards a window at a time until the page is full or the file runs out.
+        while messages.count < limit && !reachedStart {
+            let readSize = min(offset, windowSize)
+            let start = offset - readSize
+            reachedStart = start == 0
+
+            guard (try? handle.seek(toOffset: start)) != nil,
+                  let data = try? handle.read(upToCount: Int(readSize)), !data.isEmpty else { break }
+
+            var body = data[...]
+            // Unless we are at the very beginning, drop the first partial line — its head is in
+            // the window we have not read.
+            if !reachedStart, let newline = body.firstIndex(of: 0x0A) {
+                body = body[body.index(after: newline)...]
+            }
+
+            for line in body.split(separator: 0x0A, omittingEmptySubsequences: true).reversed() {
+                guard let message = parse(line: Data(line)) else { continue }
+                linesScanned += 1
+                if linesScanned <= skip { continue }
+                messages.append(message)
+                if messages.count >= limit { break }
+            }
+
+            offset = start
+        }
+
+        return MobileChatPage(
+            messages: messages,
+            nextBefore: reachedStart && messages.count < limit ? nil : skip + messages.count,
+            reachedStart: reachedStart && messages.count < limit
+        )
+    }
+
+    // MARK: - Parsing
+
+    /// Turns one transcript line into a chat message, or nil when it is not part of the
+    /// conversation — tool plumbing, file snapshots, title updates and the rest.
+    private static func parse(line: Data) -> MobileChatMessage? {
+        guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+
+        // Subagent chatter belongs to the subagent, not to this conversation. Showing it inline
+        // would interleave several threads into one and read as nonsense.
+        if json["isSidechain"] as? Bool == true { return nil }
+
+        guard let type = json["type"] as? String, type == "user" || type == "assistant" else { return nil }
+        guard let message = json["message"] as? [String: Any] else { return nil }
+
+        let timestamp = (json["timestamp"] as? String).flatMap(iso8601) ?? Date()
+        let text: String
+        var tools: [String] = []
+
+        switch message["content"] {
+        case let string as String:
+            text = string
+        case let blocks as [[String: Any]]:
+            var parts: [String] = []
+            for block in blocks {
+                switch block["type"] as? String {
+                case "text":
+                    if let value = block["text"] as? String { parts.append(value) }
+                case "tool_use":
+                    // Named but not expanded: the detail screen already lists tool calls, and a
+                    // wall of arguments in the chat drowns what was actually said.
+                    if let name = block["name"] as? String { tools.append(name) }
+                default:
+                    // thinking, tool_result and anything added later stay out.
+                    break
+                }
+            }
+            text = parts.joined(separator: "\n\n")
+        default:
+            return nil
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A turn that was purely a tool call still matters — it shows the agent acting — but one
+        // that is empty of both is noise.
+        guard !trimmed.isEmpty || !tools.isEmpty else { return nil }
+
+        return MobileChatMessage(
+            user: type == "user",
+            text: String(trimmed.prefix(8000)),
+            at: Int(timestamp.timeIntervalSince1970),
+            tools: tools
+        )
+    }
+
+    private static let formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let plainFormatter = ISO8601DateFormatter()
+
+    private static func iso8601(_ value: String) -> Date? {
+        formatter.date(from: value) ?? plainFormatter.date(from: value)
+    }
+}
+
+private extension String {
+    var asFileURL: URL { URL(fileURLWithPath: self) }
+}
