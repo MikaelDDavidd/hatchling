@@ -122,7 +122,11 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // divisória, StatusBar e UsageBar —, senão o `.clipped()` do painel come
         // o último card quando a lista chega no teto de `maxSessions * 90`.
         let chromeHeight: CGFloat = 140
-        let maxH = max(300, maxSessions * 90 + chromeHeight)
+        // The chat needs room the list never asked for. The window is transparent and the
+        // content sizes itself, so a taller window costs nothing when the chat is closed — but
+        // without the headroom `.clipped()` would cut the conversation off.
+        let chatMinimum: CGFloat = 620
+        let maxH = max(chatMinimum, max(300, maxSessions * 90 + chromeHeight))
         let screenW = screen.frame.width
         let width = min(620, screenW - 40)
         return NSSize(width: width, height: maxH)

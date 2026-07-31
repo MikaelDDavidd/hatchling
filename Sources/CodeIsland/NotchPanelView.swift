@@ -200,6 +200,11 @@ struct NotchPanelView: View {
                     case .sessionList:
                         PanelTabContent(appState: appState)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
+                    case .sessionChat(let sid):
+                        if let session = appState.sessions[sid] {
+                            SessionChatView(sessionId: sid, session: session, appState: appState)
+                                .transition(.blurFade)
+                        }
                     case .buddySpeech:
                         if let speech = appState.pendingBuddySpeech {
                             BuddySpeechBubble(
@@ -1733,6 +1738,7 @@ struct SessionListView: View {
                         SessionCard(
                             sessionId: sessionId,
                             session: session,
+                            appState: appState,
                             isCompletion: onlySessionId != nil
                         )
                     }
@@ -1923,6 +1929,7 @@ private struct SessionsExpandLink: View {
 private struct SessionCard: View {
     let sessionId: String
     let session: SessionSnapshot
+    var appState: AppState
     var isCompletion: Bool = false
     @State private var hovering = false
     @ObservedObject private var contextStore = ContextUsageStore.shared
@@ -1965,7 +1972,12 @@ private struct SessionCard: View {
 
     var body: some View {
         Button {
-            TerminalActivator.activate(session: session, sessionId: sessionId)
+            // Opens the conversation rather than jumping to the terminal. The terminal is still
+            // one click away inside the chat, and reading what was said is the thing more often
+            // wanted from a glance at the panel.
+            withAnimation(NotchAnimation.open) {
+                appState.surface = .sessionChat(sessionId: sessionId)
+            }
         } label: {
             cardContent
         } // end Button label
