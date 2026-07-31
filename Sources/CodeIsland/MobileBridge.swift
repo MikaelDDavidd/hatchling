@@ -27,6 +27,32 @@ final class MobileBridge {
 
     var onStateChange: ((State) -> Void)?
 
+    /// A live pairing code, when one has been asked for. Cleared once it expires or is used.
+    private(set) var pairingCode: PairingCode? {
+        didSet { onPairingCodeChange?(pairingCode) }
+    }
+    var onPairingCodeChange: ((PairingCode?) -> Void)?
+
+    /// Phones that have been paired. The relay owns this list; the Mac shows it.
+    private(set) var pairedDevices: [PairedDevice] = [] {
+        didSet { onDevicesChange?(pairedDevices) }
+    }
+    var onDevicesChange: (([PairedDevice]) -> Void)?
+
+    struct PairingCode: Equatable {
+        let code: String
+        let expiresAt: Date
+
+        var isExpired: Bool { Date() >= expiresAt }
+        var secondsRemaining: Int { max(0, Int(expiresAt.timeIntervalSinceNow)) }
+    }
+
+    struct PairedDevice: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let lastSeen: Date?
+    }
+
     /// Runs a command from the phone. Returns nil on success, or a reason to send back.
     /// `AppState` installs this; keeping it a closure is what keeps this file free of app logic.
     var commandHandler: ((Command) async -> String?)?
@@ -176,6 +202,29 @@ final class MobileBridge {
             let body = (try? decoder.decode(MobileEnvelope<MobileError>.self, from: data))?.body
             state = .failed(body?.message ?? "relay error")
 
+        case MobileMessageType.pairCreated:
+            // The relay reuses this type for both a fresh code and the device list, so which
+            // one arrived is decided by what the body actually contains.
+            if let body = (try? decoder.decode(MobileEnvelope<MobilePairCode>.self, from: data))?.body,
+               let code = body.code, let expiresAt = body.expiresAt {
+                pairingCode = PairingCode(
+                    code: code,
+                    expiresAt: Date(timeIntervalSince1970: TimeInterval(expiresAt) / 1000)
+                )
+            }
+            if let body = (try? decoder.decode(MobileEnvelope<MobilePairDevices>.self, from: data))?.body,
+               let devices = body.devices {
+                pairedDevices = devices.map {
+                    PairedDevice(
+                        id: $0.id,
+                        name: $0.name,
+                        lastSeen: $0.lastSeen.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+                    )
+                }
+                // A device list arriving means a phone just redeemed the code.
+                pairingCode = nil
+            }
+
         case MobileMessageType.permissionRespond:
             guard let body = (try? decoder.decode(MobileEnvelope<MobilePermissionRespond>.self, from: data))?.body else { return }
             run(.permissionRespond(attentionId: body.attentionId, decision: body.decision), ref: header.id)
@@ -249,6 +298,25 @@ final class MobileBridge {
 
     func publish(usage: MobileUsage) {
         send(type: MobileMessageType.usage, body: usage)
+    }
+
+    // MARK: - Pairing
+
+    func requestPairingCode() {
+        pairingCode = nil
+        send(type: MobileMessageType.pairCreate, body: MobileEmpty())
+    }
+
+    func refreshPairedDevices() {
+        send(type: MobileMessageType.pairList, body: MobileEmpty())
+    }
+
+    func revoke(deviceId: String) {
+        send(type: MobileMessageType.pairRevoke, body: MobilePairRevoke(deviceId: deviceId))
+    }
+
+    func clearPairingCode() {
+        pairingCode = nil
     }
 
     private func send<Body: Codable>(type: String, body: Body?) {
