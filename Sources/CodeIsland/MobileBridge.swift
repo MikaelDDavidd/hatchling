@@ -64,6 +64,9 @@ final class MobileBridge {
         case interrupt(sessionId: String)
         case prompt(sessionId: String, text: String)
         case refresh
+        /// Phone opened a session and wants its transcript, and updates while it stays open.
+        case watch(sessionId: String)
+        case unwatch
     }
 
     private var task: URLSessionWebSocketTask?
@@ -75,6 +78,10 @@ final class MobileBridge {
 
     /// Last payload sent per session, so `publish` can send patches instead of the whole list.
     private var lastSent: [String: MobileSession] = [:]
+
+    /// The session a phone currently has open, if any. Its transcript is refreshed on change;
+    /// every other session only sends its one-line summary.
+    var watchedSessionId: String?
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -249,6 +256,13 @@ final class MobileBridge {
             lastSent.removeAll()
             run(.refresh, ref: header.id)
 
+        case MobileMessageType.sessionWatch:
+            guard let body = (try? decoder.decode(MobileEnvelope<MobileSessionRef>.self, from: data))?.body else { return }
+            run(.watch(sessionId: body.sessionId), ref: header.id)
+
+        case MobileMessageType.sessionUnwatch:
+            run(.unwatch, ref: header.id)
+
         default:
             break
         }
@@ -298,6 +312,10 @@ final class MobileBridge {
 
     func publish(usage: MobileUsage) {
         send(type: MobileMessageType.usage, body: usage)
+    }
+
+    func publish(detail: MobileSessionDetail) {
+        send(type: MobileMessageType.sessionDetail, body: detail)
     }
 
     // MARK: - Pairing

@@ -156,6 +156,64 @@ public struct MobileSession: Codable, Equatable {
     }
 }
 
+/// One tool the agent ran. What the detail screen is built from.
+public struct MobileToolEntry: Codable, Equatable {
+    public let tool: String
+    public let detail: String?
+    public let at: Int
+    public let ok: Bool
+    /// Which subagent ran it, or nil for the main thread.
+    public let agent: String?
+
+    public init(tool: String, detail: String?, at: Int, ok: Bool, agent: String?) {
+        self.tool = tool
+        self.detail = detail
+        self.at = at
+        self.ok = ok
+        self.agent = agent
+    }
+}
+
+public struct MobileMessage: Codable, Equatable {
+    public let user: Bool
+    public let text: String
+
+    public init(user: Bool, text: String) {
+        self.user = user
+        self.text = text
+    }
+}
+
+/// Everything the detail screen shows, sent only when a phone opens a session.
+///
+/// Kept out of `MobileSession` on purpose. The list carries one line per session and is
+/// republished on every state change; attaching a transcript to that would push kilobytes
+/// through the relay every few seconds for rows nobody is looking at.
+public struct MobileSessionDetail: Codable, Equatable {
+    public let sessionId: String
+    public let tools: [MobileToolEntry]
+    public let messages: [MobileMessage]
+    public let permissionMode: String?
+    public let isYolo: Bool?
+    public let subagents: [String]
+
+    public init(
+        sessionId: String,
+        tools: [MobileToolEntry],
+        messages: [MobileMessage],
+        permissionMode: String?,
+        isYolo: Bool?,
+        subagents: [String]
+    ) {
+        self.sessionId = sessionId
+        self.tools = tools
+        self.messages = messages
+        self.permissionMode = permissionMode
+        self.isYolo = isYolo
+        self.subagents = subagents
+    }
+}
+
 public struct MobileSessionList: Codable {
     public let sessions: [MobileSession]
     public init(sessions: [MobileSession]) { self.sessions = sessions }
@@ -385,6 +443,10 @@ public enum MobileMessageType {
     public static let sessionInterrupt = "session.interrupt"
     public static let sessionPrompt = "session.prompt"
     public static let sessionsRefresh = "sessions.refresh"
+    /// Phone opened a session; Mac replies with `sessionDetail`.
+    public static let sessionWatch = "session.watch"
+    public static let sessionUnwatch = "session.unwatch"
+    public static let sessionDetail = "session.detail"
 
     public static let pairCreate = "pair.create"
     public static let pairCreated = "pair.created"
