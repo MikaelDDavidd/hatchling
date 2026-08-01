@@ -23,20 +23,53 @@ enum TranscriptReader {
 
     /// Where a session's transcript lives, or nil when the CLI does not keep one we can read.
     static func transcriptPath(for session: SessionSnapshot, sessionId: String) -> String? {
-        guard let cwd = session.cwd else { return nil }
-        let providerId = session.providerSessionId ?? sessionId
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-
-        switch session.source {
-        case "claude":
-            let encoded = cwd.replacingOccurrences(of: "/", with: "-")
-            let path = "\(home)/.claude/projects/\(encoded)/\(providerId).jsonl"
-            return FileManager.default.fileExists(atPath: path) ? path : nil
-        default:
+        guard session.source == "claude" else {
             // Codex and the rest keep their own shapes; the chat is Claude-only until one of
             // them is actually used enough to be worth parsing.
             return nil
         }
+        let providerId = session.providerSessionId ?? sessionId
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let root = "\(home)/.claude/projects"
+
+        if let cwd = session.cwd {
+            let path = "\(root)/\(encodeProjectDir(cwd))/\(providerId).jsonl"
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+
+        // Fall back to finding the file by name.
+        //
+        // The directory encoding is Claude Code's business and has already caught us out once:
+        // underscores become hyphens too, which is not obvious and is not written down anywhere
+        // we control. The session id is a UUID and the file is named after it, so searching is
+        // both unambiguous and immune to the next encoding change.
+        return findByName("\(providerId).jsonl", under: root)
+    }
+
+    /// Mirrors how Claude Code names a project directory.
+    ///
+    /// Derived from the real directories on disk rather than from documentation: separators,
+    /// spaces, underscores and anything non-ASCII all collapse to a hyphen. Verified against
+    /// every live session's cwd.
+    static func encodeProjectDir(_ cwd: String) -> String {
+        var result = ""
+        for scalar in cwd.unicodeScalars {
+            if scalar == "/" || scalar == "_" || scalar == " " || scalar.value > 127 {
+                result.append("-")
+            } else {
+                result.append(Character(scalar))
+            }
+        }
+        return result
+    }
+
+    private static func findByName(_ filename: String, under root: String) -> String? {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: root) else { return nil }
+        for entry in entries {
+            let candidate = "\(root)/\(entry)/\(filename)"
+            if FileManager.default.fileExists(atPath: candidate) { return candidate }
+        }
+        return nil
     }
 
     // MARK: - Reading

@@ -179,3 +179,42 @@ final class TranscriptReaderTests: XCTestCase {
         XCTAssertTrue(seen.contains { $0.hasPrefix("m0 ") }, "never reached the first message")
     }
 }
+
+/// How a session is matched to its file on disk.
+///
+/// Got this wrong once in a way that showed the user "keeps no conversation log" for a CLI that
+/// keeps a very good one: underscores in a path become hyphens too, which is not written down
+/// anywhere and was only visible by comparing real directories.
+final class TranscriptLocationTests: XCTestCase {
+
+    func testUnderscoresBecomeHyphensLikeSlashesDo() {
+        XCTAssertEqual(
+            TranscriptReader.encodeProjectDir("/Users/m/Documents/apps/curral_assist"),
+            "-Users-m-Documents-apps-curral-assist"
+        )
+    }
+
+    func testSeparatorsAndSpacesCollapseToo() {
+        XCTAssertEqual(TranscriptReader.encodeProjectDir("/a b/c_d"), "-a-b-c-d")
+    }
+
+    func testAsciiIsOtherwiseLeftAlone() {
+        XCTAssertEqual(TranscriptReader.encodeProjectDir("/Projetos/agent-notch/Hatchling"),
+                       "-Projetos-agent-notch-Hatchling")
+    }
+
+    /// Real directories from this machine, which is where the rule came from.
+    func testMatchesTheDirectoriesClaudeActuallyCreated() {
+        let known = [
+            "/Users/mikaeldavid/Documents/Oziel/Projeto/apps/curral_assist":
+                "-Users-mikaeldavid-Documents-Oziel-Projeto-apps-curral-assist",
+            "/Users/mikaeldavid/Documents/Projetos/agent-notch/Hatchling":
+                "-Users-mikaeldavid-Documents-Projetos-agent-notch-Hatchling",
+            "/Users/mikaeldavid/Documents/assistant/financeiro":
+                "-Users-mikaeldavid-Documents-assistant-financeiro",
+        ]
+        for (cwd, expected) in known {
+            XCTAssertEqual(TranscriptReader.encodeProjectDir(cwd), expected, "for \(cwd)")
+        }
+    }
+}
