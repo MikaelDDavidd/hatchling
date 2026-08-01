@@ -30,6 +30,7 @@ extension AppState {
             payload[id] = mobileSession(id: id, session: session)
         }
         MobileBridge.shared.publish(sessions: payload)
+        publishMobileUsage()
 
         // The open session also gets its transcript refreshed, so the detail screen stays live
         // instead of showing whatever was true when it was opened.
@@ -37,6 +38,45 @@ extension AppState {
            let detail = mobileSessionDetail(for: watched) {
             MobileBridge.shared.publish(detail: detail)
         }
+    }
+
+    /// Rate limits, the same numbers the panel's usage bar shows.
+    ///
+    /// Claude's come from the statusline payload our wrapper captures; Codex's from its local
+    /// rollout. Published alongside session state because they change on the same rhythm and
+    /// splitting them would mean a second trip for two small numbers.
+    func publishMobileUsage() {
+        var claude: [MobileUsageWindow]?
+        if let limits = ClaudeRateLimitReader.shared.limits {
+            var windows: [MobileUsageWindow] = []
+            if let pct = limits.fiveHourPercent {
+                windows.append(MobileUsageWindow(
+                    label: "5h", percent: pct,
+                    resetsAt: limits.fiveHourResetAt.map { Int($0.timeIntervalSince1970) }
+                ))
+            }
+            if let pct = limits.sevenDayPercent, pct >= 1 {
+                windows.append(MobileUsageWindow(
+                    label: "7d", percent: pct,
+                    resetsAt: limits.sevenDayResetAt.map { Int($0.timeIntervalSince1970) }
+                ))
+            }
+            if !windows.isEmpty { claude = windows }
+        }
+
+        var codex: [MobileUsageWindow]?
+        if let snapshot = CodexUsageMonitor.shared.snapshot, !snapshot.isEmpty {
+            codex = snapshot.windows.map {
+                MobileUsageWindow(
+                    label: $0.label,
+                    percent: $0.roundedUsedPercentage,
+                    resetsAt: $0.resetsAt.map { date in Int(date.timeIntervalSince1970) }
+                )
+            }
+        }
+
+        guard claude != nil || codex != nil else { return }
+        MobileBridge.shared.publish(usage: MobileUsage(claude: claude, codex: codex))
     }
 
     // MARK: - Mapping
