@@ -120,6 +120,17 @@ public struct MobileSession: Codable, Equatable {
     /// offer a prompt box it cannot honour — see `PromptInjector`.
     public let canPrompt: Bool
     public let contextPercent: Int?
+    /// The gerund the notch shows while an agent works — "Murmuring", "Nesting". Cosmetic, and
+    /// the whole point: it is how the panel reads as alive rather than as a progress bar.
+    public let verb: String?
+    /// Absolute context, so the phone can show "495k/1M" the way the panel does.
+    public let contextTokens: Int?
+    public let contextLimit: Int?
+    /// Which terminal the session runs in, for the same reason the panel shows it: with several
+    /// sessions open it is how you know which window to go to.
+    public let terminal: String?
+    /// Subagents running right now, by type.
+    public let subagents: [String]
 
     public init(
         sessionId: String,
@@ -136,7 +147,12 @@ public struct MobileSession: Codable, Equatable {
         lastActivity: Int,
         interrupted: Bool,
         canPrompt: Bool,
-        contextPercent: Int?
+        contextPercent: Int?,
+        verb: String?,
+        contextTokens: Int?,
+        contextLimit: Int?,
+        terminal: String?,
+        subagents: [String]
     ) {
         self.sessionId = sessionId
         self.source = source
@@ -153,6 +169,11 @@ public struct MobileSession: Codable, Equatable {
         self.interrupted = interrupted
         self.canPrompt = canPrompt
         self.contextPercent = contextPercent
+        self.verb = verb
+        self.contextTokens = contextTokens
+        self.contextLimit = contextLimit
+        self.terminal = terminal
+        self.subagents = subagents
     }
 }
 

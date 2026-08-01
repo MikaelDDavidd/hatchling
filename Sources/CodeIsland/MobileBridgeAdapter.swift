@@ -42,7 +42,8 @@ extension AppState {
     // MARK: - Mapping
 
     private func mobileSession(id: String, session: SessionSnapshot) -> MobileSession {
-        MobileSession(
+        let usage = ContextUsageStore.shared.lookup(for: session, sessionId: id)
+        return MobileSession(
             sessionId: id,
             source: session.source,
             status: Self.mobileStatus(session.status),
@@ -57,7 +58,16 @@ extension AppState {
             lastActivity: Int(session.lastActivity.timeIntervalSince1970),
             interrupted: session.interrupted,
             canPrompt: PromptInjector.canInject(into: session),
-            contextPercent: ContextUsageStore.shared.lookup(for: session, sessionId: id)?.pct
+            contextPercent: usage?.pct,
+            // Same seed the panel uses, so the phone and the notch say the same word about the
+            // same session instead of disagreeing a foot apart.
+            verb: session.status == .running || session.status == .processing
+                ? GerundVerbs.pick(seed: id)
+                : nil,
+            contextTokens: usage?.usedTokens,
+            contextLimit: usage?.contextLimit,
+            terminal: session.termApp,
+            subagents: session.subagents.values.map { $0.agentType }.sorted()
         )
     }
 
