@@ -50,7 +50,9 @@ final class MobileProtocolTests: XCTestCase {
             sessionId: "s1", source: "claude", status: "running", project: "Hatchling",
             cwd: "/tmp", model: "opus-5", currentTool: "Bash", toolDescription: "tests",
             lastUserPrompt: "run", lastAssistantMessage: "done",
-            startTime: 1, lastActivity: 2, interrupted: false, canPrompt: true, contextPercent: 43
+            startTime: 1, lastActivity: 2, interrupted: false, canPrompt: true, contextPercent: 43,
+            verb: "Murmuring", contextTokens: 43_000, contextLimit: 100_000,
+            terminal: "ghostty", subagents: ["Explore"]
         )
         let json = try encodeToObject(session)
 
@@ -58,6 +60,7 @@ final class MobileProtocolTests: XCTestCase {
             "sessionId", "source", "status", "project", "cwd", "model", "currentTool",
             "toolDescription", "lastUserPrompt", "lastAssistantMessage", "startTime",
             "lastActivity", "interrupted", "canPrompt", "contextPercent",
+            "verb", "contextTokens", "contextLimit", "terminal", "subagents",
         ]
         XCTAssertEqual(Set(json.keys), expected, "Session shape drifted from docs/PROTOCOL.md")
     }
@@ -67,7 +70,8 @@ final class MobileProtocolTests: XCTestCase {
             sessionId: "s1", source: "claude", status: "idle", project: "P",
             cwd: nil, model: nil, currentTool: nil, toolDescription: nil,
             lastUserPrompt: nil, lastAssistantMessage: nil,
-            startTime: 1, lastActivity: 2, interrupted: false, canPrompt: false, contextPercent: nil
+            startTime: 1, lastActivity: 2, interrupted: false, canPrompt: false, contextPercent: nil,
+            verb: nil, contextTokens: nil, contextLimit: nil, terminal: nil, subagents: []
         )
         let json = try encodeToObject(session)
         XCTAssertNil(json["cwd"])

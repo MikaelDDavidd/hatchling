@@ -148,11 +148,13 @@ struct NotchPanelView: View {
                     UsageBar()
 
                     switch appState.surface {
-                    case .approvalCard:
+                    case .approvalCard(let sid):
                         if let pending = appState.pendingPermission {
                             ApprovalBar(
                                 tool: pending.event.toolName ?? "Unknown",
                                 toolInput: pending.event.toolInput,
+                                session: appState.sessions[sid],
+                                sessionId: sid,
                                 queuePosition: 1,
                                 queueTotal: appState.permissionQueue.count,
                                 onAllow: { appState.approvePermission(always: false) },
@@ -169,8 +171,8 @@ struct NotchPanelView: View {
                                 options: q.question.options,
                                 descriptions: q.question.descriptions,
                                 allQuestions: q.askUserQuestionState?.items ?? [],
-                                sessionSource: session?.source,
-                                sessionContext: session?.cwd,
+                                session: session,
+                                sessionId: sid,
                                 queuePosition: 1,
                                 queueTotal: appState.questionQueue.count,
                                 onAnswer: { appState.answerQuestion($0) },
@@ -184,8 +186,8 @@ struct NotchPanelView: View {
                                 options: preview.options,
                                 descriptions: preview.descriptions,
                                 allQuestions: [],
-                                sessionSource: session?.source,
-                                sessionContext: session?.cwd,
+                                session: session,
+                                sessionId: sid,
                                 queuePosition: 1,
                                 queueTotal: 1,
                                 onAnswer: { _ in },
@@ -854,11 +856,57 @@ private struct IdleIndicatorBar: View {
     }
 }
 
+// MARK: - Session identity, shared by the approval and question cards
+//
+// With more than one session queued, "delete this file?" or a yes/no question says nothing
+// about which project it belongs to — this used to be entirely absent from ApprovalBar and
+// only a small grey line in QuestionBar. Both cards now lead with the same bold identity the
+// session list already uses, so answering from memory of "which one asked" isn't required.
+
+private struct SessionIdentityBadge: View {
+    let session: SessionSnapshot
+    let sessionId: String
+
+    private var accent: Color {
+        switch session.source {
+        case "claude": return Color(red: 0.85, green: 0.47, blue: 0.34)
+        case "codex":  return Color(red: 0.35, green: 0.60, blue: 0.95)
+        default:       return Color(red: 0.6, green: 0.7, blue: 0.9)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if let icon = cliIcon(source: session.source, size: 15) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 15, height: 15)
+            }
+            SessionIdentityLine(
+                session: session,
+                sessionId: sessionId,
+                projectFontSize: 13,
+                projectColor: .white,
+                sessionFontSize: 10,
+                sessionColor: accent,
+                dividerColor: .white.opacity(0.25)
+            )
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+    }
+}
+
 // MARK: - Approval Bar (below notch, auto-expanded)
 
 private struct ApprovalBar: View {
     let tool: String
     let toolInput: [String: Any]?
+    /// Which session is asking. With several sessions queued, "what tool" alone doesn't say
+    /// "which project" — this card used to carry the session id in `.approvalCard(sessionId:)`
+    /// and never read it.
+    let session: SessionSnapshot?
+    let sessionId: String
     let queuePosition: Int
     let queueTotal: Int
     let onAllow: () -> Void
@@ -880,6 +928,9 @@ private struct ApprovalBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            if let session {
+                SessionIdentityBadge(session: session, sessionId: sessionId)
+            }
             // Tool name + file context
             HStack(spacing: 6) {
                 Text("!")
@@ -1113,8 +1164,8 @@ private struct QuestionBar: View {
     let descriptions: [String]?
     /// All AskUserQuestion items (1-4). Empty for legacy Notification questions.
     let allQuestions: [AskUserQuestionItem]
-    let sessionSource: String?
-    let sessionContext: String?
+    let session: SessionSnapshot?
+    let sessionId: String
     let queuePosition: Int
     let queueTotal: Int
     let onAnswer: (String) -> Void
@@ -1142,25 +1193,8 @@ private struct QuestionBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // Session context
-            if sessionSource != nil || sessionContext != nil {
-                HStack(spacing: 5) {
-                    if let src = sessionSource, let icon = cliIcon(source: src, size: 12) {
-                        Image(nsImage: icon)
-                            .resizable()
-                            .frame(width: 12, height: 12)
-                    }
-                    if let cwd = sessionContext {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Text((cwd as NSString).lastPathComponent)
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 14)
+            if let session {
+                SessionIdentityBadge(session: session, sessionId: sessionId)
             }
 
             if let item = currentItem {
