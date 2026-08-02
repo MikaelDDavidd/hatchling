@@ -245,7 +245,8 @@ final class MobileBridgeIntegrationTests: XCTestCase {
                 sessionId: "s1", source: "claude", status: "running", project: "Hatchling",
                 cwd: "/tmp", model: "opus-5", currentTool: "Bash", toolDescription: "running tests",
                 lastUserPrompt: "go", lastAssistantMessage: "on it",
-                startTime: 1, lastActivity: 2, interrupted: false, canPrompt: false, contextPercent: 12
+                startTime: 1, lastActivity: 2, interrupted: false, canPrompt: false, contextPercent: 12,
+                verb: nil, contextTokens: nil, contextLimit: nil, terminal: nil, subagents: []
             )
         ])
 
