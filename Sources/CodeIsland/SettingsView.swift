@@ -1350,7 +1350,7 @@ private struct NotchMiniAnim: View {
     private let orange = Color(red: 0.96, green: 0.65, blue: 0.14)
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.03)) { ctx in
+        TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
             Canvas { c, sz in
                 draw(c, sz: sz, t: ctx.date.timeIntervalSinceReferenceDate)
             }

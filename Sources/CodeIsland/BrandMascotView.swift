@@ -15,7 +15,7 @@ struct BrandMascotView: View {
     private static let alertC = Color(red: 1.0, green: 0.24, blue: 0.0)
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !alive)) { ctx in
+        TimelineView(.animation(minimumInterval: MascotTiming.tick, paused: !alive)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate * max(speed, 0.01)
             BrandIconImage(source: source)
                 .frame(width: size, height: size)

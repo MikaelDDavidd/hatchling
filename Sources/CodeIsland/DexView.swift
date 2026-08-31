@@ -135,11 +135,11 @@ struct DexView: View {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private var sleepScene: some View {
         ZStack {
-            TimelineView(.periodic(from: .now, by: 0.06)) { ctx in
+            TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
                 let t = ctx.date.timeIntervalSinceReferenceDate * speed
                 sleepCanvas(t: t)
             }
-            TimelineView(.periodic(from: .now, by: 0.05)) { ctx in
+            TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
                 let t = ctx.date.timeIntervalSinceReferenceDate * speed
                 floatingZs(t: t)
             }
@@ -190,7 +190,7 @@ struct DexView: View {
     // WORK — bouncing, cursor active, typing on keyboard
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private var workScene: some View {
-        TimelineView(.periodic(from: .now, by: 0.03)) { timeline in
+        TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate * speed
             workCanvas(t: t)
         }
@@ -249,7 +249,7 @@ struct DexView: View {
                 .blur(radius: size * 0.05)
                 .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: alive)
 
-            TimelineView(.periodic(from: .now, by: 0.03)) { ctx in
+            TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
                 alertCanvas(t: ctx.date.timeIntervalSinceReferenceDate * speed)
             }
         }

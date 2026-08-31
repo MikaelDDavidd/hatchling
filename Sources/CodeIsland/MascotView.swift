@@ -1,6 +1,25 @@
 import SwiftUI
 import CodeIslandCore
 
+// MARK: - Mascot Animation Cadence
+
+/// How often every mascot's `TimelineView` ticks.
+///
+/// AppKit keeps a window in continuous-layout mode — a full layout and
+/// constraint pass on every display refresh, 120×/s on ProMotion — for as long
+/// as something asks it to redraw faster than every 250ms. The threshold is a
+/// cliff, not a slope: measured on this machine, a 0.25s cadence costs 126
+/// layout passes/s and 4.3% CPU while 0.26s costs 4 passes/s and 0.4%, and
+/// anything below 0.25s costs the same whether it ticks 4×/s or 33×/s.
+///
+/// So the mascots tick just past the cliff. The animation is coarser, which
+/// suits pixel art, and the app stops burning a core corner doing nothing.
+/// Frame-perfect motion needs Core Animation driving the layer directly, which
+/// runs in the window server and never wakes this process at all.
+enum MascotTiming {
+    static let tick: Double = 0.28
+}
+
 // MARK: - Mascot Animation Speed Environment
 
 private struct MascotSpeedKey: EnvironmentKey {
