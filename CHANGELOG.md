@@ -1,5 +1,46 @@
 # Changelog
 
+## [v0.4.0] - 2026-08-31
+
+### Added
+- **A companion app for the phone.** Hatchling now serves its state over a
+  relay, so an iOS or Android device can watch every session, read the
+  conversation, answer a permission prompt or a question, send a prompt, and
+  interrupt a run — from anywhere, not just from the machine the agents are
+  working on. Pairing is a code shown on the Mac and typed into the phone.
+- **The conversation, in the panel.** Clicking a session opens what was
+  actually said, paged straight off the CLI's own transcript so nothing is
+  cached and nothing goes stale. The terminal is still one click away; this is
+  for reading.
+- **Agent messages render as markdown.** Headings, bullets that keep their own
+  numbering, fenced code, rules, and inline bold, italics and code spans.
+  Tables are stacked rather than gridded — a three-column table in a panel this
+  narrow is unreadable at any font size — so each row becomes a small block led
+  by its first cell. What you typed stays literal.
+- **Rate limits reach the phone**, so the usage bars are the same on both.
+
+### Changed
+- **The chat reads as a conversation instead of a stack of tool calls.** An
+  assistant turn reaches the transcript a line per block, so a sentence and each
+  tool call it made were being shown as separate turns — a column of near-empty
+  cards, one per tool, each with its own speaker label. Entries that are nothing
+  but a tool call now fold into the sentence that announced them, and repeated
+  tools collapse into one chip with a count.
+
+### Fixed
+- **The panel stopped redrawing itself 120 times a second.** Hatchling sat at
+  ~15% of a core doing nothing. Profiling found the drawing was 2% of it: the
+  cost was AppKit holding the window in continuous-layout mode, which it does
+  for as long as anything asks to redraw more often than every 250ms — and the
+  mascots ticked every 0.03s. It is a cliff, not a slope: a 0.25s cadence
+  measured 4.3% CPU, 0.26s measured 0.4%, and below the threshold the cost is
+  the same whether it ticks 4 or 33 times a second. That is why drawing less,
+  showing fewer mascots, and turning the animation-speed slider to zero had all
+  changed nothing. The mascots now tick past the cliff, and the status shimmer
+  moved to Core Animation, which the window server interpolates without waking
+  the app. Measured on the running app: mean 14.9% → 4.0%, median 14.1% → 2.8%.
+- **Permission and question cards never said which session was asking.**
+
 ## [v0.3.1] - 2026-07-28
 
 ### Fixed
