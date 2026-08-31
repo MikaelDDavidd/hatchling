@@ -152,10 +152,10 @@ struct CursorView: View {
     // ━━━━━━ SLEEP ━━━━━━
     private var sleepScene: some View {
         ZStack {
-            TimelineView(.periodic(from: .now, by: 0.06)) { ctx in
+            TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
                 sleepCanvas(t: ctx.date.timeIntervalSinceReferenceDate * speed)
             }
-            TimelineView(.periodic(from: .now, by: 0.05)) { ctx in
+            TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
                 floatingZs(t: ctx.date.timeIntervalSinceReferenceDate * speed)
             }
         }
@@ -195,7 +195,7 @@ struct CursorView: View {
 
     // ━━━━━━ WORK ━━━━━━
     private var workScene: some View {
-        TimelineView(.periodic(from: .now, by: 0.03)) { ctx in
+        TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
             workCanvas(t: ctx.date.timeIntervalSinceReferenceDate * speed)
         }
     }
@@ -244,7 +244,7 @@ struct CursorView: View {
                 .blur(radius: size * 0.05)
                 .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: alive)
 
-            TimelineView(.periodic(from: .now, by: 0.03)) { ctx in
+            TimelineView(.periodic(from: .now, by: MascotTiming.tick)) { ctx in
                 alertCanvas(t: ctx.date.timeIntervalSinceReferenceDate * speed)
             }
         }
