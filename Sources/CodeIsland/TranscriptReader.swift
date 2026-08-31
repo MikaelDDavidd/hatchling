@@ -123,11 +123,85 @@ enum TranscriptReader {
             offset = start
         }
 
+        // The cursor counts transcript entries, not turns, so it has to be computed before
+        // coalescing — otherwise the next page would skip everything that got merged away.
         return MobileChatPage(
-            messages: messages,
+            messages: coalesce(messages),
             nextBefore: reachedStart && messages.count < limit ? nil : skip + messages.count,
             reachedStart: reachedStart && messages.count < limit
         )
+    }
+
+    /// Folds tool-only entries into the thing that was said before them.
+    ///
+    /// An assistant turn reaches the transcript as several lines — a line of prose, then a line
+    /// per tool call — so read literally the chat becomes a stack of near-empty cards, one per
+    /// tool, each wearing its own speaker label.
+    ///
+    /// Only the empty ones are absorbed. Merging everything a speaker said between two replies
+    /// was worse than the problem: it collapsed a working session into one wall of text and cut
+    /// the link between a sentence and the commands it announced. Keeping each sentence as its
+    /// own turn, with the tools it went on to run listed beneath it, matches how the work
+    /// actually happened.
+    ///
+    /// Input and output are both newest-first, matching the page order.
+    static func coalesce(_ messages: [MobileChatMessage]) -> [MobileChatMessage] {
+        Array(coalesceChronological(Array(messages.reversed())).reversed())
+    }
+
+    /// `coalesce` for lists held oldest-first, which is how the panel keeps them.
+    static func coalesceChronological(_ messages: [MobileChatMessage]) -> [MobileChatMessage] {
+        var turns: [MobileChatMessage] = []
+        /// Tools run before their speaker had said anything they could hang under.
+        var orphans: (user: Bool, at: Int, tools: [String])?
+
+        func flushOrphans() {
+            guard let held = orphans else { return }
+            orphans = nil
+            // Nothing to attach to — the agent is mid-run and has not reported back yet.
+            turns.append(MobileChatMessage(user: held.user, text: "", at: held.at, tools: held.tools))
+        }
+
+        for message in messages {
+            guard message.text.isEmpty else {
+                // A sentence adopts the tools that ran just before it, which is the case when an
+                // agent works first and reports afterwards.
+                if let held = orphans, held.user == message.user {
+                    orphans = nil
+                    turns.append(MobileChatMessage(
+                        user: message.user,
+                        text: message.text,
+                        at: held.at,
+                        tools: held.tools + message.tools
+                    ))
+                    continue
+                }
+                flushOrphans()
+                turns.append(message)
+                continue
+            }
+
+            // Tools alone: they belong to whatever this speaker last said.
+            if let previous = turns.last, previous.user == message.user, !previous.text.isEmpty {
+                turns[turns.count - 1] = MobileChatMessage(
+                    user: previous.user,
+                    text: previous.text,
+                    at: previous.at,
+                    tools: previous.tools + message.tools
+                )
+                continue
+            }
+
+            if let held = orphans, held.user == message.user {
+                orphans = (held.user, held.at, held.tools + message.tools)
+            } else {
+                flushOrphans()
+                orphans = (message.user, message.at, message.tools)
+            }
+        }
+
+        flushOrphans()
+        return turns
     }
 
     // MARK: - Parsing

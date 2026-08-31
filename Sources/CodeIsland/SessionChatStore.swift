@@ -70,10 +70,13 @@ final class SessionChatStore {
             await MainActor.run { [weak self] in
                 guard let self, let page, self.path == path else { return }
                 let fresh = Array(page.messages.reversed())
+                guard let cut = fresh.first?.at else { return }
                 // Only the tail is replaced; anything already paged in above it stays put.
-                let anchor = self.messages.count > fresh.count ? self.messages.count - fresh.count : 0
-                let kept = Array(self.messages.prefix(anchor))
-                self.messages = kept + fresh
+                // The split is by timestamp rather than by count: turns are coalesced from a
+                // varying number of transcript entries, so counting would drift and either
+                // duplicate or drop a turn on every refresh.
+                let kept = self.messages.filter { $0.at < cut }
+                self.messages = TranscriptReader.coalesceChronological(kept + fresh)
             }
         }
     }
@@ -94,7 +97,11 @@ final class SessionChatStore {
                     return
                 }
                 // Pages walk backwards, so each one goes in front of what is already held.
-                self.messages = Array(page.messages.reversed()) + self.messages
+                // Coalescing again across the seam keeps a turn that straddles two pages from
+                // reading as two turns by the same speaker.
+                self.messages = TranscriptReader.coalesceChronological(
+                    Array(page.messages.reversed()) + self.messages
+                )
                 self.nextBefore = page.nextBefore
                 self.reachedStart = page.reachedStart
             }

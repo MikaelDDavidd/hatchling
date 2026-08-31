@@ -163,25 +163,33 @@ struct SessionChatView: View {
                     .foregroundStyle(message.user ? .white.opacity(0.35) : accent.opacity(0.8))
 
                 if !message.text.isEmpty {
-                    Text(message.text)
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .foregroundStyle(.white.opacity(message.user ? 0.72 : 0.92))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // What the user typed is shown as typed — running their own prose through a
+                    // markdown renderer would eat their asterisks and backticks.
+                    if message.user {
+                        Text(message.text)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        MarkdownText(text: message.text)
+                    }
                 }
 
                 if !message.tools.isEmpty {
-                    HStack(spacing: 5) {
-                        ForEach(message.tools.prefix(6), id: \.self) { tool in
-                            Text(tool)
+                    let summary = ToolSummary.summarize(message.tools)
+                    // Wraps, because a coalesced turn can name more tools than fit on one line.
+                    FlowLayout(spacing: 5, lineSpacing: 4) {
+                        ForEach(summary.prefix(8), id: \.self) { entry in
+                            Text(entry.label)
                                 .font(.system(size: 9, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.4))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.06)))
                         }
-                        if message.tools.count > 6 {
-                            Text("+\(message.tools.count - 6)")
+                        if summary.count > 8 {
+                            Text("+\(summary.count - 8)")
                                 .font(.system(size: 9, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.25))
                         }
