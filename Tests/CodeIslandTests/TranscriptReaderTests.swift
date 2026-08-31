@@ -55,9 +55,13 @@ final class TranscriptReaderTests: XCTestCase {
         XCTAssertEqual(page.messages.last?.text, "primeira")
     }
 
+    /// Speakers alternate so that every entry stays its own turn — consecutive entries by one
+    /// speaker are merged on purpose, and that would hide whether paging repeated or skipped.
     func testPagingWalksBackwardsWithoutRepeatingOrSkipping() throws {
         var lines: [String] = []
-        for index in 0..<50 { lines.append(userLine("m\(index)")) }
+        for index in 0..<50 {
+            lines.append(index.isMultiple(of: 2) ? userLine("m\(index)") : assistantLine(text: "m\(index)"))
+        }
         try write(lines)
 
         let first = try XCTUnwrap(TranscriptReader.page(path: file.path, before: nil, limit: 20))
@@ -158,7 +162,10 @@ final class TranscriptReaderTests: XCTestCase {
     func testAConversationLargerThanOneWindowPagesCorrectly() throws {
         var lines: [String] = []
         let padding = String(repeating: "y", count: 2000)
-        for index in 0..<400 { lines.append(userLine("m\(index) \(padding)")) }
+        for index in 0..<400 {
+            let text = "m\(index) \(padding)"
+            lines.append(index.isMultiple(of: 2) ? userLine(text) : assistantLine(text: text))
+        }
         try write(lines)
 
         let page = try XCTUnwrap(TranscriptReader.page(path: file.path, before: nil, limit: 30))
