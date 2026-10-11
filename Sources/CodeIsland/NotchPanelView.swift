@@ -1852,6 +1852,33 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
         scrollView.scrollerStyle = .overlay
         scrollView.verticalScroller?.controlSize = .mini
     }
+
+    // No macOS 27 o SwiftUI deixou de derivar a altura do representable das
+    // constraints acima: reservava menos espaço do que a NSScrollView ocupava, e
+    // ela transbordava para cima, escondendo o primeiro card embaixo do StatusBar
+    // e do UsageBar. Responder a altura aqui faz os dois concordarem.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView scrollView: NSScrollView, context: Context) -> CGSize? {
+        let measurer = context.coordinator.measurer(for: content)
+        let width = proposal.width ?? scrollView.frame.width
+        let contentHeight = measurer.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: min(contentHeight, maxHeight))
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        private var controller: NSHostingController<Content>?
+
+        func measurer(for content: Content) -> NSHostingController<Content> {
+            if let controller {
+                controller.rootView = content
+                return controller
+            }
+            let controller = NSHostingController(rootView: content)
+            self.controller = controller
+            return controller
+        }
+    }
 }
 
 private struct SessionIdentityLine: View {
