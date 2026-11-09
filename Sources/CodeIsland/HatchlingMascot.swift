@@ -120,6 +120,10 @@ final class HatchlingMascotLayerView: NSView {
     private let happy = CALayer()
     private let happyLeft = CAShapeLayer()
     private let happyRight = CAShapeLayer()
+    /// Closed eyes for sleeping: two lids curving down, the opposite of the smile's arches.
+    private let sleepEyes = CALayer()
+    private let sleepLeft = CAShapeLayer()
+    private let sleepRight = CAShapeLayer()
     /// Two small hands floating beside the block, never touching it. They hang off a rig
     /// that repeats every move of the body a beat late, so they trail it the way loose
     /// parts do (follow-through), and each also drifts on its own. Shown only where there
@@ -281,7 +285,8 @@ final class HatchlingMascotLayerView: NSView {
 
     private var allLayers: [CALayer] {
         [figure, body, bodyMask, rim, sheen, sheenMask, slot, dots, dot, sign, face, happy, happyLeft, happyRight,
-         handsRig, leftHand, rightHand, leftShineHand, rightShineHand, mouth] + lids + zzz + eyes.flatMap(\.all)
+         handsRig, leftHand, rightHand, leftShineHand, rightShineHand, mouth, sleepEyes, sleepLeft, sleepRight]
+            + lids + zzz + eyes.flatMap(\.all)
     }
 
     private static let noActions: [String: CAAction] = [
@@ -315,6 +320,14 @@ final class HatchlingMascotLayerView: NSView {
         happy.addSublayer(happyLeft)
         happy.addSublayer(happyRight)
         face.addSublayer(happy)
+        sleepEyes.addSublayer(sleepLeft)
+        sleepEyes.addSublayer(sleepRight)
+        sleepEyes.opacity = 0
+        face.addSublayer(sleepEyes)
+        for arc in [sleepLeft, sleepRight] {
+            arc.fillColor = nil
+            arc.lineCap = .round
+        }
         for (eye, lid) in zip(eyes, lids) { eye.container.addSublayer(lid) }
         face.addSublayer(mouth)
         figure.addSublayer(face)
@@ -472,6 +485,17 @@ final class HatchlingMascotLayerView: NSView {
             eye.shine.path = CGPath(ellipseIn: CGRect(origin: .zero, size: shine.size), transform: nil)
         }
 
+        // Asleep: lids closed, curving down, a little below where the eyes sit.
+        sleepEyes.frame = full
+        for (arc, c) in zip([sleepLeft, sleepRight], centres) {
+            arc.frame = full
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: c.x - 9, y: c.y + 1))
+            p.addQuadCurve(to: CGPoint(x: c.x + 9, y: c.y + 1), control: CGPoint(x: c.x, y: c.y + 9))
+            arc.path = p.copy(using: [scale])
+            arc.lineWidth = max(1.2, 3.8 * s)
+        }
+
         // Closed, smiling eyes for the moment a run finishes: two little arches.
         happy.frame = full
         for (arc, c) in zip([happyLeft, happyRight], centres) {
@@ -540,6 +564,9 @@ final class HatchlingMascotLayerView: NSView {
         happyLeft.strokeColor = eyeColor.cgColor
         happyRight.strokeColor = eyeColor.cgColor
         mouth.strokeColor = eyeColor.cgColor
+        let sleepy = (eyeColor.blended(withFraction: 0.35, of: .black) ?? eyeColor).cgColor
+        sleepLeft.strokeColor = sleepy
+        sleepRight.strokeColor = sleepy
         dot.fillColor = eyeColor.cgColor
         face.shadowColor = eyeColor.cgColor
         face.shadowOpacity = 0.55
@@ -569,6 +596,8 @@ final class HatchlingMascotLayerView: NSView {
             z.removeAllAnimations()
             z.opacity = 0
         }
+        sleepEyes.opacity = 0
+        for eye in eyes { eye.container.opacity = 1 }
         face.removeAnimation(forKey: Key.glow)
         dot.removeAllAnimations()
         sign.removeAllAnimations()
@@ -601,7 +630,8 @@ final class HatchlingMascotLayerView: NSView {
         case .resting where sleepy:
             // Dozing: eyes half shut, slow deep breaths, "Zzz" floating up out of the corner.
             addBodyMotion(breathe(phase: phase, duration: 5.2, depth: 1.07), forKey: Key.figure)
-            for eye in eyes { eye.container.transform = CATransform3DMakeScale(1, 0.28, 1) }
+            for eye in eyes { eye.container.opacity = 0 }
+            sleepEyes.opacity = 1
             face.shadowOpacity = 0.15
             floatZzz(s: s)
         case .resting:
