@@ -64,7 +64,7 @@ struct SessionChatView: View {
             }
             .buttonStyle(.plain)
 
-            MascotView(source: session.source, status: session.status, size: 20)
+            AgentDot(source: session.source, status: session.status, size: 9)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
@@ -265,7 +265,7 @@ struct SessionChatView: View {
     /// The agent's current step at the foot of the conversation while it works.
     private var liveRow: some View {
         HStack(spacing: 8) {
-            MascotView(source: session.source, status: session.status, size: 18)
+            AgentDot(source: session.source, status: session.status, size: 7)
             Text(moments.moment(for: session, sessionId: sessionId).now)
                 .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(accent.opacity(0.9))

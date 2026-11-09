@@ -37,6 +37,7 @@ final class L10n: ObservableObject {
     ]
 
     private static let en: [String: String] = [
+        "summary_open_chat": "Open conversation",
         "ai_summary_section": "Session summaries",
         "ai_summary": "Summarise each card with Claude Haiku",
         "ai_key_saved": "API key saved in the Keychain",
@@ -280,6 +281,7 @@ final class L10n: ObservableObject {
     ]
 
     private static let zh: [String: String] = [
+        "summary_open_chat": "打开对话",
         "ai_summary_section": "会话摘要",
         "ai_summary": "用 Claude Haiku 概括每张卡片",
         "ai_key_saved": "API 密钥已存入钥匙串",
@@ -523,6 +525,7 @@ final class L10n: ObservableObject {
     ]
 
     private static let tr: [String: String] = [
+        "summary_open_chat": "Sohbeti aç",
         "ai_summary_section": "Oturum özetleri",
         "ai_summary": "Her kartı Claude Haiku ile özetle",
         "ai_key_saved": "API anahtarı Anahtar Zinciri’nde kayıtlı",
@@ -766,6 +769,7 @@ final class L10n: ObservableObject {
     ]
 
     private static let pt: [String: String] = [
+        "summary_open_chat": "Abrir conversa",
         "ai_summary_section": "Resumo das sessões",
         "ai_summary": "Resumir cada card com o Claude Haiku",
         "ai_key_saved": "Chave salva no Keychain",

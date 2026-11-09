@@ -57,26 +57,8 @@ struct NotchPanelView: View {
         return notchW * scale
     }
 
-    /// How many CLI sources currently have a session (for sizing the mascot strip).
-    private var activeSourceCount: Int {
-        let sources = Set(appState.sessions.values.map { $0.source ?? "claude" })
-        return max(sources.count, 1)
-    }
-
-    /// Width needed by the left mascot strip — grows with active source count.
-    private var leftWingWidth: CGFloat {
-        let n = min(activeSourceCount, 4)
-        // mirrors stripMascotSize() in CompactLeftWing
-        let perSize: CGFloat = {
-            switch n {
-            case ...1: return mascotSize
-            case 2:    return mascotSize * 0.85
-            case 3:    return mascotSize * 0.75
-            default:   return mascotSize * 0.65
-            }
-        }()
-        return CGFloat(n) * perSize + CGFloat(max(n - 1, 0)) * 3 + 14
-    }
+    /// Width needed by the left wing: the one global Hatch.
+    private var leftWingWidth: CGFloat { mascotSize + 14 }
 
     /// Width needed by the right wing — biggest when a usage alert shows,
     /// medium for gerund verb, smallest for the idle counter.
@@ -145,86 +127,7 @@ struct NotchPanelView: View {
                         // Live usage bar (Codex local; per-session % on each card)
                         UsageBar()
 
-                        switch appState.surface {
-                        case .approvalCard(let sid):
-                            if let pending = appState.pendingPermission {
-                                ApprovalBar(
-                                    tool: pending.event.toolName ?? "Unknown",
-                                    toolInput: pending.event.toolInput,
-                                    session: appState.sessions[sid],
-                                    sessionId: sid,
-                                    queuePosition: 1,
-                                    queueTotal: appState.permissionQueue.count,
-                                    onAllow: { appState.approvePermission(always: false) },
-                                    onAlwaysAllow: { appState.approvePermission(always: true) },
-                                    onDeny: { appState.denyPermission() }
-                                )
-                                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
-                            }
-                        case .questionCard(let sid):
-                            let session = appState.sessions[sid]
-                            if let q = appState.pendingQuestion {
-                                QuestionBar(
-                                    question: q.question.question,
-                                    options: q.question.options,
-                                    descriptions: q.question.descriptions,
-                                    allQuestions: q.askUserQuestionState?.items ?? [],
-                                    session: session,
-                                    sessionId: sid,
-                                    queuePosition: 1,
-                                    queueTotal: appState.questionQueue.count,
-                                    onAnswer: { appState.answerQuestion($0) },
-                                    onAnswerMulti: { appState.answerQuestionMulti($0) },
-                                    onSkip: { appState.skipQuestion() }
-                                )
-                                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
-                            } else if let preview = appState.previewQuestionPayload {
-                                QuestionBar(
-                                    question: preview.question,
-                                    options: preview.options,
-                                    descriptions: preview.descriptions,
-                                    allQuestions: [],
-                                    session: session,
-                                    sessionId: sid,
-                                    queuePosition: 1,
-                                    queueTotal: 1,
-                                    onAnswer: { _ in },
-                                    onAnswerMulti: { _ in },
-                                    onSkip: { }
-                                )
-                                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
-                            }
-                        case .completionCard:
-                            SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId)
-                                .transition(.blurFade.combined(with: .move(edge: .top)))
-                        case .sessionList:
-                            PanelTabContent(appState: appState)
-                                .transition(.asymmetric(
-                                    insertion: .offset(x: -36).combined(with: .opacity),
-                                    removal: .offset(x: -36).combined(with: .opacity)
-                                ))
-                        case .sessionChat(let sid):
-                            if let session = appState.sessions[sid] {
-                                // The chat is a level deeper than the list, so it comes in from the
-                                // right and leaves the same way, like a page being pushed.
-                                SessionChatView(sessionId: sid, session: session, appState: appState)
-                                    .transition(.asymmetric(
-                                        insertion: .offset(x: 48).combined(with: .opacity),
-                                        removal: .offset(x: 48).combined(with: .opacity)
-                                    ))
-                            }
-                        case .buddySpeech:
-                            if let speech = appState.pendingBuddySpeech {
-                                BuddySpeechBubble(
-                                    speech: speech,
-                                    buddy: BuddyReader.shared.buddy,
-                                    onDismiss: { appState.dismissBuddySpeech() }
-                                )
-                                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
-                            }
-                        case .collapsed:
-                            EmptyView()
-                        }
+                        surfaceContent
                     }
                     .padding(.top, 2)
                     .background(
@@ -405,6 +308,96 @@ struct NotchPanelView: View {
         .animation(NotchAnimation.open, value: appState.surface)
     }
 
+    /// What fills the panel under the status and usage bars, by surface.
+    @ViewBuilder
+    private var surfaceContent: some View {
+        switch appState.surface {
+        case .approvalCard(let sid):
+            if let pending = appState.pendingPermission {
+                ApprovalBar(
+                    tool: pending.event.toolName ?? "Unknown",
+                    toolInput: pending.event.toolInput,
+                    session: appState.sessions[sid],
+                    sessionId: sid,
+                    queuePosition: 1,
+                    queueTotal: appState.permissionQueue.count,
+                    onAllow: { appState.approvePermission(always: false) },
+                    onAlwaysAllow: { appState.approvePermission(always: true) },
+                    onDeny: { appState.denyPermission() }
+                )
+                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
+        case .questionCard(let sid):
+            let session = appState.sessions[sid]
+            if let q = appState.pendingQuestion {
+                QuestionBar(
+                    question: q.question.question,
+                    options: q.question.options,
+                    descriptions: q.question.descriptions,
+                    allQuestions: q.askUserQuestionState?.items ?? [],
+                    session: session,
+                    sessionId: sid,
+                    queuePosition: 1,
+                    queueTotal: appState.questionQueue.count,
+                    onAnswer: { appState.answerQuestion($0) },
+                    onAnswerMulti: { appState.answerQuestionMulti($0) },
+                    onSkip: { appState.skipQuestion() }
+                )
+                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+            } else if let preview = appState.previewQuestionPayload {
+                QuestionBar(
+                    question: preview.question,
+                    options: preview.options,
+                    descriptions: preview.descriptions,
+                    allQuestions: [],
+                    session: session,
+                    sessionId: sid,
+                    queuePosition: 1,
+                    queueTotal: 1,
+                    onAnswer: { _ in },
+                    onAnswerMulti: { _ in },
+                    onSkip: { }
+                )
+                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
+        case .completionCard(let sid):
+            if let session = appState.sessions[sid] {
+                SummaryStage(sessionId: sid, session: session, appState: appState)
+                    .transition(.blurFade)
+            } else {
+                SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId)
+                    .transition(.blurFade.combined(with: .move(edge: .top)))
+            }
+        case .sessionList:
+            PanelTabContent(appState: appState)
+                .transition(.asymmetric(
+                    insertion: .offset(x: -36).combined(with: .opacity),
+                    removal: .offset(x: -36).combined(with: .opacity)
+                ))
+        case .sessionChat(let sid):
+            if let session = appState.sessions[sid] {
+                // The chat is a level deeper than the list, so it comes in from the
+                // right and leaves the same way, like a page being pushed.
+                SessionChatView(sessionId: sid, session: session, appState: appState)
+                    .transition(.asymmetric(
+                        insertion: .offset(x: 48).combined(with: .opacity),
+                        removal: .offset(x: 48).combined(with: .opacity)
+                    ))
+            }
+        case .buddySpeech:
+            if let speech = appState.pendingBuddySpeech {
+                BuddySpeechBubble(
+                    speech: speech,
+                    buddy: BuddyReader.shared.buddy,
+                    onDismiss: { appState.dismissBuddySpeech() }
+                )
+                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
+        case .collapsed:
+            EmptyView()
+        }
+    }
+
     private func handleNotchFileDrop(providers: [NSItemProvider]) -> Bool {
         var didAccept = false
         for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -443,46 +436,13 @@ private struct CompactLeftWing: View {
         return appState.sessions[sid]
     }
     private var displaySource: String { displaySession?.source ?? appState.primarySource }
+    private var isPresenting: Bool {
+        if case .completionCard = appState.surface { return true }
+        return false
+    }
     private var displayStatus: AgentStatus { displaySession?.status ?? .idle }
     private var liveTool: String? { displaySession?.currentTool }
 
-    /// One mascot per CLI source — picks the most-active session per source
-    /// (alert > processing > idle) so the strip stays compact and readable.
-    /// Sources with no sessions fall through; ordering follows attention rank.
-    private var rankedSessions: [SessionSnapshot] {
-        func rank(_ s: SessionSnapshot) -> Int {
-            switch s.status {
-            case .waitingApproval, .waitingQuestion: return 0
-            case .processing, .running: return 1
-            case .idle: return 2
-            }
-        }
-        // Bucket per source, keep the lowest-ranked (most attention-grabbing)
-        var byKey: [String: SessionSnapshot] = [:]
-        for s in appState.sessions.values {
-            let key = s.source ?? "claude"
-            if let existing = byKey[key] {
-                if rank(s) < rank(existing) { byKey[key] = s }
-            } else {
-                byKey[key] = s
-            }
-        }
-        return byKey.values.sorted { a, b in
-            let ra = rank(a), rb = rank(b)
-            if ra != rb { return ra < rb }
-            return (a.source ?? "") < (b.source ?? "")
-        }
-    }
-
-    /// Per-mascot size when stacking multiple — shrinks gracefully.
-    private func stripMascotSize(count: Int) -> CGFloat {
-        switch count {
-        case ...1: return mascotSize
-        case 2:    return mascotSize * 0.85
-        case 3:    return mascotSize * 0.75
-        default:   return mascotSize * 0.65
-        }
-    }
     @State private var shownTool: String?
     @State private var lingerTimer: Timer?
 
@@ -491,39 +451,19 @@ private struct CompactLeftWing: View {
             if expanded {
                 // Hatch stands at the head of the panel in the mood of the session that most
                 // needs attention, so the panel has a face even before you read a card.
-                let lead = rankedSessions.first
-                MascotView(source: lead?.source ?? displaySource, status: lead?.status ?? displayStatus, size: 30)
+                let mood = GlobalMood(sessions: Array(appState.sessions.values), fallbackSource: displaySource)
+                MascotView(source: mood.source, status: mood.status, size: 30, global: true)
                     .padding(.trailing, 2)
+                    // While it presents a finished run it is down in the panel, big; the header
+                    // spot stays empty so there is only ever one of it on screen.
+                    .opacity(isPresenting ? 0 : 1)
+                    .animation(.easeOut(duration: 0.2), value: isPresenting)
                 PanelTabSelector()
             } else {
-                let sessions = rankedSessions
-                let visible = Array(sessions.prefix(4))
-                let hidden = max(0, sessions.count - visible.count)
-                let perSize = stripMascotSize(count: max(visible.count, 1))
-
-                if visible.isEmpty {
-                    MascotView(source: displaySource, status: displayStatus, size: mascotSize)
-                        .transition(.opacity)
-                } else {
-                    HStack(spacing: 3) {
-                        ForEach(visible.indices, id: \.self) { i in
-                            let s = visible[i]
-                            MascotView(
-                                source: s.source ?? "claude",
-                                status: s.status,
-                                size: perSize
-                            )
-                            .id((s.source ?? "claude") + "-" + (s.cliPid.map(String.init) ?? "\(i)"))
-                            .transition(.opacity)
-                        }
-                        if hidden > 0 {
-                            Text("+\(hidden)")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.5))
-                        }
-                    }
-                    .animation(.easeInOut(duration: 0.25), value: visible.count)
-                }
+                // One Hatch for every session, in the mood of whichever needs you most.
+                let mood = GlobalMood(sessions: Array(appState.sessions.values), fallbackSource: displaySource)
+                MascotView(source: mood.source, status: mood.status, size: mascotSize, global: true)
+                    .transition(.opacity)
 
                 // On notch screens, show tool name from the focus session.
                 // Long MCP names like "mcp__playwright__browser_console_messages"
@@ -2147,17 +2087,20 @@ private struct SessionCard: View {
     }
 
     // ── Mascot column ───────────────────────────────────────────────
+    /// The agent's colour, where each card used to carry its own mascot. Hatch is one
+    /// character now, at the head of the panel, speaking for every session.
     @ViewBuilder
     private var mascotColumn: some View {
-        VStack(spacing: 3) {
-            MascotView(source: session.source, status: session.status, size: 30)
+        VStack(spacing: 6) {
+            AgentDot(source: session.source, status: session.status, size: 9)
+                .padding(.top, 6)
             if showAgentDetails && !session.subagents.isEmpty {
                 subagentGrid
             }
         }
-        .frame(width: 36)
+        .frame(width: showAgentDetails && !session.subagents.isEmpty ? 36 : 14)
         .padding(.leading, 10)
-        .padding(.trailing, 4)
+        .padding(.trailing, 6)
         .padding(.top, 10)
     }
 
