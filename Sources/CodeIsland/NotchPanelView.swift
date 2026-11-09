@@ -325,7 +325,7 @@ struct NotchPanelView: View {
                     onAlwaysAllow: { appState.approvePermission(always: true) },
                     onDeny: { appState.denyPermission() }
                 )
-                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             }
         case .questionCard(let sid):
             let session = appState.sessions[sid]
@@ -343,7 +343,7 @@ struct NotchPanelView: View {
                     onAnswerMulti: { appState.answerQuestionMulti($0) },
                     onSkip: { appState.skipQuestion() }
                 )
-                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             } else if let preview = appState.previewQuestionPayload {
                 QuestionBar(
                     question: preview.question,
@@ -358,15 +358,15 @@ struct NotchPanelView: View {
                     onAnswerMulti: { _ in },
                     onSkip: { }
                 )
-                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             }
         case .completionCard(let sid):
             if let session = appState.sessions[sid] {
                 SummaryStage(sessionId: sid, session: session, appState: appState)
-                    .transition(.blurFade)
+                    .transition(.opacity)
             } else {
                 SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId)
-                    .transition(.blurFade.combined(with: .move(edge: .top)))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         case .sessionList:
             PanelTabContent(appState: appState)
@@ -391,7 +391,7 @@ struct NotchPanelView: View {
                     buddy: BuddyReader.shared.buddy,
                     onDismiss: { appState.dismissBuddySpeech() }
                 )
-                .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             }
         case .collapsed:
             EmptyView()
@@ -522,19 +522,14 @@ private struct CompactRightWing: View {
         return (cwd as NSString).lastPathComponent
     }
 
-    /// Returns a whimsical gerund verb when an agent is actively processing,
-    /// otherwise nil so the session counter shows. Seed includes currentTool
-    /// so the verb stays stable while the same tool runs.
-    private var activeGerundVerb: String? {
-        let processing = appState.sessions.values.contains {
-            $0.status == .processing || $0.status == .running
-        }
-        guard processing else { return nil }
-        guard let sid = displaySessionId, let snap = appState.sessions[sid] else {
-            return GerundVerbs.pick(seed: nil)
-        }
-        let seed = sid + "·" + (snap.currentTool ?? "")
-        return GerundVerbs.pick(seed: seed)
+    /// What the working session is doing, in a few words ("Editando Foo.swift"), or nil
+    /// so the session counter shows. Real information instead of a random playful verb.
+    private var activeStep: String? {
+        let working = appState.sessions.values.filter { $0.status == .processing || $0.status == .running }
+        guard !working.isEmpty else { return nil }
+        let snap = displaySessionId.flatMap { appState.sessions[$0] }
+            .flatMap { ($0.status == .processing || $0.status == .running) ? $0 : nil } ?? working.first!
+        return MomentStore.localMoment(for: snap).now
     }
 
     @ViewBuilder
@@ -572,18 +567,10 @@ private struct CompactRightWing: View {
             } else {
                 // YOLO mode badge — always-visible when auto-accept is on
                 if autoAcceptPermissions {
-                    Image(systemName: "bolt.fill")
+                    Text("YOLO")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.20))
                         .help("YOLO mode active — permissions auto-accepted")
-                }
-
-                // Pending approval/question badge
-                if appState.status == .waitingApproval || appState.status == .waitingQuestion {
-                    Image(systemName: "bell.fill")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color(red: 1.0, green: 0.7, blue: 0.28))
-                        .symbolEffect(.pulse, options: .repeating)
                 }
 
                 if let alert = alerts.pending {
@@ -592,11 +579,13 @@ private struct CompactRightWing: View {
                         .foregroundStyle(alert.color)
                         .lineLimit(1)
                         .transition(.opacity)
-                } else if let verb = activeGerundVerb {
-                    Text("\(verb)…")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color(red: 0.95, green: 0.78, blue: 0.4))
+                } else if let step = activeStep {
+                    Text(step)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 150, alignment: .trailing)
                         .transition(.opacity)
                 } else if showToolStatus {
                     sessionCounter(fontSize: 12, weight: .semibold)
@@ -619,7 +608,7 @@ private struct ContextProgressTrack: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(color.opacity(0.15))
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(color.gradient)
+                    .fill(color)
                     .frame(width: geo.size.width * CGFloat(min(max(pct, 0), 100)) / 100.0)
             }
         }
@@ -1741,7 +1730,7 @@ struct SessionListView: View {
                     .padding(.bottom, 2)
                 }
 
-                ForEach(Array(group.ids.enumerated()), id: \.element) { index, sessionId in
+                ForEach(group.ids, id: \.self) { sessionId in
                     if let session = appState.sessions[sessionId] {
                         SessionCard(
                             sessionId: sessionId,
@@ -1749,7 +1738,6 @@ struct SessionListView: View {
                             appState: appState,
                             isCompletion: onlySessionId != nil
                         )
-                        .modifier(StaggeredEntrance(index: index))
                     }
                 }
             }
@@ -1950,7 +1938,7 @@ private struct ProjectNameLink: View {
 
     var body: some View {
         Text(name)
-            .font(.system(size: fontSize, weight: .bold, design: .monospaced))
+            .font(.system(size: fontSize, weight: .semibold))
             .foregroundStyle(color)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -2035,12 +2023,13 @@ private struct SessionCard: View {
         }
     }
     private var statusLabel: String {
-        if session.status == .idle && session.interrupted { return "INTERRUPTED" }
+        let l10n = L10n.shared
+        if session.status == .idle && session.interrupted { return l10n["st_interrupted"] }
         switch session.status {
-        case .processing, .running:               return "WORKING"
-        case .waitingApproval:                    return "WAITING APPROVAL"
-        case .waitingQuestion:                    return "WAITING ANSWER"
-        case .idle:                               return "IDLE"
+        case .processing, .running:               return l10n["st_working"]
+        case .waitingApproval:                    return l10n["st_waiting_approval"]
+        case .waitingQuestion:                    return l10n["st_waiting_answer"]
+        case .idle:                               return l10n["st_idle"]
         }
     }
 
@@ -2062,31 +2051,24 @@ private struct SessionCard: View {
 
     @ViewBuilder
     private var cardContent: some View {
+        // No coloured stripe down the side and no status-tinted border: the agent dot and
+        // the status text already say it, and a tinted rail is the first thing that makes a
+        // card look generated.
         HStack(alignment: .top, spacing: 0) {
-            statusBar
             mascotColumn
             contentColumn
         }
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(hovering ? Color.white.opacity(0.07) : Color.white.opacity(0.035))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(hovering ? Color.white.opacity(0.065) : Color.white.opacity(0.035))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(statusAccent.opacity(hovering ? 0.25 : 0.10), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.white.opacity(hovering ? 0.10 : 0.05), lineWidth: 1)
         )
         .padding(.horizontal, 6)
     }
 
-    // ── Status bar (left edge) ──────────────────────────────────────
-    private var statusBar: some View {
-        RoundedRectangle(cornerRadius: 1.5)
-            .fill(statusAccent)
-            .frame(width: 3)
-            .padding(.vertical, 8)
-    }
-
-    // ── Mascot column ───────────────────────────────────────────────
     /// The agent's colour, where each card used to carry its own mascot. Hatch is one
     /// character now, at the head of the panel, speaking for every session.
     @ViewBuilder
@@ -2190,24 +2172,18 @@ private struct SessionCard: View {
         let moment = momentStore.moment(for: session, sessionId: sessionId)
         VStack(alignment: .leading, spacing: 3) {
             Text(moment.now)
-                .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                .font(.system(size: fontSize + 0.5, weight: .medium))
                 .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
                 .animation(.easeOut(duration: 0.25), value: moment.now)
             if let task = moment.task, task != moment.now {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("❯")
-                        .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.28))
-                    Text(task)
-                        .font(.system(size: fontSize - 1, design: .monospaced))
-                        .italic()
-                        .foregroundStyle(.white.opacity(0.48))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+                Text(task)
+                    .font(.system(size: fontSize - 1))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
     }
@@ -2215,54 +2191,23 @@ private struct SessionCard: View {
     // ── Status pill (top-right of header) ───────────────────────────
     @ViewBuilder
     private var statusPill: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(statusAccent)
-                .frame(width: 6, height: 6)
-                .opacity(session.status == .idle ? 0.55 : 1.0)
-            Text(statusLabel)
-                .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
-                .foregroundStyle(statusAccent.opacity(session.status == .idle ? 0.55 : 0.95))
-                .lineLimit(1)
-                .fixedSize()
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(
-            Capsule().fill(statusAccent.opacity(0.10))
-        )
+        Text(statusLabel)
+            .font(.system(size: fontSize - 2, weight: .medium))
+            .foregroundStyle(session.status == .idle ? Color.white.opacity(0.38) : statusAccent)
+            .lineLimit(1)
+            .fixedSize()
     }
 
-    // ── Message row without "$" / ">" prefixes — uses subtle marker ─
-    // ── Compact meta line: gerund verb · tool · time · terminal ─────
+    // ── Footer: how long ago, and in which terminal ─────────────────
     @ViewBuilder
     private var metaFooter: some View {
         HStack(spacing: 6) {
-            if session.status == .processing || session.status == .running {
-                let verb = GerundVerbs.pick(seed: sessionId + "·" + (session.currentTool ?? ""))
-                Text("\(verb)…")
-                    .font(.system(size: fontSize - 1, weight: .medium, design: .monospaced))
-                    .foregroundStyle(statusAccent.opacity(0.95))
-                if let tool = session.currentTool {
-                    Text("·")
-                        .foregroundStyle(.white.opacity(0.20))
-                    Text(tool)
-                        .font(.system(size: fontSize - 1, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .lineLimit(1)
-                }
-            } else if session.status == .waitingApproval || session.status == .waitingQuestion {
-                Text("Needs you")
-                    .font(.system(size: fontSize - 1, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(statusAccent)
-            }
             Spacer(minLength: 6)
             Text(timeAgo(session.startTime))
-                .font(.system(size: fontSize - 2, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.40))
+                .font(.system(size: fontSize - 2, weight: .medium).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.35))
             TerminalBadge(session: session)
         }
-        .padding(.leading, 14)
     }
 
     private func timeAgo(_ date: Date) -> String {
@@ -2281,27 +2226,6 @@ private struct CardPressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .brightness(configuration.isPressed ? 0.04 : 0)
             .animation(.spring(response: 0.22, dampingFraction: 0.7), value: configuration.isPressed)
-    }
-}
-
-/// Cards drop in one after another when the list appears, instead of all at once.
-private struct StaggeredEntrance: ViewModifier {
-    let index: Int
-    @State private var shown = false
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(shown ? 1 : 0)
-            .offset(y: shown ? 0 : 10)
-            .onAppear {
-                guard !shown else { return }
-                if Motion.isReduced {
-                    shown = true
-                    return
-                }
-                let delay = 0.1 + Double(min(index, 6)) * 0.045
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.8).delay(delay)) { shown = true }
-            }
     }
 }
 
@@ -2526,7 +2450,7 @@ private struct TerminalBadge: View {
                         .foregroundStyle(remoteColor)
                     if let term = session.terminalName {
                         Text(term)
-                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(remoteColor)
                     }
                 }
@@ -2545,7 +2469,7 @@ private struct TerminalBadge: View {
                     }
                     if let term = session.terminalName {
                         Text(term)
-                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                     }
                 }
@@ -2691,7 +2615,7 @@ private struct SessionTag: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+            .font(.system(size: 10, weight: .medium))
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)

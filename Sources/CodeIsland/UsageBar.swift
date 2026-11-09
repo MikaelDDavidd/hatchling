@@ -63,12 +63,9 @@ struct UsageBar: View {
 
     @ViewBuilder
     private func sourceTag(_ name: String, color: Color) -> some View {
-        Text(name.uppercased())
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
-            .foregroundStyle(color.opacity(0.85))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(color.opacity(0.12)))
+        Text(name.capitalized)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(color.opacity(0.9))
     }
 
     @ViewBuilder

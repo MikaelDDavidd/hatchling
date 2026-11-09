@@ -113,8 +113,7 @@ final class MomentStore: ObservableObject {
         let task = lastRealPrompt(of: session).map { cleanLine($0, limit: 90) }.flatMap { $0.isEmpty ? nil : $0 }
         switch session.status {
         case .waitingApproval:
-            let what = session.currentTool.map { describe(tool: $0, detail: session.toolDescription, pt: pt) }
-            return SessionMoment(now: (pt ? "Precisa da sua aprovação: " : "Needs your OK: ") + (what ?? (pt ? "uma ação" : "an action")), task: task)
+            return SessionMoment(now: request(tool: session.currentTool, detail: session.toolDescription, pt: pt), task: task)
         case .waitingQuestion:
             return SessionMoment(now: pt ? "Tem uma pergunta pra você" : "Has a question for you", task: task)
         case .processing, .running:
@@ -127,6 +126,24 @@ final class MomentStore: ObservableObject {
                 return SessionMoment(now: firstSentence(of: reply), task: task)
             }
             return SessionMoment(now: pt ? "Esperando você" : "Waiting for you", task: task)
+        }
+    }
+
+    /// What it is asking to do, as a request: "Quer rodar terraform apply".
+    static func request(tool: String?, detail: String?, pt: Bool) -> String {
+        let target = detail.map { simplify(target: $0) }.flatMap { $0.isEmpty ? nil : $0 }
+        func ask(_ verbPT: String, _ verbEN: String) -> String {
+            let verb = pt ? verbPT : verbEN
+            return target.map { "\(verb) \($0)" } ?? verb
+        }
+        switch tool {
+        case "Bash":                          return ask("Quer rodar", "Wants to run")
+        case "Edit", "MultiEdit", "NotebookEdit": return ask("Quer editar", "Wants to edit")
+        case "Write":                         return ask("Quer criar", "Wants to write")
+        case "WebFetch":                      return ask("Quer abrir", "Wants to open")
+        case "WebSearch":                     return ask("Quer pesquisar", "Wants to search for")
+        case .some(let name):                 return pt ? "Quer usar \(name)" : "Wants to use \(name)"
+        case .none:                           return pt ? "Precisa da sua aprovação" : "Needs your approval"
         }
     }
 

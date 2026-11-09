@@ -36,7 +36,7 @@ struct MarkdownText: View {
         case let .bullet(marker, text, indent):
             HStack(alignment: .top, spacing: 6) {
                 Text(marker)
-                    .font(.system(size: size, design: .monospaced))
+                    .font(.system(size: size))
                     .foregroundStyle(.white.opacity(opacity * 0.45))
                 inline(text)
             }
@@ -100,8 +100,9 @@ struct MarkdownText: View {
         weight: Font.Weight = .regular,
         opacity override: Double? = nil
     ) -> some View {
+        // Prose reads in the system face; inline `code` spans and fenced blocks stay monospaced.
         Text(MarkdownCache.inline(for: text))
-            .font(.system(size: size ?? self.size, weight: weight, design: .monospaced))
+            .font(.system(size: size ?? self.size, weight: weight))
             .foregroundStyle(.white.opacity(override ?? opacity))
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)

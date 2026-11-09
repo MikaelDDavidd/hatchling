@@ -437,7 +437,8 @@ final class HatchlingMascotLayerView: NSView {
             if sleepy { showSign("z", color: NSColor(white: 0.75, alpha: 1)) } else { sign.opacity = 0 }
         }
         figure.shadowOpacity = 0
-        face.shadowOpacity = mood == .resting ? 0.35 : 0.6
+        // A faint, steady light on the eyes, as on the icon. No pulsing glow.
+        face.shadowOpacity = 0.25
 
         guard !Motion.isReduced else { return }
         let s = builtSize.width / 100
@@ -472,13 +473,11 @@ final class HatchlingMascotLayerView: NSView {
             figure.add(sway(s: s), forKey: Key.figure)
             blink(every: 4.0, phase: phase)
             for eye in eyes { eye.pupilGroup.add(ponder(s: s, phase: phase), forKey: Key.look) }
-            face.add(pulse(from: 0.3, to: 0.7, duration: 2.0), forKey: Key.glow)
         case .working:
             figure.add(bob(s: s), forKey: Key.figure)
             blink(every: 3.1, phase: phase)
             // Eyes on the work: down and to the side, where the terminal would be.
             for eye in eyes { eye.pupilGroup.transform = CATransform3DMakeTranslation(1.8 * s, 2.4 * s, 0) }
-            face.add(pulse(from: 0.35, to: 0.85, duration: 1.4), forKey: Key.glow)
             let hop = CAKeyframeAnimation(keyPath: "transform.translation.y")
             hop.values = [0, -2.4 * s, 0, 0]
             hop.keyTimes = [0, 0.2, 0.42, 1]
@@ -487,7 +486,6 @@ final class HatchlingMascotLayerView: NSView {
         case .needsYou:
             figure.add(fidget(), forKey: Key.figure)
             for eye in eyes { eye.container.transform = CATransform3DMakeScale(1.14, 1.14, 1) }
-            face.add(pulse(from: 0.4, to: 1.0, duration: 0.8), forKey: Key.glow)
             let flash = CABasicAnimation(keyPath: "opacity")
             flash.fromValue = 1
             flash.toValue = 0.35

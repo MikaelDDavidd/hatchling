@@ -33,18 +33,12 @@ struct BuddyPage: View {
                         // Identity column
                         VStack(alignment: .leading, spacing: 10) {
                             HStack(spacing: 8) {
-                                Text(buddy.species.emoji)
                                 Text(buddy.name)
                                     .font(.system(size: 18, weight: .bold))
                                 if buddy.isShiny {
-                                    Text("✨ shiny")
-                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    Text("shiny")
+                                        .font(.system(size: 11, weight: .semibold))
                                         .foregroundStyle(.yellow)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(
-                                            Capsule().fill(Color.yellow.opacity(0.18))
-                                        )
                                 }
                             }
                             Text(buddy.personality)
@@ -53,9 +47,6 @@ struct BuddyPage: View {
                                 .lineLimit(3)
 
                             HStack(spacing: 6) {
-                                Text(buddy.rarity.stars)
-                                    .foregroundStyle(buddy.rarity.color)
-                                    .font(.system(size: 11, design: .monospaced))
                                 Text(buddy.rarity.displayName)
                                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                     .foregroundStyle(buddy.rarity.color)

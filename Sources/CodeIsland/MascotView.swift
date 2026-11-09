@@ -65,8 +65,7 @@ struct AgentDot: View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
-            .shadow(color: color.opacity(status == .idle ? 0 : 0.8), radius: status == .idle ? 0 : 4)
-            .opacity(status == .idle ? 0.55 : 1)
+            .opacity(status == .idle ? 0.45 : 1)
     }
 }
 
