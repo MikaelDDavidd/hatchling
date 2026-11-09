@@ -42,9 +42,14 @@ struct HatchlingMascotView: NSViewRepresentable {
     let source: String
     let status: AgentStatus
     var size: CGFloat = 27
+    var global: Bool = false
+    var celebrates: Bool = false
 
     func makeNSView(context: Context) -> HatchlingMascotLayerView {
-        HatchlingMascotLayerView()
+        let view = HatchlingMascotLayerView()
+        view.reactsToEveryRun = global
+        view.celebratesOnAppear = celebrates
+        return view
     }
 
     func updateNSView(_ view: HatchlingMascotLayerView, context: Context) {
@@ -108,6 +113,18 @@ final class HatchlingMascotLayerView: NSView {
     /// starts one Core Animation and goes back to sleep, so it costs a wake-up, not a redraw.
     private var idleTimer: Timer?
     private var hasAppeared = false
+    var reactsToEveryRun = false {
+        didSet {
+            NotificationCenter.default.removeObserver(self, name: .hatchCelebrate, object: nil)
+            guard reactsToEveryRun else { return }
+            NotificationCenter.default.addObserver(self, selector: #selector(runFinished), name: .hatchCelebrate, object: nil)
+        }
+    }
+    var celebratesOnAppear = false
+
+    @objc private func runFinished() {
+        celebrate()
+    }
     private static let dozeAfter: TimeInterval = 180
 
     override init(frame: NSRect) {
@@ -163,7 +180,7 @@ final class HatchlingMascotLayerView: NSView {
         animate()
         if !hasAppeared {
             hasAppeared = true
-            popIn()
+            if celebratesOnAppear { celebrate() } else { popIn() }
         }
         scheduleIdleBehaviour()
     }

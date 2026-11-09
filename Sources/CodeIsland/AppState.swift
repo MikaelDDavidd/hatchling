@@ -584,6 +584,8 @@ final class AppState {
     private func enqueueCompletion(_ sessionId: String) {
         // Don't queue duplicates
         if completionQueue.contains(sessionId) || justCompletedSessionId == sessionId { return }
+        // Hatch hops for every finished run, whether or not a card gets shown for it.
+        NotificationCenter.default.post(name: .hatchCelebrate, object: sessionId)
 
         if isShowingCompletion || isShowingInteractive {
             // Already showing one — queue this for later
