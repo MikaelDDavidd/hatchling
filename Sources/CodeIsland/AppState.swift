@@ -1772,8 +1772,6 @@ final class AppState {
         requestDiscoveryScan()
         // Watch all known session-store roots so discovery keeps working when hooks are missed.
         startProjectsWatcher()
-        // Periodic buddy musings — quiet by default
-        startBuddySpeechScheduler()
     }
 
     // MARK: - Buddy Speech
@@ -1827,8 +1825,9 @@ final class AppState {
 
     /// Same bubble, but with caller-supplied text — used to report the outcome
     /// of an explicit action (e.g. creating a checkpoint) in the notch itself.
-    func showBuddySpeech(text: String, mood: BuddyMood = .idle) {
-        let speech = BuddySpeech(text: text, mood: mood)
+    func showBuddySpeech(text: String, mood: BuddyMood = .idle, title: String? = nil,
+                         reaction: HatchReaction? = nil, duration: TimeInterval = 5.5) {
+        let speech = BuddySpeech(text: text, mood: mood, title: title, reaction: reaction)
         pendingBuddySpeech = speech
         lastBuddySpeechAt = Date()
         withAnimation(NotchAnimation.open) {
@@ -1837,7 +1836,7 @@ final class AppState {
         // Schedule auto-dismiss
         buddySpeechDismissTask?.cancel()
         buddySpeechDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 5_500_000_000) // 5.5s
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
             guard let self = self else { return }
             // Only dismiss if still showing the same speech (no override happened)
             if self.pendingBuddySpeech?.id == speech.id, self.surface == .buddySpeech {

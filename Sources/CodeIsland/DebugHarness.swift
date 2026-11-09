@@ -118,6 +118,34 @@ enum DebugHarness {
 
         state.sessions["preview-approval"] = s
         state.activeSessionId = "preview-approval"
+        // A real pending request, so the card draws. `--tool edit|write|read|grep|mcp`
+        // picks what is being asked; two extra copies fill the queue line.
+        let args = ProcessInfo.processInfo.arguments
+        let kind = args.firstIndex(of: "--tool").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } ?? "bash"
+        let (tool, input): (String, [String: Any]) = {
+            switch kind {
+            case "edit": return ("Edit", ["file_path": "/Users/dev/web/src/components/Legend.tsx",
+                                          "old_string": "width: 320px;", "new_string": "width: 100%; flex-wrap: wrap;"])
+            case "write": return ("Write", ["file_path": "/Users/dev/web/src/hooks/useBreakpoint.ts",
+                                            "content": "export function useBreakpoint() {\n  const [w, setW] = useState(window.innerWidth)\n  useEffect(() => {\n    const onResize = () => setW(window.innerWidth)"])
+            case "read": return ("Read", ["file_path": "/Users/dev/.ssh/config", "offset": 0, "limit": 40])
+            case "grep": return ("Grep", ["pattern": "TODO|FIXME", "path": "src/"])
+            case "mcp": return ("mcp__github__create_issue", ["title": "Legenda cortada no mobile", "repo": "mikael/dashboard",
+                                                              "body": "O gráfico corta a legenda no celular"])
+            default: return ("Bash", ["command": "npm run test -- --coverage"])
+            }
+        }()
+        let json: [String: Any] = ["hook_event_name": "PermissionRequest", "session_id": "preview-approval",
+                                   "tool_name": tool, "tool_input": input]
+        if let data = try? JSONSerialization.data(withJSONObject: json), let event = HookEvent(from: data) {
+            for _ in 0..<3 {
+                Task { @MainActor in
+                    _ = await withCheckedContinuation { (c: CheckedContinuation<Data, Never>) in
+                        state.permissionQueue.append(PermissionRequest(event: event, continuation: c))
+                    }
+                }
+            }
+        }
         state.surface = .approvalCard(sessionId: "preview-approval")
     }
 
