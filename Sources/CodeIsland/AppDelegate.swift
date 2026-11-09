@@ -14,6 +14,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var localShortcutMonitor: Any?
     let appState = AppState()
 
+    /// Hatch says hello: the panel opens on the agents list, it waves and says how many
+    /// sessions it is watching, and the panel closes again unless the mouse went to it.
+    private func welcome() {
+        guard !ProcessInfo.processInfo.arguments.contains("--preview") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self, self.appState.surface == .collapsed,
+                  UserDefaults.standard.string(forKey: SettingsKey.selectedPanelTab) ?? SettingsDefaults.selectedPanelTab == PanelTab.agents.rawValue
+            else { return }
+            withAnimation(NotchAnimation.open) { self.appState.surface = .sessionList }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                HatchDirector.shared.welcome(sessionCount: self.appState.sessions.count)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
+                guard self.appState.surface == .sessionList, !(self.panelController?.isMouseOverContent ?? false) else { return }
+                withAnimation(NotchAnimation.close) { self.appState.surface = .collapsed }
+            }
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
         // The mascot sheet is a review window and nothing else: no hook server, no panel,
@@ -48,6 +67,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         panelController = PanelWindowController(appState: appState)
         panelController?.showPanel()
+        HatchDirector.shared.attach(appState)
+        welcome()
 
         appState.startSessionDiscovery()
         RemoteManager.shared.startup()

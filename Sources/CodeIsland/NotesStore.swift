@@ -61,6 +61,7 @@ final class NotesStore: ObservableObject {
         let note = StickyNote(colorIndex: nextColor)
         notes.insert(note, at: 0)
         persist()
+        HatchDirector.shared.noteCreated()
         return note
     }
 

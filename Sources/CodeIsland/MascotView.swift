@@ -24,9 +24,11 @@ struct MascotView: View {
     var global: Bool = false
     /// Opens with the finishing hop and smile instead of the plain pop.
     var celebrates: Bool = false
+    /// Called with the number of recent clicks when the global Hatch is clicked.
+    var onPoke: ((Int) -> Void)? = nil
 
     var body: some View {
-        HatchlingMascotView(source: source, status: status, size: size, global: global, celebrates: celebrates)
+        HatchlingMascotView(source: source, status: status, size: size, global: global, celebrates: celebrates, onPoke: onPoke)
             .frame(width: size, height: size)
     }
 }

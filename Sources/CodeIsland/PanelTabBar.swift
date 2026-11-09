@@ -93,7 +93,11 @@ struct PanelTabContent: View {
             case .notes:
                 NotesView().transition(slide(forward))
             case .agents:
-                SessionListView(appState: appState, onlySessionId: nil).transition(slide(forward))
+                VStack(spacing: 0) {
+                    HatchStage(appState: appState)
+                    SessionListView(appState: appState, onlySessionId: nil)
+                }
+                .transition(slide(forward))
             }
         }
         .clipped()

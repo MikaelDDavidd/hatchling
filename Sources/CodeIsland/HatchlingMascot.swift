@@ -39,8 +39,9 @@ enum MascotMood: Equatable {
 }
 
 /// Things Hatch can be asked to do on top of its mood: a wave, a face, a gesture.
-enum HatchReaction: String {
+enum HatchReaction: String, CaseIterable {
     case wave, cheer, surprised, annoyed, wink, think, write, poke
+    case clap, shrug, scratch, point
     /// Hands up to catch a file being dragged over the notch, until `catchEnd`.
     case catchStart, catchEnd
 
@@ -752,6 +753,10 @@ final class HatchlingMascotLayerView: NSView {
         }
         guard !sleepy else { return }
         let s = builtSize.width / 100
+        if showsHands, Int.random(in: 0..<3) == 0 {
+            perform([.wave, .think, .scratch, .shrug, .clap, .point, .wink].randomElement()!)
+            return
+        }
         switch Int.random(in: 0..<5) {
         case 0: // a stretch: tall and thin, then back with a little wobble
             let a = CAKeyframeAnimation(keyPath: "sublayerTransform")
@@ -892,8 +897,286 @@ final class HatchlingMascotLayerView: NSView {
         switch reaction {
         case .wave: wave()
         case .cheer: celebrate(); raiseHands(duration: 1.0)
-        default: break
+        case .surprised: surprised()
+        case .annoyed: annoyed()
+        case .wink: wink()
+        case .think: think()
+        case .write: write()
+        case .poke: poke()
+        case .clap: clap()
+        case .shrug: shrug()
+        case .scratch: scratchHead()
+        case .point: point()
+        case .catchStart: setCatching(true)
+        case .catchEnd: setCatching(false)
         }
+    }
+
+    // MARK: Faces
+
+    private enum MouthShape { case smile, open, flat }
+
+    /// Shows a mouth for a moment. Hatch has none at rest, like the icon; it only appears
+    /// when a face needs one.
+    private func showMouth(_ shape: MouthShape, for duration: CFTimeInterval) {
+        let s = builtSize.width / 100
+        let path = CGMutablePath()
+        switch shape {
+        case .smile:
+            path.move(to: CGPoint(x: 43 * s, y: 77 * s))
+            path.addQuadCurve(to: CGPoint(x: 57 * s, y: 77 * s), control: CGPoint(x: 50 * s, y: 84 * s))
+            mouth.fillColor = nil
+        case .open:
+            path.addEllipse(in: CGRect(x: 46.5 * s, y: 74 * s, width: 7 * s, height: 8 * s))
+            mouth.fillColor = NSColor(red: 0.05, green: 0.05, blue: 0.07, alpha: 1).cgColor
+        case .flat:
+            path.move(to: CGPoint(x: 45 * s, y: 79 * s))
+            path.addLine(to: CGPoint(x: 55 * s, y: 79 * s))
+            mouth.fillColor = nil
+        }
+        mouth.path = path
+        let show = CAKeyframeAnimation(keyPath: "opacity")
+        show.values = [0, 1, 1, 0]
+        show.keyTimes = [0, 0.1, 0.85, 1]
+        show.duration = duration
+        mouth.add(show, forKey: "hatch.mouth")
+    }
+
+    /// Eyes go wide, pupils shrink, mouth drops open, hands jump.
+    private func surprised() {
+        let wide = CAKeyframeAnimation(keyPath: "transform.scale")
+        wide.values = [1, 1.24, 1.2, 1]
+        wide.keyTimes = [0, 0.12, 0.8, 1]
+        wide.duration = 1.3
+        let small = CAKeyframeAnimation(keyPath: "transform.scale")
+        small.values = [1, 0.7, 0.72, 1]
+        small.keyTimes = [0, 0.12, 0.8, 1]
+        small.duration = 1.3
+        for eye in eyes {
+            eye.container.add(wide, forKey: "hatch.face")
+            eye.pupilGroup.add(small, forKey: "hatch.face")
+        }
+        showMouth(.open, for: 1.3)
+        nudgeHands(dy: -9, duration: 0.6)
+    }
+
+    /// A frown: lids drop and slant inward, flat mouth, a short huff, hands on its sides.
+    private func annoyed() {
+        for (i, lid) in lids.enumerated() {
+            let angle: CGFloat = i == 0 ? 0.32 : -0.32
+            let drop = CAKeyframeAnimation(keyPath: "transform")
+            let down = CATransform3DRotate(CATransform3DMakeScale(1, 0.55, 1), angle, 0, 0, 1)
+            drop.values = [CATransform3DMakeScale(1, 0, 1), down, down, CATransform3DMakeScale(1, 0, 1)]
+                .map { NSValue(caTransform3D: $0) }
+            drop.keyTimes = [0, 0.12, 0.85, 1]
+            drop.duration = 1.8
+            lid.add(drop, forKey: "hatch.face")
+        }
+        showMouth(.flat, for: 1.8)
+        let huff = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        huff.values = [0, 0.07, -0.07, 0.04, 0]
+        huff.duration = 0.45
+        huff.isAdditive = true
+        addBodyMotion(huff, forKey: "hatch.huff")
+        let s = builtSize.width / 100
+        moveHands(to: [CGPoint(x: -4 * s, y: 80 * s), CGPoint(x: 104 * s, y: 80 * s)], hold: 1.2, duration: 1.8)
+    }
+
+    private func wink() {
+        let close = CAKeyframeAnimation(keyPath: "opacity")
+        close.values = [1, 0, 0, 1]
+        close.keyTimes = [0, 0.1, 0.8, 1]
+        close.duration = 0.9
+        eyes[1].container.add(close, forKey: "hatch.wink")
+        let arc = CAKeyframeAnimation(keyPath: "opacity")
+        arc.values = [0, 1, 1, 0]
+        arc.keyTimes = [0, 0.1, 0.8, 1]
+        arc.duration = 0.9
+        // Only the right arch of the smile shows.
+        happyRight.add(arc, forKey: "hatch.wink")
+        happy.add(arc, forKey: "hatch.wink")
+        happyLeft.opacity = 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) { [weak self] in self?.happyLeft.opacity = 1 }
+        showMouth(.smile, for: 0.9)
+    }
+
+    /// Hand to the chin, eyes up and to the side.
+    private func think() {
+        let s = builtSize.width / 100
+        moveHands(to: [handRest[0], CGPoint(x: 70 * s, y: 100 * s)], hold: 1.4, duration: 2.0)
+        let up = CAKeyframeAnimation(keyPath: "transform.translation")
+        let gaze = NSValue(size: NSSize(width: -3.4 * s, height: -3.2 * s))
+        up.values = [NSValue(size: .zero), gaze, gaze, NSValue(size: .zero)]
+        up.keyTimes = [0, 0.15, 0.85, 1]
+        up.duration = 2.0
+        up.isAdditive = true
+        for eye in eyes { eye.pupilGroup.add(up, forKey: "hatch.think") }
+    }
+
+    /// Scribbles under itself, eyes down on the paper.
+    private func write() {
+        guard showsHands else { return }
+        let s = builtSize.width / 100
+        let base = CGPoint(x: 62 * s, y: 100 * s)
+        var points = [handRest[1], base]
+        for i in 0..<6 { points.append(CGPoint(x: base.x + CGFloat(i.isMultiple(of: 2) ? -5 : 4) * s, y: base.y + CGFloat(i % 3) * s)) }
+        points += [base, handRest[1]]
+        let move = CAKeyframeAnimation(keyPath: "position")
+        move.values = points.map { NSValue(point: $0) }
+        move.calculationMode = .cubic
+        move.duration = 1.6
+        rightHand.add(move, forKey: "hatch.write")
+        let down = CAKeyframeAnimation(keyPath: "transform.translation")
+        let gaze = NSValue(size: NSSize(width: 1.5 * s, height: 3.2 * s))
+        down.values = [NSValue(size: .zero), gaze, gaze, NSValue(size: .zero)]
+        down.keyTimes = [0, 0.15, 0.85, 1]
+        down.duration = 1.6
+        down.isAdditive = true
+        for eye in eyes { eye.pupilGroup.add(down, forKey: "hatch.write") }
+    }
+
+    /// A click: it squashes, then answers with a face.
+    private func poke() {
+        let squash = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        squash.values = [0, -0.14, 0.07, -0.02, 0]
+        squash.duration = 0.4
+        squash.isAdditive = true
+        addBodyMotion(squash, forKey: "hatch.poke")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            [self?.wink, self?.surprised, self?.wave].randomElement()??()
+        }
+    }
+
+    // MARK: More gestures
+
+    /// Claps above its head, three times.
+    private func clap() {
+        guard showsHands else { return }
+        let s = builtSize.width / 100
+        for (i, hand) in [leftHand, rightHand].enumerated() {
+            let side: CGFloat = i == 0 ? -1 : 1
+            let apart = CGPoint(x: 50 * s + side * 14 * s, y: 4 * s)
+            let together = CGPoint(x: 50 * s + side * 6.5 * s, y: 4 * s)
+            let move = CAKeyframeAnimation(keyPath: "position")
+            move.values = [handRest[i], apart, together, apart, together, apart, together, apart, handRest[i]]
+                .map { NSValue(point: $0) }
+            move.calculationMode = .cubic
+            move.duration = 1.7
+            hand.add(move, forKey: "hatch.clap")
+        }
+        flashHappyEyes(duration: 1.5)
+    }
+
+    /// Hands out and up, palms open, a little tilt: "who knows".
+    private func shrug() {
+        let s = builtSize.width / 100
+        moveHands(to: [CGPoint(x: -16 * s, y: 54 * s), CGPoint(x: 116 * s, y: 54 * s)], hold: 0.8, duration: 1.4)
+        let tilt = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        tilt.values = [0, 0.1, 0.1, 0]
+        tilt.keyTimes = [0, 0.2, 0.8, 1]
+        tilt.duration = 1.4
+        tilt.isAdditive = true
+        addBodyMotion(tilt, forKey: "hatch.shrug")
+        showMouth(.flat, for: 1.4)
+    }
+
+    /// Scratches the top of its head, puzzled.
+    private func scratchHead() {
+        guard showsHands else { return }
+        let s = builtSize.width / 100
+        let spot = CGPoint(x: 88 * s, y: 12 * s)
+        var points = [handRest[1], spot]
+        for i in 0..<5 { points.append(CGPoint(x: spot.x + CGFloat(i.isMultiple(of: 2) ? 3 : -2) * s, y: spot.y + CGFloat(i.isMultiple(of: 2) ? -1.5 : 1.5) * s)) }
+        points += [spot, handRest[1]]
+        let move = CAKeyframeAnimation(keyPath: "position")
+        move.values = points.map { NSValue(point: $0) }
+        move.calculationMode = .cubic
+        move.duration = 1.6
+        rightHand.add(move, forKey: "hatch.scratch")
+        let look = CAKeyframeAnimation(keyPath: "transform.translation")
+        let gaze = NSValue(size: NSSize(width: 3 * s, height: -2.6 * s))
+        look.values = [NSValue(size: .zero), gaze, gaze, NSValue(size: .zero)]
+        look.keyTimes = [0, 0.15, 0.85, 1]
+        look.duration = 1.6
+        look.isAdditive = true
+        for eye in eyes { eye.pupilGroup.add(look, forKey: "hatch.scratch") }
+    }
+
+    /// Points down and to the right, where the session cards are.
+    private func point() {
+        let s = builtSize.width / 100
+        moveHands(to: [handRest[0], CGPoint(x: 120 * s, y: 86 * s)], hold: 1.0, duration: 1.5)
+        let look = CAKeyframeAnimation(keyPath: "transform.translation")
+        let gaze = NSValue(size: NSSize(width: 3.6 * s, height: 2.4 * s))
+        look.values = [NSValue(size: .zero), gaze, gaze, NSValue(size: .zero)]
+        look.keyTimes = [0, 0.15, 0.85, 1]
+        look.duration = 1.5
+        look.isAdditive = true
+        for eye in eyes { eye.pupilGroup.add(look, forKey: "hatch.point") }
+    }
+
+    /// Hands up and open while a file is dragged over the notch, as if to catch it.
+    private func setCatching(_ on: Bool) {
+        guard on != catching else { return }
+        catching = on
+        let s = builtSize.width / 100
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.3)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        let targets = on ? [CGPoint(x: -12 * s, y: 30 * s), CGPoint(x: 112 * s, y: 30 * s)] : handRest
+        for (hand, target) in zip([leftHand, rightHand], targets) {
+            let move = CABasicAnimation(keyPath: "position")
+            move.fromValue = NSValue(point: hand.presentation()?.position ?? hand.position)
+            move.toValue = NSValue(point: target)
+            move.duration = 0.3
+            hand.position = target
+            hand.add(move, forKey: "hatch.catch")
+        }
+        for eye in eyes {
+            eye.container.transform = on ? CATransform3DMakeScale(1.18, 1.18, 1) : CATransform3DIdentity
+        }
+        mouth.opacity = on ? 1 : 0
+        CATransaction.commit()
+        if on {
+            showMouthHeld(.open)
+        } else {
+            mouth.opacity = 0
+            flashHappyEyes(duration: 1.0)
+        }
+    }
+
+    private func showMouthHeld(_ shape: MouthShape) {
+        showMouth(shape, for: 0.01)
+        mouth.removeAnimation(forKey: "hatch.mouth")
+        mouth.opacity = 1
+    }
+
+    /// Moves both hands to `targets`, holds, and brings them back, each on a gentle arc.
+    private func moveHands(to targets: [CGPoint], hold: CFTimeInterval, duration: CFTimeInterval) {
+        guard showsHands else { return }
+        let rise = (duration - hold) / 2 / duration
+        for (i, hand) in [leftHand, rightHand].enumerated() where targets[i] != handRest[i] {
+            let move = CAKeyframeAnimation(keyPath: "position")
+            move.values = [handRest[i], targets[i], targets[i], handRest[i]].map { NSValue(point: $0) }
+            move.keyTimes = [0, NSNumber(value: rise), NSNumber(value: 1 - rise), 1]
+            move.timingFunctions = [
+                CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut),
+                CAMediaTimingFunction(name: .easeInEaseOut),
+            ]
+            move.duration = duration
+            hand.add(move, forKey: "hatch.move")
+        }
+    }
+
+    /// Both hands hop by `dy` (in grid units) and settle.
+    private func nudgeHands(dy: CGFloat, duration: CFTimeInterval) {
+        guard showsHands else { return }
+        let s = builtSize.width / 100
+        let hop = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        hop.values = [0, dy * s, dy * 0.3 * s, 0]
+        hop.duration = duration
+        hop.isAdditive = true
+        for hand in [leftHand, rightHand] { hand.add(hop, forKey: "hatch.nudge") }
     }
 
     /// The right hand rises along an arc to beside the head, waves on a small arc while

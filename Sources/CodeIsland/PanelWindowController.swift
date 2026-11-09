@@ -121,8 +121,9 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // A folga precisa cobrir tudo que fica acima da lista — faixa do notch,
         // divisória, StatusBar e UsageBar —, senão o `.clipped()` do painel come
         // o último card quando a lista chega no teto de `maxSessions * 90`.
-        // 140 de faixa + StatusBar + UsageBar, mais as margens da bandeja onde a lista fica.
-        let chromeHeight: CGFloat = 160
+        // 140 de faixa + StatusBar + UsageBar, mais as margens da bandeja onde a lista fica,
+        // mais a área do Hatch com o balão acima dos cards.
+        let chromeHeight: CGFloat = 240
         // The chat needs room the list never asked for. The window is transparent and the
         // content sizes itself, so a taller window costs nothing when the chat is closed — but
         // without the headroom `.clipped()` would cut the conversation off.
@@ -588,6 +589,13 @@ class PanelWindowController: NSObject, NSWindowDelegate {
 
     /// Fast check: is the terminal running the active session the foreground app?
     /// Main-thread safe — no AppleScript or subprocess calls.
+    /// Whether the mouse is over the panel's content (its top 400pt around the notch).
+    var isMouseOverContent: Bool {
+        guard let frame = panel?.frame else { return false }
+        let content = NSRect(x: frame.minX, y: frame.maxY - 400, width: frame.width, height: 400)
+        return content.contains(NSEvent.mouseLocation)
+    }
+
     func isActiveTerminalForeground() -> Bool {
         guard let sessionId = appState.activeSessionId,
               let session = appState.sessions[sessionId],
