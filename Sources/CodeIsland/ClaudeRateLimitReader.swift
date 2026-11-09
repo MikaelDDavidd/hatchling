@@ -17,6 +17,11 @@ struct ClaudeRateLimits: Equatable {
 
     var maxPercent: Int { max(fiveHourPercent ?? 0, sevenDayPercent ?? 0) }
 
+    /// Claude Code only sends these numbers to the statusline of the terminal app; the
+    /// desktop app never runs it. When the last reading is older than a 5-hour window, the
+    /// numbers describe a window that is already over, so they are not shown as current.
+    var isFresh: Bool { Date().timeIntervalSince(capturedAt) < 5 * 3600 }
+
     var color: Color {
         let m = maxPercent
         if m >= 90 { return Color(red: 0.95, green: 0.30, blue: 0.30) }
