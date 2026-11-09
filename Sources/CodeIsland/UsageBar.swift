@@ -14,7 +14,9 @@ struct UsageBar: View {
 
     var body: some View {
         let hasClaude = claude.limits?.isFresh == true
-        let claudeStale = claude.limits.map { !$0.isFresh } ?? false
+        // No current reading: old numbers, or none at all with the CLI signed out (a new
+        // install has never had a reading; it still needs the note and the sign-in button).
+        let claudeStale = claude.limits.map { !$0.isFresh } ?? claude.cliSignedOut
         let hasCodex = !(codex.snapshot?.isEmpty ?? true)
         HStack(spacing: 0) {
             if let lim = claude.limits, lim.isFresh {
@@ -28,6 +30,16 @@ struct UsageBar: View {
                         .tracking(0.2)
                         .foregroundStyle(.white.opacity(0.32))
                         .lineLimit(1)
+                    if claude.cliSignedOut {
+                        Button(L10n.shared["usage_claude_login_button"]) { claude.openLogin() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 8)
+                            .frame(height: 16)
+                            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.9)))
+                            .fixedSize()
+                    }
                 }
                 .help(L10n.shared[claude.cliSignedOut ? "usage_claude_login_help" : "usage_claude_stale_help"])
             }

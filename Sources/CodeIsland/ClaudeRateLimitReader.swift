@@ -77,9 +77,45 @@ final class ClaudeRateLimitReader: ObservableObject {
         probeTimer?.tolerance = 30
     }
 
+    /// Opens Terminal running `claude /login`, then asks for the limits every 20 seconds
+    /// for five minutes, so they show up as soon as the sign-in finishes. A `.command`
+    /// file opened with `open` needs no Automation permission.
+    func openLogin() {
+        guard let binary = ClaudeUsageProbe.claudeBinary() else { return }
+        let script = FileManager.default.temporaryDirectory.appendingPathComponent("hatchling-claude-login.command")
+        let body = """
+        #!/bin/zsh -l
+        clear
+        echo "Hatchling: entre na sua conta do Claude pra ver os limites de 5h e semanal."
+        echo
+        '\(binary.replacingOccurrences(of: "'", with: "'\\''"))' /login
+        """
+        guard (try? body.write(to: script, atomically: true, encoding: .utf8)) != nil else { return }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        NSWorkspace.shared.open(script)
+
+        loginWatch?.invalidate()
+        var ticks = 0
+        loginWatch = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                ticks += 1
+                guard let self, ticks <= 15, self.cliSignedOut else { timer.invalidate(); return }
+                self.probe()
+            }
+        }
+    }
+
+    private var loginWatch: Timer?
+
     private func probe() {
         Task.detached(priority: .utility) {
+            #if DEBUG
+            // Preview the signed-out row without signing out.
+            let result = ProcessInfo.processInfo.environment["HATCHLING_FAKE_SIGNED_OUT"] != nil
+                ? .signedOut : ClaudeUsageProbe.run()
+            #else
             let result = ClaudeUsageProbe.run()
+            #endif
             await MainActor.run {
                 switch result {
                 case .limits(let l):
@@ -263,7 +299,7 @@ enum ClaudeUsageProbe {
 
     /// The `claude` on the user's PATH, in the usual install places (the app doesn't
     /// inherit the login shell's PATH).
-    private nonisolated static func claudeBinary() -> String? {
+    nonisolated static func claudeBinary() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let candidates = [
             "\(home)/.local/bin/claude", "\(home)/.claude/local/claude",
