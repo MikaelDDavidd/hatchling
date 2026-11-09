@@ -62,6 +62,12 @@ final class HatchCompanion {
             // With Hatch's remarks turned off, the plain boot flash shows instead.
             guard let self, let appState = self.appState, self.enabled else { return }
             // Something already needs the user (a permission, a question): say hello later.
+            // A run that ends as the app opens (often this very session) put its summary in
+            // the notch first, and the hello waited behind it. The hello comes first now.
+            if case .completionCard = appState.surface, !appState.hasPendingInteraction {
+                appState.cancelCompletionQueue()
+                appState.surface = .collapsed
+            }
             guard self.canSpeak(ignoringGap: true) else {
                 if attempt < 8 { self.greet(attempt: attempt + 1, after: 5) }
                 return
