@@ -339,8 +339,10 @@ if isBlocking {
 // of NWListener's main-thread handler and the event is lost
 let response = recvAll(sock)
 
-// Blocking events: forward response to stdout for Claude Code
-if isBlocking && !response.isEmpty {
+// Blocking events: forward response to stdout for Claude Code. Other events usually get
+// "{}" back; when the app answers with a decision (YOLO allowing a PreToolUse), pass it on.
+let trimmed = String(decoding: response, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+if !response.isEmpty && (isBlocking || (trimmed != "{}" && trimmed.contains("hookSpecificOutput"))) {
     FileHandle.standardOutput.write(response)
 }
 

@@ -184,8 +184,23 @@ class HookServer {
             }
         } else {
             appState.handleEvent(event)
-            sendResponse(connection: connection, data: Data("{}".utf8))
+            sendResponse(connection: connection, data: Self.yoloPreToolUse(event) ?? Data("{}".utf8))
         }
+    }
+
+    /// YOLO through PreToolUse. The Claude desktop app shows its own permission dialog
+    /// and never sends PermissionRequest, so in its sessions YOLO had nothing to answer.
+    /// PreToolUse arrives before every tool call in every front end, and an "allow" there
+    /// skips the dialog (a documented hook decision). Not in auto mode, where Claude Code's
+    /// safety classifier decides and is left alone, nor in plan mode; never for a question.
+    private static func yoloPreToolUse(_ event: HookEvent) -> Data? {
+        guard event.eventName == "PreToolUse",
+              UserDefaults.standard.bool(forKey: SettingsKey.autoAcceptPermissions),
+              let tool = event.toolName, tool != "AskUserQuestion" else { return nil }
+        let mode = event.rawJSON["permission_mode"] as? String ?? "default"
+        guard mode == "default" || mode == "acceptEdits" else { return nil }
+        let json = #"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"YOLO no Hatchling"}}"#
+        return Data(json.utf8)
     }
 
     /// Per-connection state used by the disconnect monitor.

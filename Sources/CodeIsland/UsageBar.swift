@@ -110,14 +110,26 @@ struct UsageBar: View {
                 .fixedSize()
                 .frame(minWidth: 26, alignment: .leading)
             if let t = resetTimeShort(resetsAt) {
-                Text(String(format: L10n.shared["usage_resets_in"], t))
-                    .font(.system(size: 9, design: .monospaced))
-                    .tracking(0.2)
-                    .foregroundStyle(.white.opacity(0.28))
-                    .lineLimit(1)
-                    .layoutPriority(-1)
+                // "volta em 1h40" when there is room, "1h40" when tight, nothing when
+                // neither fits, instead of a cut-off "volt…". Always in the tooltip.
+                ViewThatFits(in: .horizontal) {
+                    resetText(String(format: L10n.shared["usage_resets_in"], t))
+                    resetText(t)
+                    Color.clear.frame(width: 0, height: 0)
+                }
+                .layoutPriority(-1)
             }
         }
+        .help(resetTimeShort(resetsAt).map { "\(label): \(pct)% · " + String(format: L10n.shared["usage_resets_in"], $0) } ?? "\(label): \(pct)%")
+    }
+
+    private func resetText(_ s: String) -> some View {
+        Text(s)
+            .font(.system(size: 9, design: .monospaced))
+            .tracking(0.2)
+            .foregroundStyle(.white.opacity(0.28))
+            .lineLimit(1)
+            .fixedSize()
     }
 
     /// Alerta acima de 70%, cor da fonte abaixo disso.
