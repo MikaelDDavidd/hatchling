@@ -533,32 +533,47 @@ enum MascotSheet {
 
     static func showIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("--mascot-sheet") else { return }
-        let sources = ["claude", "codex", "gemini"]
-        let moods: [(String, AgentStatus)] = [
-            ("resting", .idle), ("working", .running), ("approval", .waitingApproval), ("question", .waitingQuestion),
+        let poses: [(String, HatchPose)] = [("parado", .rest), ("acenando", .wave), ("mãos pra cima", .handsUp)]
+        let cast: [(String, AgentStatus, String)] = [
+            ("claude", .idle, "parado"), ("codex", .running, "trabalhando"), ("gemini", .processing, "pensando"),
         ]
-        let grid = VStack(alignment: .leading, spacing: 18) {
-            ForEach(moods, id: \.0) { name, status in
-                HStack(spacing: 28) {
-                    Text(name).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.6))
-                        .frame(width: 80, alignment: .leading)
-                    ForEach(sources, id: \.self) { source in
-                        HatchlingMascotView(source: source, status: status, size: 96)
-                            .frame(width: 96, height: 96)
+        let grid = VStack(alignment: .leading, spacing: 30) {
+            HStack(spacing: 40) {
+                ForEach(poses, id: \.0) { name, pose in
+                    VStack(spacing: 12) {
+                        HatchlingMascotView(source: "claude", status: .idle, size: 84, pose: pose)
+                            .frame(width: 84, height: 84)
+                        Text(name).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
                     }
-                    HatchlingMascotView(source: "claude", status: status, size: 26)
-                        .frame(width: 26, height: 26)
                 }
             }
+            Text("Ao vivo: acenam e comemoram a cada 3 s; as mãos seguem o corpo com atraso")
+                .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+            HStack(spacing: 56) {
+                ForEach(cast, id: \.0) { source, status, label in
+                    VStack(spacing: 12) {
+                        HatchlingMascotView(source: source, status: status, size: 120, global: true)
+                            .frame(width: 120, height: 120)
+                        Text(label).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+            }
+            .padding(.leading, 18)
         }
-        .padding(28)
+        .padding(48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.black)
+        var flip = false
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            flip.toggle()
+            (flip ? HatchReaction.wave : HatchReaction.cheer).post()
+        }
         let host = NSHostingView(rootView: grid)
-        let w = NSWindow(contentRect: NSRect(x: 80, y: 120, width: 560, height: 420),
+        let w = NSWindow(contentRect: NSRect(x: 80, y: 120, width: 760, height: 620),
                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
         w.title = "Mascot sheet"
         w.contentView = host
-        w.setContentSize(host.fittingSize)
+        w.setContentSize(NSSize(width: max(760, host.fittingSize.width), height: max(620, host.fittingSize.height)))
         w.orderFrontRegardless()
         window = w
     }
