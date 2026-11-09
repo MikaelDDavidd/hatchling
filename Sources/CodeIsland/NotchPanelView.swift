@@ -1809,74 +1809,111 @@ struct SessionListView: View {
 }
 
 /// Thin overlay scrollbar via NSScrollView — ignores system "show scrollbar" preference.
+///
+/// Sem Auto Layout de propósito. A versão anterior prendia o topo do documento ao
+/// topo da clip view por constraint, e no macOS 27 essa constraint passou a brigar
+/// com o scroll: a lista travava no meio, com o primeiro card cortado, sem rolar
+/// para cima nem para baixo. Agora a clip view é invertida (origem no topo) e o
+/// documento recebe o frame na mão, com a altura medida para a largura atual.
 private struct ThinScrollView<Content: View>: NSViewRepresentable {
     let maxHeight: CGFloat
     @ViewBuilder let content: Content
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+    func makeNSView(context: Context) -> ThinNSScrollView {
+        let scrollView = ThinNSScrollView()
+        scrollView.contentView = FlippedClipView()
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
         scrollView.scrollerStyle = .overlay
         scrollView.verticalScroller?.controlSize = .mini
         scrollView.drawsBackground = false
         scrollView.scrollerKnobStyle = .light
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets()
 
-        let hosting = NSHostingView(rootView: content)
-        hosting.translatesAutoresizingMaskIntoConstraints = false
+        let hosting = NSHostingView(rootView: ThinScrollDocument(content: content))
+        hosting.sizingOptions = []
         scrollView.documentView = hosting
 
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        // A altura precisa acompanhar o conteúdo, senão o SwiftUI resolve a
-        // NSScrollView como 0pt (ela não tem intrinsicContentSize) e a lista
-        // some inteira — o que só acontecia acima de `maxVisibleSessions`,
-        // porque abaixo disso a VStack é usada direto, sem passar por aqui.
-        // Prioridade alta, não required, para o teto de `maxHeight` vencer
-        // quando houver sessões demais.
-        let fitContent = scrollView.heightAnchor.constraint(equalTo: hosting.heightAnchor)
-        fitContent.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            hosting.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-            hosting.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            fitContent,
-            scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: maxHeight),
-        ])
-
+        let coordinator = context.coordinator
+        scrollView.measureHeight = { [weak coordinator] width in
+            coordinator?.contentHeight(forWidth: width) ?? 0
+        }
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        if let hosting = scrollView.documentView as? NSHostingView<Content> {
-            hosting.rootView = content
+    func updateNSView(_ scrollView: ThinNSScrollView, context: Context) {
+        context.coordinator.update(content)
+        if let hosting = scrollView.documentView as? NSHostingView<ThinScrollDocument<Content>> {
+            hosting.rootView = ThinScrollDocument(content: content)
         }
         scrollView.scrollerStyle = .overlay
         scrollView.verticalScroller?.controlSize = .mini
+        scrollView.needsLayout = true
     }
 
-    // No macOS 27 o SwiftUI deixou de derivar a altura do representable das
-    // constraints acima: reservava menos espaço do que a NSScrollView ocupava, e
-    // ela transbordava para cima, escondendo o primeiro card embaixo do StatusBar
-    // e do UsageBar. Responder a altura aqui faz os dois concordarem.
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView scrollView: NSScrollView, context: Context) -> CGSize? {
-        let measurer = context.coordinator.measurer(for: content)
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView scrollView: ThinNSScrollView, context: Context) -> CGSize? {
+        context.coordinator.update(content)
         let width = proposal.width ?? scrollView.frame.width
-        let contentHeight = measurer.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        let contentHeight = context.coordinator.contentHeight(forWidth: width)
         return CGSize(width: width, height: min(contentHeight, maxHeight))
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(content: content) }
 
     final class Coordinator {
-        private var controller: NSHostingController<Content>?
+        private let measurer: NSHostingController<ThinScrollMeasure<Content>>
 
-        func measurer(for content: Content) -> NSHostingController<Content> {
-            if let controller {
-                controller.rootView = content
-                return controller
-            }
-            let controller = NSHostingController(rootView: content)
-            self.controller = controller
-            return controller
+        init(content: Content) {
+            measurer = NSHostingController(rootView: ThinScrollMeasure(content: content))
+        }
+
+        func update(_ content: Content) {
+            measurer.rootView = ThinScrollMeasure(content: content)
+        }
+
+        func contentHeight(forWidth width: CGFloat) -> CGFloat {
+            guard width > 0 else { return 0 }
+            return ceil(measurer.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height)
+        }
+    }
+}
+
+/// Os cards são flexíveis na vertical: medidos sem `fixedSize` com altura infinita,
+/// voltavam altura infinita, e o primeiro card esticava até o fim da lista.
+private struct ThinScrollMeasure<Content: View>: View {
+    let content: Content
+
+    var body: some View {
+        content.fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct ThinScrollDocument<Content: View>: View {
+    let content: Content
+
+    var body: some View {
+        content
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private final class FlippedClipView: NSClipView {
+    override var isFlipped: Bool { true }
+}
+
+private final class ThinNSScrollView: NSScrollView {
+    var measureHeight: ((CGFloat) -> CGFloat)?
+
+    override func layout() {
+        super.layout()
+        guard let document = documentView, let measureHeight else { return }
+        let width = contentView.bounds.width
+        let height = max(measureHeight(width), contentView.bounds.height)
+        let size = NSSize(width: width, height: height)
+        if document.frame.size != size {
+            document.frame = NSRect(origin: .zero, size: size)
         }
     }
 }
