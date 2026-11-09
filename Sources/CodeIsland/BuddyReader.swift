@@ -432,3 +432,37 @@ class BuddyReader: ObservableObject {
         )
     }
 }
+
+// MARK: - Hatch's own personality
+
+extension BuddyInfo {
+    /// Who Hatch is, from the buddy's stats. The personality Claude Code writes for the
+    /// companion describes its species (a goose that honks, a cat that knocks things off
+    /// tables), and the buddy is drawn and voiced as Hatch now, so that text no longer fits.
+    /// The stats do: the most telling ones, strongest first, become a short description.
+    func hatchPersonality(pt: Bool) -> String {
+        typealias Trait = (score: Int, high: String, mid: String, low: String)
+        let traits: [Trait] = pt ? [
+            (stats.patience, "paciente de sobra", "paciente quando precisa", "sem muita paciência"),
+            (stats.chaos, "bem caótico", "um pouco caótico", "organizado"),
+            (stats.wisdom, "sábio", "sabe das coisas", "aprendendo junto com você"),
+            (stats.snark, "irônico", "às vezes irônico", "quase nunca irônico"),
+            (stats.debugging, "ótimo caçador de bugs", "bom com bugs", "mais torcida do que conserto quando o assunto é bug"),
+        ] : [
+            (stats.patience, "endlessly patient", "patient when it counts", "not very patient"),
+            (stats.chaos, "rather chaotic", "a bit chaotic", "tidy"),
+            (stats.wisdom, "wise", "knows a thing or two", "learning alongside you"),
+            (stats.snark, "snarky", "snarky now and then", "hardly ever snarky"),
+            (stats.debugging, "a great bug hunter", "good with bugs", "more cheering than fixing when bugs show up"),
+        ]
+        // Furthest from the middle says the most; keep four.
+        let picked = traits.sorted { abs($0.score - 50) > abs($1.score - 50) }.prefix(4).map { t -> String in
+            t.score >= 70 ? t.high : (t.score >= 40 ? t.mid : t.low)
+        }
+        let list = picked.count > 1
+            ? picked.dropLast().joined(separator: ", ") + (pt ? " e " : " and ") + picked.last!
+            : picked.first ?? ""
+        return pt ? "Um bloquinho escuro que mora no notch: \(list)."
+                  : "A small dark block living in the notch: \(list)."
+    }
+}
