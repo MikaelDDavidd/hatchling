@@ -151,6 +151,11 @@ final class HatchDirector: ObservableObject {
             }
         }
         if lines.isEmpty, !urgent.isEmpty { return urgent[(turn / 2) % urgent.count] }
+        // Nobody has done anything for a while: Hatch has dozed off, and says so.
+        let quietFor = Date().timeIntervalSince(sessions.first?.value.lastActivity ?? .distantPast)
+        if lines.isEmpty, quietFor > 60 {
+            lines = pt ? ["Zzz… tudo parado por aqui.", "Zzz…"] : ["Zzz… all quiet here.", "Zzz…"]
+        }
         if lines.isEmpty {
             switch sessions.count {
             case 0: lines = pt ? ["Nenhuma sessão aberta. Bora começar algo?"] : ["No sessions open. Start something?"]

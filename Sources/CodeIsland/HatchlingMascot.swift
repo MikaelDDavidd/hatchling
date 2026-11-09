@@ -53,6 +53,8 @@ enum HatchReaction: String, CaseIterable {
 /// A held position for the hands, for previewing them without animation.
 enum HatchPose {
     case rest, wave, handsUp
+    /// Already dozing, for previewing the sleep.
+    case asleep
 }
 
 extension Notification.Name {
@@ -180,7 +182,16 @@ final class HatchlingMascotLayerView: NSView {
         guard let raw = note.object as? String, let reaction = HatchReaction(rawValue: raw) else { return }
         perform(reaction)
     }
-    private static let dozeAfter: TimeInterval = 180
+    /// How long at rest before it dozes off.
+    private static let dozeAfter: TimeInterval = 60
+    /// "z", "z", "Z" floating up out of the top corner while it sleeps.
+    private let zzz: [CATextLayer] = ["z", "z", "Z"].map { letter in
+        let layer = CATextLayer()
+        layer.string = letter
+        layer.alignmentMode = .center
+        layer.opacity = 0
+        return layer
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -270,7 +281,7 @@ final class HatchlingMascotLayerView: NSView {
 
     private var allLayers: [CALayer] {
         [figure, body, bodyMask, rim, sheen, sheenMask, slot, dots, dot, sign, face, happy, happyLeft, happyRight,
-         handsRig, leftHand, rightHand, leftShineHand, rightShineHand, mouth] + lids + eyes.flatMap(\.all)
+         handsRig, leftHand, rightHand, leftShineHand, rightShineHand, mouth] + lids + zzz + eyes.flatMap(\.all)
     }
 
     private static let noActions: [String: CAAction] = [
@@ -309,6 +320,10 @@ final class HatchlingMascotLayerView: NSView {
         figure.addSublayer(face)
         // The rig sits behind the body, so a hand that swings close passes behind it.
         root.insertSublayer(handsRig, below: figure)
+        for z in zzz {
+            z.foregroundColor = NSColor(white: 0.85, alpha: 1).cgColor
+            root.addSublayer(z)
+        }
         handsRig.addSublayer(leftHand)
         handsRig.addSublayer(rightHand)
         leftHand.addSublayer(leftShineHand)
@@ -504,6 +519,14 @@ final class HatchlingMascotLayerView: NSView {
         }
         if let heldPose { hold(heldPose, s: s) }
 
+        for (i, z) in zzz.enumerated() {
+            let size = (14 + CGFloat(i) * 3) * s
+            z.bounds = CGRect(x: 0, y: 0, width: size, height: size * 1.25)
+            z.fontSize = size
+            z.font = NSFont.systemFont(ofSize: size, weight: .heavy)
+            z.position = CGPoint(x: 86 * s, y: 18 * s)
+        }
+
         face.shadowRadius = 5 * s
         figure.shadowRadius = 9 * s
         paintEyes()
@@ -542,6 +565,10 @@ final class HatchlingMascotLayerView: NSView {
         guard let status, let mood, builtSize != .zero else { return }
         figure.removeAllAnimations()
         handsRig.removeAllAnimations()
+        for z in zzz {
+            z.removeAllAnimations()
+            z.opacity = 0
+        }
         face.removeAnimation(forKey: Key.glow)
         dot.removeAllAnimations()
         sign.removeAllAnimations()
@@ -559,7 +586,7 @@ final class HatchlingMascotLayerView: NSView {
         case .waitingApproval: showSign("!", color: amber)
         case .waitingQuestion: showSign("?", color: amber)
         default:
-            if sleepy { showSign("z", color: NSColor(white: 0.75, alpha: 1)) } else { sign.opacity = 0 }
+            sign.opacity = 0
         }
         figure.shadowOpacity = 0
         // A faint, steady light on the eyes, as on the icon. No pulsing glow.
@@ -572,24 +599,11 @@ final class HatchlingMascotLayerView: NSView {
 
         switch mood {
         case .resting where sleepy:
-            // Dozing: eyes half shut, slow deep breaths, a "z" drifting out of the notch.
+            // Dozing: eyes half shut, slow deep breaths, "Zzz" floating up out of the corner.
             addBodyMotion(breathe(phase: phase, duration: 5.2, depth: 1.07), forKey: Key.figure)
             for eye in eyes { eye.container.transform = CATransform3DMakeScale(1, 0.28, 1) }
             face.shadowOpacity = 0.15
-            let drift = CAKeyframeAnimation(keyPath: "transform")
-            drift.values = [
-                CATransform3DMakeTranslation(0, 2 * s, 0), CATransform3DMakeTranslation(2 * s, -4 * s, 0),
-                CATransform3DMakeTranslation(4 * s, -9 * s, 0),
-            ].map { NSValue(caTransform3D: $0) }
-            drift.duration = 2.6
-            let fade = CAKeyframeAnimation(keyPath: "opacity")
-            fade.values = [0, 1, 0]
-            fade.keyTimes = [0, 0.3, 1]
-            fade.duration = 2.6
-            let float = CAAnimationGroup()
-            float.animations = [drift, fade]
-            float.duration = 2.6
-            sign.add(repeating(float), forKey: Key.sign)
+            floatZzz(s: s)
         case .resting:
             addBodyMotion(breathe(phase: phase), forKey: Key.figure)
             blink(every: 5.2, phase: phase)
@@ -830,6 +844,31 @@ final class HatchlingMascotLayerView: NSView {
         for eye in eyes { eye.container.add(open, forKey: Key.happy) }
     }
 
+    /// Three letters rising one after another from the top corner, growing and fading, on a
+    /// loop: the plainest way to say "asleep" that reads at any size.
+    private func floatZzz(s: CGFloat) {
+        let start = CGPoint(x: 86 * s, y: 18 * s)
+        for (i, z) in zzz.enumerated() {
+            let rise = CAKeyframeAnimation(keyPath: "position")
+            rise.values = [start, CGPoint(x: start.x + 10 * s, y: start.y - 14 * s), CGPoint(x: start.x + 16 * s, y: start.y - 30 * s)]
+                .map { NSValue(point: $0) }
+            rise.calculationMode = .cubic
+            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            fade.values = [0, 1, 1, 0]
+            fade.keyTimes = [0, 0.2, 0.7, 1]
+            let grow = CAKeyframeAnimation(keyPath: "transform.scale")
+            grow.values = [0.5, 1, 1.2]
+            let group = CAAnimationGroup()
+            group.animations = [rise, fade, grow]
+            group.duration = 2.7
+            group.repeatCount = .infinity
+            group.isRemovedOnCompletion = false
+            group.beginTime = CACurrentMediaTime() + Double(i) * 0.9
+            group.fillMode = .backwards
+            z.add(group, forKey: "hatch.zzz")
+        }
+    }
+
     // MARK: Hands and reactions
 
     /// Plays a body animation and the same one on the hand rig, a beat later.
@@ -881,6 +920,8 @@ final class HatchlingMascotLayerView: NSView {
         switch pose {
         case .rest:
             break
+        case .asleep:
+            sleepy = true
         case .wave:
             rightHand.position = CGPoint(x: 112 * s, y: 34 * s)
             rightHand.transform = CATransform3DMakeRotation(-0.6, 0, 0, 1)
