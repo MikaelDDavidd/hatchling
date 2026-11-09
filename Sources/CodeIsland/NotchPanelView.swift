@@ -246,6 +246,9 @@ struct NotchPanelView: View {
                 }
                 // Respect collapseOnMouseLeave setting
                 if !hovering && !SettingsManager.shared.collapseOnMouseLeave { return }
+                // A file is being swallowed: stay open until it is in the tray, wherever the
+                // mouse went. TrayStage closes the panel itself when it is done.
+                if !hovering && TrayStage.shared.isBusy { isHovered = false; return }
                 // Smart suppress: don't auto-expand when active session's terminal is foreground
                 if hovering && smartSuppress {
                     if let delegate = NSApp.delegate as? AppDelegate,

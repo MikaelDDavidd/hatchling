@@ -204,6 +204,22 @@ final class TrayStage: ObservableObject {
     private var dragOver: Set<String> = []
     private var pending = 0
 
+    /// While true the panel ignores the mouse leaving and clicks elsewhere: the drop is
+    /// not finished until the new tile is in the tray.
+    var isBusy: Bool { centred || pending > 0 || !dragOver.isEmpty }
+
+    /// Once the sequence is over, close the panel if the mouse has gone elsewhere — the
+    /// collapse the mouse leaving would have caused, held back until now.
+    private func closeIfAbandoned(after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.isBusy,
+                  let delegate = NSApp.delegate as? AppDelegate,
+                  delegate.appState.surface.isExpanded,
+                  !(delegate.panelController?.isMouseOverContent ?? false) else { return }
+            withAnimation(NotchAnimation.close) { delegate.appState.surface = .collapsed }
+        }
+    }
+
     func dragEntered(_ source: String) {
         dragOver.insert(source)
         guard !centred else { return }
@@ -219,6 +235,7 @@ final class TrayStage: ObservableObject {
             guard let self, self.dragOver.isEmpty, self.pending == 0, self.centred else { return }
             HatchReaction.catchEnd.post()
             self.centred = false
+            self.closeIfAbandoned(after: 0.8)
         }
     }
 
@@ -234,6 +251,8 @@ final class TrayStage: ObservableObject {
         guard pending == 0 else { land(); return }
         centred = false
         DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.isReduced ? 0 : 0.35), execute: land)
+        // Let the new tile settle before the panel closes on its own.
+        closeIfAbandoned(after: 1.6)
     }
 }
 

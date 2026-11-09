@@ -260,7 +260,8 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // Global click monitor: close panel + repost click when clicking outside
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             Task { @MainActor in
-                guard let self = self, self.appState.surface.isExpanded, !DebugFlags.pinOpen else { return }
+                guard let self = self, self.appState.surface.isExpanded, !DebugFlags.pinOpen,
+                      !TrayStage.shared.isBusy else { return }
                 // Don't close during approval/question
                 switch self.appState.surface {
                 case .approvalCard, .questionCard: return
