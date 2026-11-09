@@ -38,17 +38,44 @@ enum MascotMood: Equatable {
     }
 }
 
+/// Things Hatch can be asked to do on top of its mood: a wave, a face, a gesture.
+enum HatchReaction: String {
+    case wave, cheer, surprised, annoyed, wink, think, write, poke
+    /// Hands up to catch a file being dragged over the notch, until `catchEnd`.
+    case catchStart, catchEnd
+
+    func post() {
+        NotificationCenter.default.post(name: .hatchReact, object: rawValue)
+    }
+}
+
+/// A held position for the hands, for previewing them without animation.
+enum HatchPose {
+    case rest, wave, handsUp
+}
+
+extension Notification.Name {
+    /// Posted with a `HatchReaction` raw value; every global Hatch on screen acts it out.
+    static let hatchReact = Notification.Name("HatchReact")
+}
+
 struct HatchlingMascotView: NSViewRepresentable {
     let source: String
     let status: AgentStatus
     var size: CGFloat = 27
     var global: Bool = false
     var celebrates: Bool = false
+    /// Called with the number of recent clicks when someone clicks the global Hatch.
+    var onPoke: ((Int) -> Void)? = nil
+    /// Holds the hands in a pose (previews only).
+    var pose: HatchPose? = nil
 
     func makeNSView(context: Context) -> HatchlingMascotLayerView {
         let view = HatchlingMascotLayerView()
+        view.heldPose = pose
         view.reactsToEveryRun = global
         view.celebratesOnAppear = celebrates
+        view.onPoke = onPoke
         return view
     }
 
@@ -90,6 +117,25 @@ final class HatchlingMascotLayerView: NSView {
     private let happy = CALayer()
     private let happyLeft = CAShapeLayer()
     private let happyRight = CAShapeLayer()
+    /// Two small hands floating beside the block, never touching it. They hang off a rig
+    /// that repeats every move of the body a beat late, so they trail it the way loose
+    /// parts do (follow-through), and each also drifts on its own. Shown only where there
+    /// is room for them, so not in the notch strip.
+    private let handsRig = CALayer()
+    private let leftHand = CAShapeLayer()
+    private let rightHand = CAShapeLayer()
+    private let leftShineHand = CAShapeLayer()
+    private let rightShineHand = CAShapeLayer()
+    /// How far behind the body the hands move.
+    private static let handLag: CFTimeInterval = 0.11
+    private let mouth = CAShapeLayer()
+    private var lids: [CAShapeLayer] = [CAShapeLayer(), CAShapeLayer()]
+    private var handRest: [CGPoint] = [.zero, .zero]
+    private var catching = false
+    private var pokes: [Date] = []
+    var onPoke: ((Int) -> Void)?
+    var heldPose: HatchPose?
+    private var showsHands: Bool { builtSize.width >= 34 }
 
     /// One eye: a glowing iris with a dark pupil that moves inside it to look around.
     private final class Eye {
@@ -116,14 +162,22 @@ final class HatchlingMascotLayerView: NSView {
     var reactsToEveryRun = false {
         didSet {
             NotificationCenter.default.removeObserver(self, name: .hatchCelebrate, object: nil)
+            NotificationCenter.default.removeObserver(self, name: .hatchReact, object: nil)
             guard reactsToEveryRun else { return }
             NotificationCenter.default.addObserver(self, selector: #selector(runFinished), name: .hatchCelebrate, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(reactionPosted(_:)), name: .hatchReact, object: nil)
         }
     }
     var celebratesOnAppear = false
 
     @objc private func runFinished() {
         celebrate()
+        raiseHands(duration: 0.9)
+    }
+
+    @objc private func reactionPosted(_ note: Notification) {
+        guard let raw = note.object as? String, let reaction = HatchReaction(rawValue: raw) else { return }
+        perform(reaction)
     }
     private static let dozeAfter: TimeInterval = 180
 
@@ -193,6 +247,14 @@ final class HatchlingMascotLayerView: NSView {
     }
 
     /// Notices the cursor: a quick widening of the eyes and a little jump. Wakes it if it dozed.
+    override func mouseDown(with event: NSEvent) {
+        guard reactsToEveryRun else { return super.mouseDown(with: event) }
+        let now = Date()
+        pokes = pokes.filter { now.timeIntervalSince($0) < 2.5 } + [now]
+        perform(pokes.count >= 4 ? .annoyed : .poke)
+        onPoke?(pokes.count)
+    }
+
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
         if sleepy {
@@ -206,8 +268,8 @@ final class HatchlingMascotLayerView: NSView {
     // MARK: Build
 
     private var allLayers: [CALayer] {
-        [figure, body, bodyMask, rim, sheen, sheenMask, slot, dots, dot, sign, face, happy, happyLeft, happyRight]
-            + eyes.flatMap(\.all)
+        [figure, body, bodyMask, rim, sheen, sheenMask, slot, dots, dot, sign, face, happy, happyLeft, happyRight,
+         handsRig, leftHand, rightHand, leftShineHand, rightShineHand, mouth] + lids + eyes.flatMap(\.all)
     }
 
     private static let noActions: [String: CAAction] = [
@@ -241,7 +303,31 @@ final class HatchlingMascotLayerView: NSView {
         happy.addSublayer(happyLeft)
         happy.addSublayer(happyRight)
         face.addSublayer(happy)
+        for (eye, lid) in zip(eyes, lids) { eye.container.addSublayer(lid) }
+        face.addSublayer(mouth)
         figure.addSublayer(face)
+        // The rig sits behind the body, so a hand that swings close passes behind it.
+        root.insertSublayer(handsRig, below: figure)
+        handsRig.addSublayer(leftHand)
+        handsRig.addSublayer(rightHand)
+        leftHand.addSublayer(leftShineHand)
+        rightHand.addSublayer(rightShineHand)
+        for hand in [leftHand, rightHand] {
+            // Same material as the block: its mid tone, its rim.
+            hand.fillColor = NSColor(red: 0.12, green: 0.13, blue: 0.155, alpha: 1).cgColor
+            hand.strokeColor = NSColor(red: 0.36, green: 0.38, blue: 0.43, alpha: 1).cgColor
+            hand.opacity = 0
+        }
+        for shine in [leftShineHand, rightShineHand] {
+            shine.fillColor = NSColor(white: 1, alpha: 0.10).cgColor
+        }
+        for lid in lids {
+            lid.fillColor = NSColor(red: 0.15, green: 0.16, blue: 0.19, alpha: 1).cgColor
+            lid.transform = CATransform3DMakeScale(1, 0, 1)
+        }
+        mouth.fillColor = nil
+        mouth.lineCap = .round
+        mouth.opacity = 0
 
         body.colors = [
             NSColor(red: 0.16, green: 0.17, blue: 0.20, alpha: 1).cgColor,
@@ -381,6 +467,42 @@ final class HatchlingMascotLayerView: NSView {
             arc.lineWidth = max(1.2, 4.2 * s)
         }
 
+        // Lids: dark shutters that drop over the top of each eye for a frown.
+        for (eye, lid) in zip(eyes, lids) {
+            let box = eye.container.bounds
+            lid.anchorPoint = CGPoint(x: 0.5, y: 0)
+            lid.frame = CGRect(x: -box.width * 0.1, y: -box.height * 0.05, width: box.width * 1.2, height: box.height * 0.62)
+            lid.path = CGPath(rect: lid.bounds, transform: nil)
+        }
+        mouth.frame = full
+        mouth.lineWidth = max(1.2, 3.2 * s)
+
+        // The rig pivots like the body, so a tilt or a squash carries the hands along.
+        handsRig.anchorPoint = figure.anchorPoint
+        handsRig.bounds = figure.bounds
+        handsRig.position = figure.position
+        // Low at the sides, with a clear gap to the block: the hands never touch it.
+        // A mitten: a round palm with a small thumb on the side facing the body, which is
+        // what makes it read as a hand and not a stray bubble.
+        let handW: CGFloat = 19 * s, handH: CGFloat = 17 * s
+        handRest = [CGPoint(x: -10 * s, y: 70 * s), CGPoint(x: 110 * s, y: 70 * s)]
+        for (i, (hand, rest)) in zip([leftHand, rightHand], handRest).enumerated() {
+            hand.bounds = CGRect(x: 0, y: 0, width: handW, height: handH)
+            hand.position = rest
+            let palm = CGPath(ellipseIn: CGRect(x: handW * 0.08, y: handH * 0.12, width: handW * 0.84, height: handH * 0.82), transform: nil)
+            let thumbX = i == 0 ? handW * 0.66 : handW * 0.0
+            let thumb = CGPath(ellipseIn: CGRect(x: thumbX, y: handH * 0.0, width: handW * 0.34, height: handH * 0.4), transform: nil)
+            hand.path = palm.union(thumb)
+            hand.lineWidth = max(1, 2.2 * s)
+            hand.opacity = showsHands ? 1 : 0
+            // Tipped slightly outward, like loosely held mittens.
+            hand.transform = CATransform3DMakeRotation(i == 0 ? 0.22 : -0.22, 0, 0, 1)
+            let shine = i == 0 ? leftShineHand : rightShineHand
+            shine.frame = CGRect(x: handW * 0.2, y: handH * 0.14, width: handW * 0.42, height: handH * 0.3)
+            shine.path = CGPath(ellipseIn: shine.bounds, transform: nil)
+        }
+        if let heldPose { hold(heldPose, s: s) }
+
         face.shadowRadius = 5 * s
         figure.shadowRadius = 9 * s
         paintEyes()
@@ -393,6 +515,7 @@ final class HatchlingMascotLayerView: NSView {
         }
         happyLeft.strokeColor = eyeColor.cgColor
         happyRight.strokeColor = eyeColor.cgColor
+        mouth.strokeColor = eyeColor.cgColor
         dot.fillColor = eyeColor.cgColor
         face.shadowColor = eyeColor.cgColor
         face.shadowOpacity = 0.55
@@ -417,6 +540,7 @@ final class HatchlingMascotLayerView: NSView {
     private func animate() {
         guard let status, let mood, builtSize != .zero else { return }
         figure.removeAllAnimations()
+        handsRig.removeAllAnimations()
         face.removeAnimation(forKey: Key.glow)
         dot.removeAllAnimations()
         sign.removeAllAnimations()
@@ -443,11 +567,12 @@ final class HatchlingMascotLayerView: NSView {
         guard !Motion.isReduced else { return }
         let s = builtSize.width / 100
         let phase = CACurrentMediaTime() - Double.random(in: 0...3)
+        driftHands()
 
         switch mood {
         case .resting where sleepy:
             // Dozing: eyes half shut, slow deep breaths, a "z" drifting out of the notch.
-            figure.add(breathe(phase: phase, duration: 5.2, depth: 1.07), forKey: Key.figure)
+            addBodyMotion(breathe(phase: phase, duration: 5.2, depth: 1.07), forKey: Key.figure)
             for eye in eyes { eye.container.transform = CATransform3DMakeScale(1, 0.28, 1) }
             face.shadowOpacity = 0.15
             let drift = CAKeyframeAnimation(keyPath: "transform")
@@ -465,16 +590,16 @@ final class HatchlingMascotLayerView: NSView {
             float.duration = 2.6
             sign.add(repeating(float), forKey: Key.sign)
         case .resting:
-            figure.add(breathe(phase: phase), forKey: Key.figure)
+            addBodyMotion(breathe(phase: phase), forKey: Key.figure)
             blink(every: 5.2, phase: phase)
             for eye in eyes { eye.pupilGroup.add(lookAround(s: s, phase: phase), forKey: Key.look) }
         case .working where status == .processing:
             // Thinking: eyes up and to the side, a slow sway, the dots in no hurry.
-            figure.add(sway(s: s), forKey: Key.figure)
+            addBodyMotion(sway(s: s), forKey: Key.figure)
             blink(every: 4.0, phase: phase)
             for eye in eyes { eye.pupilGroup.add(ponder(s: s, phase: phase), forKey: Key.look) }
         case .working:
-            figure.add(bob(s: s), forKey: Key.figure)
+            addBodyMotion(bob(s: s), forKey: Key.figure)
             blink(every: 3.1, phase: phase)
             // Eyes on the work: down and to the side, where the terminal would be.
             for eye in eyes { eye.pupilGroup.transform = CATransform3DMakeTranslation(1.8 * s, 2.4 * s, 0) }
@@ -484,7 +609,7 @@ final class HatchlingMascotLayerView: NSView {
             hop.duration = 0.9
             dot.add(repeating(hop), forKey: Key.dots)
         case .needsYou:
-            figure.add(fidget(), forKey: Key.figure)
+            addBodyMotion(fidget(), forKey: Key.figure)
             for eye in eyes { eye.container.transform = CATransform3DMakeScale(1.14, 1.14, 1) }
             let flash = CABasicAnimation(keyPath: "opacity")
             flash.fromValue = 1
@@ -636,7 +761,7 @@ final class HatchlingMascotLayerView: NSView {
             ].map { NSValue(caTransform3D: $0) }
             a.keyTimes = [0, 0.35, 0.6, 0.8, 1]
             a.duration = 1.1
-            figure.add(a, forKey: Key.idle)
+            addBodyMotion(a, forKey: Key.idle)
         case 1: // a happy squint
             flashHappyEyes(duration: 1.2)
         case 2: // a double take to the side
@@ -651,7 +776,7 @@ final class HatchlingMascotLayerView: NSView {
             a.values = [0, 0.1, -0.08, 0.05, 0]
             a.duration = 0.7
             a.isAdditive = true
-            figure.add(a, forKey: Key.idle)
+            addBodyMotion(a, forKey: Key.idle)
         default: // a little hop for no reason
             notice()
         }
@@ -665,6 +790,7 @@ final class HatchlingMascotLayerView: NSView {
         hop.keyTimes = [0, 0.3, 0.6, 0.8, 1]
         hop.duration = 0.45
         root.add(hop, forKey: Key.notice)
+        dragHands(height: 7 * s, duration: 0.55)
         let widen = CAKeyframeAnimation(keyPath: "transform.scale")
         widen.values = [1, 1.22, 1]
         widen.duration = 0.4
@@ -699,6 +825,140 @@ final class HatchlingMascotLayerView: NSView {
         for eye in eyes { eye.container.add(open, forKey: Key.happy) }
     }
 
+    // MARK: Hands and reactions
+
+    /// Plays a body animation and the same one on the hand rig, a beat later.
+    private func addBodyMotion(_ animation: CAAnimation, forKey key: String) {
+        figure.add(animation, forKey: key)
+        guard showsHands, let trailing = animation.copy() as? CAAnimation else { return }
+        let start = animation.beginTime > 0 ? animation.beginTime : CACurrentMediaTime()
+        trailing.beginTime = start + Self.handLag
+        handsRig.add(trailing, forKey: key)
+    }
+
+    /// Each hand drifts a little on its own, out of step with the other.
+    private func driftHands() {
+        guard showsHands, !Motion.isReduced else { return }
+        let s = builtSize.width / 100
+        for (i, hand) in [leftHand, rightHand].enumerated() {
+            let bob = CABasicAnimation(keyPath: "transform.translation.y")
+            bob.fromValue = -1.4 * s
+            bob.toValue = 1.4 * s
+            bob.duration = i == 0 ? 1.9 : 2.3
+            bob.autoreverses = true
+            bob.isAdditive = true
+            bob.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            hand.add(repeating(bob, phase: CACurrentMediaTime() - Double(i) * 0.7), forKey: "hatch.drift")
+            let tilt = CABasicAnimation(keyPath: "transform.rotation.z")
+            tilt.fromValue = -0.08
+            tilt.toValue = 0.08
+            tilt.duration = i == 0 ? 2.6 : 2.2
+            tilt.autoreverses = true
+            tilt.isAdditive = true
+            tilt.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            hand.add(repeating(tilt, phase: CACurrentMediaTime() - Double(i) * 1.1), forKey: "hatch.tilt")
+        }
+    }
+
+    /// Hands trailing a hop: they lag on the way up, overshoot on the way down, settle.
+    private func dragHands(height: CGFloat, duration: CFTimeInterval) {
+        guard showsHands else { return }
+        let drag = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        drag.values = [0, height * 0.45, -height * 0.25, height * 0.1, 0]
+        drag.keyTimes = [0, 0.3, 0.62, 0.82, 1]
+        drag.duration = duration
+        drag.isAdditive = true
+        handsRig.add(drag, forKey: "hatch.drag")
+    }
+
+    /// Where each hand sits for a held pose.
+    private func hold(_ pose: HatchPose, s: CGFloat) {
+        switch pose {
+        case .rest:
+            break
+        case .wave:
+            rightHand.position = CGPoint(x: 112 * s, y: 34 * s)
+            rightHand.transform = CATransform3DMakeRotation(-0.6, 0, 0, 1)
+        case .handsUp:
+            leftHand.position = CGPoint(x: -12 * s, y: 28 * s)
+            rightHand.position = CGPoint(x: 112 * s, y: 28 * s)
+            leftHand.transform = CATransform3DMakeRotation(0.5, 0, 0, 1)
+            rightHand.transform = CATransform3DMakeRotation(-0.5, 0, 0, 1)
+        }
+    }
+
+    func perform(_ reaction: HatchReaction) {
+        guard builtSize != .zero, !Motion.isReduced else { return }
+        switch reaction {
+        case .wave: wave()
+        case .cheer: celebrate(); raiseHands(duration: 1.0)
+        default: break
+        }
+    }
+
+    /// The right hand rises along an arc to beside the head, waves on a small arc while
+    /// tipping back and forth, and drops back the way it came. The left one sways along.
+    private func wave() {
+        guard showsHands else { return }
+        let s = builtSize.width / 100
+        let rest = handRest[1]
+        let up = CGPoint(x: 112 * s, y: 34 * s)
+        let rise = CGMutablePath()
+        rise.move(to: rest)
+        rise.addQuadCurve(to: up, control: CGPoint(x: 122 * s, y: 62 * s))
+        // Rise, five small strokes, fall.
+        let move = CAKeyframeAnimation(keyPath: "position")
+        var points: [CGPoint] = [rest]
+        for t in stride(from: 0.2, through: 1.0, by: 0.2) {
+            // Points along the rising arc.
+            let x = (1 - t) * (1 - t) * rest.x + 2 * (1 - t) * t * 122 * s + t * t * up.x
+            let y = (1 - t) * (1 - t) * rest.y + 2 * (1 - t) * t * 62 * s + t * t * up.y
+            points.append(CGPoint(x: x, y: y))
+        }
+        for i in 0..<5 { points.append(CGPoint(x: up.x + (i.isMultiple(of: 2) ? 3.5 : -1.5) * s, y: up.y + (i.isMultiple(of: 2) ? 1 : -1) * s)) }
+        points.append(up)
+        points += points.prefix(6).reversed()
+        move.values = points.map { NSValue(point: $0) }
+        move.calculationMode = .cubic
+        move.duration = 1.9
+        rightHand.add(move, forKey: "hatch.wave")
+
+        let turn = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        turn.values = [-0.22, -0.6, -0.15, -0.75, -0.15, -0.75, -0.3, -0.6, -0.22]
+        turn.keyTimes = [0, 0.25, 0.35, 0.45, 0.55, 0.65, 0.72, 0.8, 1]
+        turn.duration = 1.9
+        rightHand.add(turn, forKey: "hatch.waveTurn")
+
+        let sway = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        sway.values = [0, -2 * s, 0, -1.5 * s, 0]
+        sway.duration = 1.9
+        sway.isAdditive = true
+        leftHand.add(sway, forKey: "hatch.waveSway")
+        flashHappyEyes(duration: 1.6)
+    }
+
+    /// Both hands up along arcs, a little shake at the top, and back with an overshoot.
+    private func raiseHands(duration: CFTimeInterval) {
+        guard showsHands, !Motion.isReduced else { return }
+        let s = builtSize.width / 100
+        for (i, hand) in [leftHand, rightHand].enumerated() {
+            let rest = handRest[i]
+            let side: CGFloat = i == 0 ? -1 : 1
+            let top = CGPoint(x: rest.x + side * 4 * s, y: 28 * s)
+            let move = CAKeyframeAnimation(keyPath: "position")
+            move.values = [
+                rest, CGPoint(x: rest.x + side * 9 * s, y: 52 * s), top,
+                CGPoint(x: top.x, y: top.y - 2 * s), top, CGPoint(x: rest.x, y: rest.y + 2.5 * s), rest,
+            ].map { NSValue(point: $0) }
+            move.keyTimes = [0, 0.14, 0.3, 0.45, 0.6, 0.86, 1]
+            move.calculationMode = .cubic
+            // The second hand follows the first by a hair.
+            move.beginTime = CACurrentMediaTime() + (i == 0 ? 0 : 0.05)
+            move.duration = duration
+            hand.add(move, forKey: "hatch.raise")
+        }
+    }
+
     /// A run just finished: a hop, and the eyes close into a smile for a moment.
     private func celebrate() {
         guard !Motion.isReduced, builtSize != .zero, let root = layer else { return }
@@ -712,6 +972,7 @@ final class HatchlingMascotLayerView: NSView {
         ]
         hop.duration = 0.62
         root.add(hop, forKey: Key.hop)
+        dragHands(height: 14 * s, duration: 0.75)
         flashHappyEyes(duration: 1.8)
     }
 }

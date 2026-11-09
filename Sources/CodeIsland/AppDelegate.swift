@@ -15,6 +15,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // The mascot sheet is a review window and nothing else: no hook server, no panel,
+        // so it can run beside the installed app without taking its socket.
+        if ProcessInfo.processInfo.arguments.contains("--mascot-sheet") {
+            NSApp.setActivationPolicy(.regular)
+            MascotSheet.showIfRequested()
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        #endif
         ProcessInfo.processInfo.disableAutomaticTermination("CodeIsland must stay running")
         ProcessInfo.processInfo.disableSuddenTermination()
         // Pre-set app icon so Dock/menu bar use the packaged bundle icon.
@@ -72,7 +82,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         #if DEBUG
-        MascotSheet.showIfRequested()
         // Preview mode: inject mock data if --preview flag is present
         if let scenario = DebugHarness.requestedScenario() {
             Self.log.debug("Loading scenario: \(scenario.rawValue)")
