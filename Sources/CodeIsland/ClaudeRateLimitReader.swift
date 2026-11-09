@@ -48,8 +48,14 @@ final class ClaudeRateLimitReader: ObservableObject {
 
     @Published private(set) var limits: ClaudeRateLimits?
     @Published private(set) var isInstalled: Bool = false
+    /// The Claude Code CLI on this Mac answered but isn't signed in to a plan, so it can't
+    /// report the limits. The desktop app's own login doesn't reach it.
+    @Published private(set) var cliSignedOut = false
 
     private var timer: Timer?
+    private var probeTimer: Timer?
+    /// The latest answer from asking Claude Code directly.
+    nonisolated(unsafe) private static var probed: ClaudeRateLimits?
     private(set) var isRunning = false
 
     private init() {}
@@ -62,12 +68,39 @@ final class ClaudeRateLimitReader: ObservableObject {
             Task { @MainActor in self?.refresh() }
         }
         refresh()
+        // Ask Claude Code itself every five minutes: it works for sessions in the desktop app
+        // too, which never run the terminal statusline.
+        probe()
+        probeTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.probe() }
+        }
+        probeTimer?.tolerance = 30
+    }
+
+    private func probe() {
+        Task.detached(priority: .utility) {
+            let result = ClaudeUsageProbe.run()
+            await MainActor.run {
+                switch result {
+                case .limits(let l):
+                    Self.probed = l
+                    if self.cliSignedOut { self.cliSignedOut = false }
+                case .signedOut:
+                    if !self.cliSignedOut { self.cliSignedOut = true }
+                case .unavailable:
+                    break
+                }
+                self.refresh()
+            }
+        }
     }
 
     func stop() {
         isRunning = false
         timer?.invalidate()
         timer = nil
+        probeTimer?.invalidate()
+        probeTimer = nil
     }
 
     /// Polls the cache off the main thread and republishes only on change —
@@ -75,7 +108,10 @@ final class ClaudeRateLimitReader: ObservableObject {
     func refresh() {
         Task.detached(priority: .utility) {
             let installed = StatuslineInstaller.isInstalled
-            let parsed = Self.parseCache()
+            // Three sources; the most recent reading wins.
+            let parsed = [Self.parseCache(), Self.parseDesktopHistory(), Self.probed]
+                .compactMap { $0 }
+                .max { $0.capturedAt < $1.capturedAt }
             await MainActor.run {
                 if self.isInstalled != installed { self.isInstalled = installed }
                 if let parsed, self.limits != parsed { self.limits = parsed }
@@ -103,6 +139,28 @@ final class ClaudeRateLimitReader: ObservableObject {
         )
     }
 
+    /// The Claude desktop app keeps a short history of the plan meters it has seen
+    /// (`plan-usage-history.json`: `fh` five-hour %, `sd` weekly %), written now and then
+    /// rather than live. No reset times in it.
+    private nonisolated static func parseDesktopHistory() -> ClaudeRateLimits? {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Claude/plan-usage-history.json")
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let samples = json["samples"] as? [[String: Any]],
+              let last = samples.max(by: { ($0["t"] as? Double ?? 0) < ($1["t"] as? Double ?? 0) }),
+              let t = last["t"] as? Double,
+              let u = last["u"] as? [String: Any] else { return nil }
+        return ClaudeRateLimits(
+            fiveHourPercent: percent(u["fh"]),
+            sevenDayPercent: percent(u["sd"]),
+            fiveHourResetAt: nil,
+            sevenDayResetAt: nil,
+            capturedAt: Date(timeIntervalSince1970: t / 1000),
+            model: nil
+        )
+    }
+
     private nonisolated static func percent(_ v: Any?) -> Int? {
         switch v {
         case let n as NSNumber: return Int(n.doubleValue.rounded())
@@ -119,5 +177,98 @@ final class ClaudeRateLimitReader: ObservableObject {
             return rateLimitISO8601.date(from: s)
         default: return nil
         }
+    }
+}
+
+// MARK: - Asking Claude Code
+
+/// Asks the Claude Code CLI for the plan meters through its own SDK control request
+/// (`get_usage`), the one the desktop app uses inside. No model call, no tokens; Claude
+/// Code uses its own login, and Hatchling never touches a credential. It runs with
+/// `--setting-sources project` in an empty folder, so no user hooks fire and no session
+/// shows up in the notch.
+enum ClaudeUsageProbe {
+    enum Result {
+        case limits(ClaudeRateLimits)
+        case signedOut
+        case unavailable
+    }
+
+    nonisolated static func run() -> Result {
+        guard let binary = claudeBinary() else { return .unavailable }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hatchling-usage-probe", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: binary)
+        process.arguments = ["-p", "--setting-sources", "project", "--input-format", "stream-json",
+                             "--output-format", "stream-json", "--verbose"]
+        process.currentDirectoryURL = dir
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return .unavailable }
+
+        let request = #"{"type":"control_request","request_id":"hatchling-usage","request":{"subtype":"get_usage"}}"# + "\n"
+        input.fileHandleForWriting.write(Data(request.utf8))
+
+        // Read lines until the answer arrives, for at most 20 seconds.
+        var buffer = Data()
+        var answer: [String: Any]?
+        let deadline = Date().addingTimeInterval(20)
+        let handle = output.fileHandleForReading
+        while answer == nil, Date() < deadline {
+            let chunk = handle.availableData
+            if chunk.isEmpty { break }
+            buffer.append(chunk)
+            while let nl = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[..<nl]
+                buffer.removeSubrange(...nl)
+                guard let json = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                      json["type"] as? String == "control_response",
+                      let response = json["response"] as? [String: Any],
+                      response["request_id"] as? String == "hatchling-usage" else { continue }
+                answer = response["response"] as? [String: Any] ?? [:]
+                break
+            }
+        }
+        try? input.fileHandleForWriting.close()
+        if process.isRunning { process.terminate() }
+
+        guard let answer else { return .unavailable }
+        guard answer["rate_limits_available"] as? Bool == true,
+              let rl = answer["rate_limits"] as? [String: Any] else { return .signedOut }
+        func window(_ key: String) -> (Int?, Date?) {
+            guard let w = rl[key] as? [String: Any] else { return (nil, nil) }
+            let pct = (w["utilization"] as? NSNumber).map { Int($0.doubleValue.rounded()) }
+            let reset = (w["resets_at"] as? String).flatMap { iso($0) }
+            return (pct, reset)
+        }
+        let five = window("five_hour"), seven = window("seven_day")
+        return .limits(ClaudeRateLimits(
+            fiveHourPercent: five.0, sevenDayPercent: seven.0,
+            fiveHourResetAt: five.1, sevenDayResetAt: seven.1,
+            capturedAt: Date(), model: nil
+        ))
+    }
+
+    private nonisolated static func iso(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: s)
+    }
+
+    /// The `claude` on the user's PATH, in the usual install places (the app doesn't
+    /// inherit the login shell's PATH).
+    private nonisolated static func claudeBinary() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "\(home)/.local/bin/claude", "\(home)/.claude/local/claude",
+            "/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }

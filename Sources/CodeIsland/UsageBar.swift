@@ -23,13 +23,13 @@ struct UsageBar: View {
                 // Old numbers would read as today's; say there is no current reading instead.
                 HStack(spacing: 8) {
                     sourceTag("Claude", color: Self.claudeColor)
-                    Text(L10n.shared["usage_claude_stale"])
+                    Text(L10n.shared[claude.cliSignedOut ? "usage_claude_login" : "usage_claude_stale"])
                         .font(.system(size: 10))
                         .tracking(0.2)
                         .foregroundStyle(.white.opacity(0.32))
                         .lineLimit(1)
                 }
-                .help(L10n.shared["usage_claude_stale_help"])
+                .help(L10n.shared[claude.cliSignedOut ? "usage_claude_login_help" : "usage_claude_stale_help"])
             }
             if (hasClaude || claudeStale) && hasCodex {
                 // A hairline between the two agents instead of a wide gap.
