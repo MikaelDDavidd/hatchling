@@ -6,6 +6,10 @@ struct BuddySpeech: Identifiable, Equatable {
     let id = UUID()
     let text: String
     let mood: BuddyMood
+    /// A headline above the text, for Hatch's own moments ("Bom dia, Mikael!").
+    var title: String? = nil
+    /// What Hatch acts out as it speaks.
+    var reaction: HatchReaction? = nil
 }
 
 enum BuddyMood: String {

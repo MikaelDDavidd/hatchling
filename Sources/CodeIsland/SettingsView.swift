@@ -954,6 +954,7 @@ private struct MascotsPage: View {
     @ObservedObject private var l10n = L10n.shared
     @State private var previewStatus: AgentStatus = .processing
     @AppStorage(SettingsKey.animationsMode) private var animationsMode = SettingsDefaults.animationsMode
+    @AppStorage(SettingsKey.hatchSpontaneous) private var hatchSpontaneous = SettingsDefaults.hatchSpontaneous
 
     private let mascotList: [(name: String, source: String, desc: String, color: Color)] = [
         ("Clawd", "claude", "Claude Code", Color(red: 0.871, green: 0.533, blue: 0.427)),
@@ -990,6 +991,15 @@ private struct MascotsPage: View {
                     Text(l10n["animations_system"]).tag("system")
                 }
                 .pickerStyle(.segmented)
+
+                Toggle(isOn: $hatchSpontaneous) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l10n["hatch_spontaneous"])
+                        Text(l10n["hatch_spontaneous_hint"])
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Section {

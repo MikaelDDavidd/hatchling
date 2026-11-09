@@ -178,19 +178,20 @@ struct HatchStage: View {
 
     var body: some View {
         let mood = GlobalMood(sessions: Array(appState.sessions.values))
-        HStack(alignment: .center, spacing: 18) {
+        HStack(alignment: .center, spacing: 16) {
             MascotView(source: mood.source, status: mood.status, size: mascotSize, global: true) { count in
                 director.poked(count: count)
             }
             // The hands float outside the block; leave them room.
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 6)
 
             SpeechBubble(text: director.line, thinking: director.thinking)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 420, alignment: .leading)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
+        .padding(.top, 16)
+        .padding(.bottom, 4)
         .onAppear {
             director.attach(appState)
             director.stageAppeared()
@@ -212,8 +213,9 @@ struct SpeechBubble: View {
                     .transition(.opacity)
             } else if !text.isEmpty {
                 Text(text)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.9))
+                    .lineSpacing(2)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .id(text)
@@ -224,12 +226,12 @@ struct SpeechBubble: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
         .background(
             BubbleShape()
-                .fill(Color.white.opacity(0.08))
+                .fill(Color(white: 0.11))
         )
-        .overlay(BubbleShape().stroke(Color.white.opacity(0.09), lineWidth: 1))
+        .overlay(BubbleShape().stroke(Color.white.opacity(0.08), lineWidth: 1))
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: text)
         .animation(.easeOut(duration: 0.15), value: thinking)
     }
@@ -238,7 +240,7 @@ struct SpeechBubble: View {
 /// Rounded rectangle with a tail on the left edge, at the vertical middle.
 private struct BubbleShape: Shape {
     func path(in rect: CGRect) -> Path {
-        let radius: CGFloat = 11
+        let radius: CGFloat = 12
         let tail: CGFloat = 7
         var p = Path(roundedRect: rect, cornerRadius: radius, style: .continuous)
         let midY = rect.midY

@@ -122,23 +122,28 @@ struct NotchPanelView: View {
                     // Everything below the notch sits in one inset tray, so the black shell reads
                     // as a frame and the content as the thing inside it.
                     VStack(spacing: 0) {
-                        // Anthropic public status (compact pill)
-                        StatusBar()
-                        // Live usage bar (Codex local; per-session % on each card)
-                        UsageBar()
+                        // Hatch's own moments (hello, a word now and then) take the whole tray.
+                        if appState.surface != .buddySpeech {
+                            VStack(alignment: .leading, spacing: 8) {
+                                // Anthropic public status
+                                StatusBar()
+                                // Live usage (Codex local; per-session % on each card)
+                                UsageBar()
+                            }
+                            .padding(.top, 12)
+                        }
 
                         surfaceContent
                     }
-                    .padding(.top, 2)
                     .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
                             .fill(Color.white.opacity(0.035))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.horizontal, 8)
                     .padding(.top, 4)
                     .padding(.bottom, 8)
@@ -163,7 +168,7 @@ struct NotchPanelView: View {
             .background(
                 NotchPanelShape(
                     topExtension: shouldShowExpanded ? 14 : 3,
-                    bottomRadius: shouldShowExpanded ? 24 : 12,
+                    bottomRadius: shouldShowExpanded ? 28 : 12,
                     minHeight: notchHeight
                 )
                 .fill(.black)
@@ -394,12 +399,9 @@ struct NotchPanelView: View {
             }
         case .buddySpeech:
             if let speech = appState.pendingBuddySpeech {
-                BuddySpeechBubble(
-                    speech: speech,
-                    buddy: BuddyReader.shared.buddy,
-                    onDismiss: { appState.dismissBuddySpeech() }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                HatchSpotlight(speech: speech, appState: appState, onDismiss: { appState.dismissBuddySpeech() })
+                    .id(speech.id)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             }
         case .collapsed:
             EmptyView()
@@ -449,7 +451,7 @@ private struct CompactLeftWing: View {
     /// the stage at the head of the agents list — so the header one steps aside.
     private var isPresenting: Bool {
         switch appState.surface {
-        case .completionCard: return true
+        case .completionCard, .buddySpeech: return true
         case .sessionList: return selectedPanelTab != PanelTab.notes.rawValue
         default: return false
         }
@@ -564,7 +566,7 @@ private struct CompactRightWing: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: expanded ? 2 : 6) {
             if expanded {
                 NotchIconButton(icon: "chevron.up", tooltip: l10n["collapse"]) {
                     appState.collapsePanel()
@@ -766,15 +768,14 @@ private struct NotchIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(tint.opacity(hovering ? 1.0 : 0.85))
-                .frame(width: 22, height: 22)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(tint.opacity(hovering ? 0.95 : (tint == .white ? 0.55 : 0.8)))
+                .frame(width: 26, height: 26)
                 .background(
-                    Circle()
-                        .fill(tint.opacity(hovering ? 0.2 : 0.08))
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(tint.opacity(hovering ? (tint == .white ? 0.08 : 0.14) : 0))
                 )
-                .scaleEffect(hovering ? 1.1 : 1.0)
-                .contentShape(Circle())
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
@@ -840,37 +841,152 @@ private struct IdleIndicatorBar: View {
 // only a small grey line in QuestionBar. Both cards now lead with the same bold identity the
 // session list already uses, so answering from memory of "which one asked" isn't required.
 
-private struct SessionIdentityBadge: View {
+// MARK: - Forms: shared pieces
+//
+// Approvals and questions share one look with the session cards: the system font for
+// prose and the monospaced one only for code, buttons in sentence case with the main one
+// in white on the right, corners concentric with the tray (10 inside 20), 4 pt spacing.
+
+/// Who is asking, and in what state: the same line as the top of a session card.
+private struct FormHeader<Extra: View>: View {
     let session: SessionSnapshot
     let sessionId: String
-
-    private var accent: Color {
-        switch session.source {
-        case "claude": return Color(red: 0.85, green: 0.47, blue: 0.34)
-        case "codex":  return Color(red: 0.35, green: 0.60, blue: 0.95)
-        default:       return Color(red: 0.6, green: 0.7, blue: 0.9)
-        }
-    }
+    let status: String
+    @ViewBuilder var extra: () -> Extra
 
     var body: some View {
-        HStack(spacing: 7) {
-            if let icon = cliIcon(source: session.source, size: 15) {
+        HStack(spacing: 8) {
+            if let icon = cliIcon(source: session.source, size: 13) {
                 Image(nsImage: icon)
                     .resizable()
-                    .frame(width: 15, height: 15)
+                    .frame(width: 13, height: 13)
             }
             SessionIdentityLine(
                 session: session,
                 sessionId: sessionId,
-                projectFontSize: 13,
+                projectFontSize: 13.5,
                 projectColor: .white,
-                sessionFontSize: 10,
-                sessionColor: accent,
-                dividerColor: .white.opacity(0.25)
+                sessionFontSize: 9.5,
+                sessionColor: .white.opacity(0.43),
+                dividerColor: .white.opacity(0.2)
             )
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            extra()
+            Text(status)
+                .font(.system(size: 10, weight: .medium))
+                .tracking(0.2)
+                .foregroundStyle(FormStyle.waiting)
+                .lineLimit(1)
+                .fixedSize()
         }
-        .padding(.horizontal, 14)
+        .frame(height: 18)
+    }
+}
+
+private enum FormStyle {
+    static let waiting = Color(red: 1.0, green: 0.65, blue: 0.25)
+    static let deny = Color(red: 1.0, green: 0.54, blue: 0.54)
+
+    static func title(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.white.opacity(0.95))
+            .lineSpacing(2)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// "mais 2 esperando", then a quiet dot before the status.
+    static func queue(_ waiting: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(String(format: L10n.shared["form_queue"], waiting))
+                .font(.system(size: 10))
+                .tracking(0.2)
+                .foregroundStyle(.white.opacity(0.35))
+            Text("·").font(.system(size: 10)).foregroundStyle(.white.opacity(0.15))
+        }
+        .fixedSize()
+    }
+}
+
+/// Where the code goes: the command, the diff, the path.
+private struct CodeBlock<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            content()
+        }
+        .font(.system(size: 10.5, design: .monospaced))
+        .foregroundStyle(.white.opacity(0.88))
+        .lineSpacing(2)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private struct FormButton: View {
+    enum Kind { case primary, secondary, destructive }
+    let label: String
+    var kind: Kind = .secondary
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 11.5, weight: kind == .primary ? .semibold : .medium))
+                .foregroundStyle(foreground)
+                .padding(.horizontal, 14)
+                .frame(height: 28)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(background))
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(CardPressStyle())
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
+    }
+
+    private var foreground: Color {
+        switch kind {
+        case .primary: return .black
+        case .secondary: return .white.opacity(hovering ? 0.95 : 0.8)
+        case .destructive: return FormStyle.deny.opacity(hovering ? 1 : 0.9)
+        }
+    }
+
+    private var background: Color {
+        switch kind {
+        case .primary: return .white.opacity(hovering ? 1 : 0.92)
+        case .secondary, .destructive: return .white.opacity(hovering ? 0.11 : 0.07)
+        }
+    }
+}
+
+/// A text field in the same shape as the options above it.
+private struct FormField: View {
+    let placeholder: String
+    @Binding var text: String
+    var focus: FocusState<Bool>.Binding
+    let onSubmit: () -> Void
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12))
+            .foregroundStyle(.white)
+            .focused(focus)
+            .onSubmit(onSubmit)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.05)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(focus.wrappedValue ? 0.28 : 0.12), lineWidth: 1)
+            )
     }
 }
 
@@ -880,8 +996,7 @@ private struct ApprovalBar: View {
     let tool: String
     let toolInput: [String: Any]?
     /// Which session is asking. With several sessions queued, "what tool" alone doesn't say
-    /// "which project" — this card used to carry the session id in `.approvalCard(sessionId:)`
-    /// and never read it.
+    /// "which project".
     let session: SessionSnapshot?
     let sessionId: String
     let queuePosition: Int
@@ -890,242 +1005,139 @@ private struct ApprovalBar: View {
     let onAlwaysAllow: () -> Void
     let onDeny: () -> Void
 
-    private var fileName: String? {
-        guard let fp = toolInput?["file_path"] as? String else { return nil }
-        return (fp as NSString).lastPathComponent
+    private var l10n: L10n { L10n.shared }
+
+    private var filePath: String? { toolInput?["file_path"] as? String }
+    private var fileName: String? { filePath.map { ($0 as NSString).lastPathComponent } }
+
+    /// "mcp__github__create_issue" → ("create_issue", "github").
+    private var mcpParts: (tool: String, server: String)? {
+        guard tool.hasPrefix("mcp__") else { return nil }
+        let parts = tool.dropFirst("mcp__".count).components(separatedBy: "__")
+        guard parts.count >= 2 else { return nil }
+        return (parts.dropFirst().joined(separator: "__"), parts[0])
     }
 
-    private var filePath: String? {
-        toolInput?["file_path"] as? String
-    }
-
-    private var serverName: String? {
-        toolInput?["server_name"] as? String
+    /// What the agent wants, as a sentence.
+    private var title: String {
+        let file = fileName ?? ""
+        switch tool {
+        case "Bash": return l10n["ap_bash"]
+        case "Edit", "MultiEdit": return String(format: l10n["ap_edit"], file)
+        case "Write": return String(format: l10n["ap_write"], file)
+        case "Read": return String(format: l10n["ap_read"], file)
+        case "Grep": return l10n["ap_grep"]
+        case "Glob": return l10n["ap_glob"]
+        default:
+            if let mcp = mcpParts { return String(format: l10n["ap_mcp"], mcp.tool, mcp.server) }
+            if let server = toolInput?["server_name"] as? String { return String(format: l10n["ap_mcp"], tool, server) }
+            return String(format: l10n["ap_tool"], tool)
+        }
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if let session {
-                SessionIdentityBadge(session: session, sessionId: sessionId)
+                FormHeader(session: session, sessionId: sessionId, status: l10n["st_waiting_approval"]) {
+                    if queueTotal > 1 { FormStyle.queue(queueTotal - queuePosition) }
+                }
             }
-            // Tool name + file context
-            HStack(spacing: 6) {
-                Text("!")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color(red: 1.0, green: 0.7, blue: 0.28))
-                Text(tool)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color(red: 1.0, green: 0.7, blue: 0.28))
-                if let server = serverName {
-                    Text("(\(server))")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(Color(red: 0.6, green: 0.7, blue: 0.9))
-                }
-                if let name = fileName {
-                    Text(name)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-                if queueTotal > 1 {
-                    Text("\(queuePosition)/\(queueTotal)")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.white.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-
-            // Tool-specific detail view
+            FormStyle.title(title)
             if toolInput != nil {
-                toolDetailView
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.white.opacity(0.04))
+                CodeBlock { toolDetail }
             }
-
-            // Ghost-style action buttons — accent only on text/border, soft fills
             HStack(spacing: 6) {
-                let denyAccent   = Color(red: 1.00, green: 0.42, blue: 0.42)
-                let allowAccent  = Color(red: 0.36, green: 0.85, blue: 0.50)
-                let alwaysAccent = Color(red: 0.40, green: 0.65, blue: 1.00)
-
-                PixelButton(
-                    label: L10n.shared["deny"],
-                    fg: denyAccent,
-                    bg: denyAccent.opacity(0.10),
-                    border: denyAccent.opacity(0.40),
-                    action: onDeny
-                )
-                PixelButton(
-                    label: L10n.shared["allow_once"],
-                    fg: allowAccent,
-                    bg: allowAccent.opacity(0.10),
-                    border: allowAccent.opacity(0.40),
-                    action: onAllow
-                )
-                PixelButton(
-                    label: L10n.shared["always"],
-                    fg: alwaysAccent,
-                    bg: alwaysAccent.opacity(0.10),
-                    border: alwaysAccent.opacity(0.40),
-                    action: onAlwaysAllow
-                )
+                Spacer(minLength: 0)
+                FormButton(label: l10n["form_deny"], kind: .destructive, action: onDeny)
+                FormButton(label: l10n["form_always"], action: onAlwaysAllow)
+                FormButton(label: l10n["form_allow"], kind: .primary, action: onAllow)
             }
-            .padding(.horizontal, 14)
+            .padding(.top, 2)
         }
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    private func path(_ p: String) -> some View {
+        Text(p)
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.42))
+            .lineLimit(1)
+            .truncationMode(.head)
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10.5))
+            .foregroundStyle(.white.opacity(0.42))
+    }
+
+    /// One diff line, tinted across the whole block width like a code review.
+    private func diffLine(_ sign: String, _ text: String, _ color: Color) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(sign).opacity(0.6)
+            Text(text).lineLimit(3)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.12))
+        .padding(.horizontal, -12)
     }
 
     @ViewBuilder
-    private var toolDetailView: some View {
+    private var toolDetail: some View {
         switch tool {
         case "Bash":
-            // Show command as a terminal prompt
-            VStack(alignment: .leading, spacing: 2) {
-                if let cmd = toolInput?["command"] as? String {
-                    HStack(alignment: .top, spacing: 4) {
-                        Text("$")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
-                        Text(cmd)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineLimit(3)
-                    }
-                }
+            if let cmd = toolInput?["command"] as? String {
+                (Text("$ ").foregroundColor(.white.opacity(0.35)) + Text(cmd))
+                    .lineLimit(4)
             }
-
-        case "Edit":
-            // Show diff style: - old / + new
-            VStack(alignment: .leading, spacing: 3) {
-                if let fp = filePath {
-                    Text(fp)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-                if let old = toolInput?["old_string"] as? String {
-                    HStack(alignment: .top, spacing: 4) {
-                        Text("−")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color(red: 1.0, green: 0.4, blue: 0.4))
-                        Text(old.prefix(120))
-                            .font(.system(size: 9.5, design: .monospaced))
-                            .foregroundStyle(Color(red: 1.0, green: 0.4, blue: 0.4).opacity(0.7))
-                            .lineLimit(2)
-                    }
-                }
-                if let new = toolInput?["new_string"] as? String {
-                    HStack(alignment: .top, spacing: 4) {
-                        Text("+")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
-                        Text(new.prefix(120))
-                            .font(.system(size: 9.5, design: .monospaced))
-                            .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4).opacity(0.7))
-                            .lineLimit(2)
-                    }
-                }
+        case "Edit", "MultiEdit":
+            if let fp = filePath { path(fp) }
+            if let old = toolInput?["old_string"] as? String {
+                diffLine("−", String(old.prefix(160)), Color(red: 1.0, green: 0.64, blue: 0.64))
             }
-
+            if let new = toolInput?["new_string"] as? String {
+                diffLine("+", String(new.prefix(160)), Color(red: 0.57, green: 0.9, blue: 0.67))
+            }
         case "Write":
-            // Show file path + content preview
-            VStack(alignment: .leading, spacing: 3) {
-                if let fp = filePath {
-                    Text(fp)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-                if let content = toolInput?["content"] as? String {
-                    Text(content.prefix(200))
-                        .font(.system(size: 9.5, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(4)
-                }
+            if let fp = filePath { path(fp) }
+            if let content = toolInput?["content"] as? String {
+                Text(content.prefix(200))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(4)
+                    // The preview fades out instead of stopping mid-line.
+                    .mask(LinearGradient(stops: [.init(color: .black, location: 0.55), .init(color: .clear, location: 1)],
+                                         startPoint: .top, endPoint: .bottom))
             }
-
         case "Read":
-            // Show file path + line range
-            VStack(alignment: .leading, spacing: 2) {
-                if let fp = filePath {
-                    Text(fp)
-                        .font(.system(size: 9.5, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-                if let offset = toolInput?["offset"] as? Int,
-                   let limit = toolInput?["limit"] as? Int {
-                    Text("\(L10n.shared["lines"]) \(offset + 1)–\(offset + limit)")
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.4))
-                }
+            if let fp = filePath {
+                Text(fp).lineLimit(1).truncationMode(.head)
             }
-
-        case "Grep":
-            // Show pattern + optional path
-            VStack(alignment: .leading, spacing: 2) {
-                if let pattern = toolInput?["pattern"] as? String {
-                    HStack(alignment: .top, spacing: 4) {
-                        Text("/")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color(red: 0.9, green: 0.6, blue: 0.9))
-                        Text(pattern)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(Color(red: 0.9, green: 0.6, blue: 0.9).opacity(0.8))
-                            .lineLimit(2)
-                    }
-                }
-                if let path = toolInput?["path"] as? String {
-                    Text(path)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
+            if let offset = toolInput?["offset"] as? Int, let limit = toolInput?["limit"] as? Int {
+                note(String(format: l10n["ap_lines"], offset + 1, offset + limit))
             }
-
-        case "Glob":
-            // Show glob pattern
-            VStack(alignment: .leading, spacing: 2) {
-                if let pattern = toolInput?["pattern"] as? String {
-                    Text(pattern)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Color(red: 0.6, green: 0.8, blue: 1.0))
-                        .lineLimit(2)
-                }
-                if let path = toolInput?["path"] as? String {
-                    Text(path)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
+        case "Grep", "Glob":
+            if let pattern = toolInput?["pattern"] as? String {
+                Text(pattern).lineLimit(2)
             }
-
+            if let where_ = toolInput?["path"] as? String {
+                note(String(format: l10n["ap_in"], where_))
+            }
         default:
-            // Generic: show all key-value pairs
-            VStack(alignment: .leading, spacing: 2) {
-                if let input = toolInput {
-                    ForEach(Array(input.keys.sorted().prefix(4)), id: \.self) { key in
-                        let val = input[key].map { "\($0)" } ?? ""
-                        HStack(alignment: .top, spacing: 4) {
-                            Text(key)
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Color(red: 0.6, green: 0.7, blue: 0.9))
-                            Text(String(val.prefix(100)))
-                                .font(.system(size: 9.5, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.6))
-                                .lineLimit(2)
-                        }
+            if let input = toolInput {
+                ForEach(Array(input.keys.sorted().filter { $0 != "server_name" }.prefix(4)), id: \.self) { key in
+                    let val = input[key].map { "\($0)" } ?? ""
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(key)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.white.opacity(0.42))
+                            .frame(width: 44, alignment: .leading)
+                            .lineLimit(1)
+                        Text(String(val.prefix(100)))
+                            .lineLimit(2)
                     }
                 }
             }
@@ -1161,7 +1173,7 @@ private struct QuestionBar: View {
     @State private var otherText: String = ""
     @FocusState private var otherFocused: Bool
 
-    private let cyan = Color(red: 0.4, green: 0.7, blue: 1.0)
+    private var l10n: L10n { L10n.shared }
 
     private var currentItem: AskUserQuestionItem? {
         guard !allQuestions.isEmpty, currentQuestionIndex < allQuestions.count else { return nil }
@@ -1169,9 +1181,12 @@ private struct QuestionBar: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if let session {
-                SessionIdentityBadge(session: session, sessionId: sessionId)
+                FormHeader(session: session, sessionId: sessionId, status: l10n["st_waiting_answer"]) {
+                    if allQuestions.count > 1 { steps }
+                    if queueTotal > 1 { FormStyle.queue(queueTotal - queuePosition) }
+                }
             }
 
             if let item = currentItem {
@@ -1180,58 +1195,51 @@ private struct QuestionBar: View {
                 legacyQuestionContent
             }
         }
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .onAppear { isFocused = true }
+    }
+
+    /// Dots and "2 de 3" for a run of questions.
+    private var steps: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                ForEach(0..<allQuestions.count, id: \.self) { i in
+                    Circle()
+                        .fill(Color.white.opacity(i == currentQuestionIndex ? 0.9 : (i < currentQuestionIndex ? 0.45 : 0.18)))
+                        .frame(width: 5, height: 5)
+                }
+            }
+            Text(String(format: l10n["form_step"], currentQuestionIndex + 1, allQuestions.count))
+                .font(.system(size: 10).monospacedDigit())
+                .tracking(0.2)
+                .foregroundStyle(.white.opacity(0.4))
+            Text("·").font(.system(size: 10)).foregroundStyle(.white.opacity(0.15))
+        }
+        .fixedSize()
     }
 
     // MARK: - Multi-question content (AskUserQuestion)
 
     @ViewBuilder
     private func multiQuestionContent(_ item: AskUserQuestionItem) -> some View {
-        // Header with progress
-        HStack(spacing: 6) {
-            Text("?")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(cyan)
-            if let header = item.payload.header, !header.isEmpty {
-                Text(header)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(cyan.opacity(0.7))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(cyan.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-            }
-            Text(item.payload.question)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(3)
-            Spacer()
-            if allQuestions.count > 1 {
-                Text("\(currentQuestionIndex + 1)/\(allQuestions.count)")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-            }
-            if queueTotal > 1 {
-                Text("\(queuePosition)/\(queueTotal)")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
+        if let header = item.payload.header, !header.isEmpty {
+            Text(header)
+                .font(.system(size: 10, weight: .medium))
+                .tracking(0.2)
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.white.opacity(0.07)))
         }
-        .padding(.horizontal, 14)
+        FormStyle.title(item.payload.question)
 
-        // Options
         if let opts = item.payload.options, !opts.isEmpty {
             VStack(spacing: 4) {
                 ForEach(Array(opts.enumerated()), id: \.offset) { idx, option in
                     let desc = item.payload.descriptions?.indices.contains(idx) == true ? item.payload.descriptions?[idx] : nil
                     if item.multiSelect {
-                        MultiSelectRow(index: idx + 1, label: option, description: desc,
-                                       isChecked: selectedIndices.contains(idx), accent: cyan) {
+                        MultiSelectRow(label: option, description: desc, isChecked: selectedIndices.contains(idx)) {
                             if selectedIndices.contains(idx) {
                                 selectedIndices.remove(idx)
                             } else {
@@ -1239,8 +1247,7 @@ private struct QuestionBar: View {
                             }
                         }
                     } else {
-                        OptionRow(index: idx + 1, label: option, description: desc,
-                                  isSelected: selectedIndex == idx, accent: cyan) {
+                        OptionRow(index: idx + 1, label: option, description: desc, isSelected: selectedIndex == idx) {
                             selectedIndex = idx
                             showOtherInput = false
                             advanceWithAnswer(option)
@@ -1248,110 +1255,52 @@ private struct QuestionBar: View {
                     }
                 }
 
-                // "Other" option
                 otherOptionRow(isMultiSelect: item.multiSelect)
 
-                // "Other" text input
                 if showOtherInput {
-                    HStack(spacing: 6) {
-                        Text(">")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
-                        TextField(L10n.shared["type_answer"], text: $otherText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(.white)
-                            .focused($otherFocused)
-                            .onSubmit {
-                                if !item.multiSelect && !otherText.isEmpty {
-                                    advanceWithAnswer(otherText)
-                                }
-                            }
+                    FormField(placeholder: l10n["form_type_answer"], text: $otherText, focus: $otherFocused) {
+                        if !item.multiSelect && !otherText.isEmpty {
+                            advanceWithAnswer(otherText)
+                        }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.05))
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 14)
                     .onAppear { otherFocused = true }
                 }
             }
-            .padding(.horizontal, 14)
         } else {
-            // No options — text input only
-            HStack(spacing: 6) {
-                Text(">")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
-                TextField(L10n.shared["type_answer"], text: $textInput)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .focused($isFocused)
-                    .onSubmit {
-                        if !textInput.isEmpty { advanceWithAnswer(textInput) }
-                    }
+            FormField(placeholder: l10n["form_type_answer"], text: $textInput, focus: $isFocused) {
+                if !textInput.isEmpty { advanceWithAnswer(textInput) }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.05))
-            .cornerRadius(4)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-            )
-            .padding(.horizontal, 14)
         }
 
-        // Buttons
         HStack(spacing: 6) {
             if currentQuestionIndex > 0 {
-                PixelButton(
-                    label: L10n.shared["back"],
-                    fg: .white.opacity(0.6),
-                    bg: Color.white.opacity(0.06),
-                    border: Color.white.opacity(0.12),
-                    action: goBack
-                )
+                Button(action: goBack) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left").font(.system(size: 9, weight: .bold))
+                        Text(l10n["form_back"]).font(.system(size: 11.5))
+                    }
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            PixelButton(
-                label: L10n.shared["skip"],
-                fg: .white.opacity(0.6),
-                bg: Color.white.opacity(0.06),
-                border: Color.white.opacity(0.12),
-                action: onSkip
-            )
+            Spacer(minLength: 0)
+            FormButton(label: l10n["form_skip"], action: onSkip)
             if item.multiSelect {
-                PixelButton(
-                    label: L10n.shared["confirm"],
-                    fg: .white.opacity(0.95),
-                    bg: Color(red: 0.16, green: 0.38, blue: 0.18),
-                    border: Color(red: 0.28, green: 0.62, blue: 0.32),
-                    action: confirmMultiSelect
-                )
+                FormButton(label: l10n["form_confirm"], kind: .primary, action: confirmMultiSelect)
             } else if item.payload.options == nil || item.payload.options?.isEmpty == true {
-                PixelButton(
-                    label: L10n.shared["submit"],
-                    fg: .white.opacity(0.95),
-                    bg: Color(red: 0.16, green: 0.38, blue: 0.18),
-                    border: Color(red: 0.28, green: 0.62, blue: 0.32),
-                    action: { if !textInput.isEmpty { advanceWithAnswer(textInput) } }
-                )
-            } else if showOtherInput && !item.multiSelect {
-                PixelButton(
-                    label: L10n.shared["submit"],
-                    fg: .white.opacity(0.95),
-                    bg: Color(red: 0.16, green: 0.38, blue: 0.18),
-                    border: Color(red: 0.28, green: 0.62, blue: 0.32),
-                    action: { if !otherText.isEmpty { advanceWithAnswer(otherText) } }
-                )
+                FormButton(label: l10n["form_send"], kind: .primary) {
+                    if !textInput.isEmpty { advanceWithAnswer(textInput) }
+                }
+            } else if showOtherInput {
+                FormButton(label: l10n["form_send"], kind: .primary) {
+                    if !otherText.isEmpty { advanceWithAnswer(otherText) }
+                }
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.top, 2)
     }
 
     // MARK: - "Other" option row
@@ -1359,14 +1308,12 @@ private struct QuestionBar: View {
     @ViewBuilder
     private func otherOptionRow(isMultiSelect: Bool) -> some View {
         if isMultiSelect {
-            MultiSelectRow(index: -1, label: L10n.shared["other"], description: nil,
-                           isChecked: showOtherInput, accent: cyan) {
+            MultiSelectRow(label: l10n["form_other"], description: nil, isChecked: showOtherInput) {
                 showOtherInput.toggle()
                 if !showOtherInput { otherText = "" }
             }
         } else {
-            OptionRow(index: -1, label: L10n.shared["other"], description: nil,
-                      isSelected: showOtherInput, accent: cyan) {
+            OptionRow(index: -1, label: l10n["form_other"], description: nil, isSelected: showOtherInput) {
                 showOtherInput = true
                 selectedIndex = nil
             }
@@ -1378,7 +1325,6 @@ private struct QuestionBar: View {
     private func advanceWithAnswer(_ answer: String) {
         guard let item = currentItem else { return }
         collectedAnswers.append((question: item.payload.question, answer: answer))
-
         if currentQuestionIndex + 1 < allQuestions.count {
             withAnimation(NotchAnimation.micro) {
                 currentQuestionIndex += 1
@@ -1422,219 +1368,142 @@ private struct QuestionBar: View {
 
     @ViewBuilder
     private var legacyQuestionContent: some View {
-        HStack(spacing: 6) {
-            Text("?")
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                .foregroundStyle(cyan)
-            Text(question)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(3)
-            if queueTotal > 1 {
-                Text("\(queuePosition)/\(queueTotal)")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 14)
+        FormStyle.title(question)
 
         if let options = options, !options.isEmpty {
             VStack(spacing: 4) {
                 ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
                     let desc = descriptions?.indices.contains(idx) == true ? descriptions?[idx] : nil
-                    OptionRow(index: idx + 1, label: option, description: desc, isSelected: selectedIndex == idx, accent: cyan) {
+                    OptionRow(index: idx + 1, label: option, description: desc, isSelected: selectedIndex == idx) {
                         selectedIndex = idx
                         onAnswer(option)
                     }
                 }
             }
-            .padding(.horizontal, 14)
         } else {
-            HStack(spacing: 6) {
-                Text(">")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
-                TextField(L10n.shared["type_answer"], text: $textInput)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .focused($isFocused)
-                    .onSubmit {
-                        if !textInput.isEmpty { onAnswer(textInput) }
-                    }
+            FormField(placeholder: l10n["form_type_answer"], text: $textInput, focus: $isFocused) {
+                if !textInput.isEmpty { onAnswer(textInput) }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.05))
-            .cornerRadius(4)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-            )
-            .padding(.horizontal, 14)
         }
 
         HStack(spacing: 6) {
-            PixelButton(
-                label: L10n.shared["skip"],
-                fg: .white.opacity(0.6),
-                bg: Color.white.opacity(0.06),
-                border: Color.white.opacity(0.12),
-                action: onSkip
-            )
+            Spacer(minLength: 0)
+            FormButton(label: l10n["form_skip"], action: onSkip)
             if options == nil || options?.isEmpty == true {
-                PixelButton(
-                    label: L10n.shared["submit"],
-                    fg: .white.opacity(0.95),
-                    bg: Color(red: 0.16, green: 0.38, blue: 0.18),
-                    border: Color(red: 0.28, green: 0.62, blue: 0.32),
-                    action: { if !textInput.isEmpty { onAnswer(textInput) } }
-                )
-            }
-        }
-        .padding(.horizontal, 14)
-    }
-}
-
-// MARK: - Multi-Select Row (checkbox style)
-
-private struct MultiSelectRow: View {
-    let index: Int
-    let label: String
-    let description: String?
-    let isChecked: Bool
-    let accent: Color
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 11))
-                    .foregroundStyle(isChecked ? accent : .white.opacity(0.4))
-                    .frame(width: 14)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label)
-                        .font(.system(size: 10.5, weight: hovering || isChecked ? .semibold : .regular, design: .monospaced))
-                        .foregroundStyle(.white.opacity(hovering || isChecked ? 1 : 0.75))
-                    if let description, !description.isEmpty {
-                        Text(description)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.45))
-                            .lineLimit(2)
-                    }
+                FormButton(label: l10n["form_send"], kind: .primary) {
+                    if !textInput.isEmpty { onAnswer(textInput) }
                 }
-                Spacer()
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isChecked ? accent.opacity(0.08) : (hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.03)))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(isChecked ? accent.opacity(0.4) : (hovering ? accent.opacity(0.2) : Color.clear), lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
-        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
+        .padding(.top, 2)
     }
 }
 
-// MARK: - Option Row
+// MARK: - Option rows
 
+/// One choice. The number is a quiet hint; under the mouse the row lifts and a chevron
+/// says a click answers. Index -1 is "something else", with a pencil instead of a number.
 private struct OptionRow: View {
     let index: Int
     let label: String
     let description: String?
     let isSelected: Bool
-    let accent: Color
     let action: () -> Void
     @State private var hovering = false
 
+    private var lit: Bool { hovering || isSelected }
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                // Selector arrow
-                Text(hovering ? "▸" : " ")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(accent)
-                    .frame(width: 10)
-                // Number (or ellipsis for "Other")
-                if index > 0 {
-                    Text("\(index).")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(accent.opacity(hovering ? 1 : 0.6))
-                } else {
-                    Text("…")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(accent.opacity(hovering ? 1 : 0.6))
+            HStack(spacing: 10) {
+                Group {
+                    if index > 0 {
+                        Text("\(index)")
+                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    } else {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .medium))
+                    }
                 }
-                // Label + Description
+                .foregroundStyle(.white.opacity(lit ? 0.9 : 0.35))
+                .frame(width: 14, alignment: .leading)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(label)
-                        .font(.system(size: 10.5, weight: hovering ? .semibold : .regular, design: .monospaced))
-                        .foregroundStyle(.white.opacity(hovering ? 1 : 0.75))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(index > 0 || lit ? 0.92 : 0.6))
                     if let description, !description.isEmpty {
                         Text(description)
-                            .font(.system(size: 9, design: .monospaced))
+                            .font(.system(size: 10.5))
                             .foregroundStyle(.white.opacity(0.45))
                             .lineLimit(2)
                     }
                 }
-                Spacer()
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .opacity(hovering && index > 0 ? 1 : 0)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(hovering ? Color.white.opacity(0.08) : Color.white.opacity(0.03))
-            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(lit ? 0.08 : 0.04)))
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(hovering ? accent.opacity(0.4) : Color.clear, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(lit ? 0.14 : 0.06), lineWidth: 1)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
     }
 }
 
-private struct PixelButton: View {
+/// A choice that can be ticked along with others: a white box when ticked.
+private struct MultiSelectRow: View {
     let label: String
-    let fg: Color
-    let bg: Color
-    let border: Color
+    let description: String?
+    let isChecked: Bool
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(fg.opacity(hovering ? 1.0 : 0.85))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(bg)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(hovering ? border : border.opacity(0.5), lineWidth: 1)
-                )
-                .overlay(
-                    // Subtle hover wash — uses a neutral white so colored bgs don't blow out
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.white.opacity(hovering ? 0.06 : 0))
-                )
+            HStack(spacing: 10) {
+                ZStack {
+                    if isChecked {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color.white.opacity(0.92))
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.black)
+                    } else {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(Color.white.opacity(hovering ? 0.55 : 0.35), lineWidth: 1.3)
+                    }
+                }
+                .frame(width: 14, height: 14)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.92))
+                    if let description, !description.isEmpty {
+                        Text(description)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(isChecked || hovering ? 0.08 : 0.04)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(isChecked || hovering ? 0.14 : 0.06), lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
@@ -1766,7 +1635,8 @@ struct SessionListView: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
 
         if needsScroll {
             ThinScrollView(maxHeight: CGFloat(maxVisibleSessions) * 90) {
@@ -2078,38 +1948,54 @@ private struct SessionCard: View {
     @ViewBuilder
     private var cardContent: some View {
         // No coloured stripe down the side and no status-tinted border: the agent dot and
-        // the status text already say it, and a tinted rail is the first thing that makes a
-        // card look generated.
+        // the status text already say it. Corners are concentric with the tray (20 minus
+        // the 6 pt margin), and every gap sits on the 4 pt grid.
         HStack(alignment: .top, spacing: 0) {
             mascotColumn
             contentColumn
         }
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(hovering ? Color.white.opacity(0.065) : Color.white.opacity(0.035))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(hovering ? 0.06 : 0.04))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.white.opacity(hovering ? 0.10 : 0.05), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(hovering ? 0.11 : 0.06), lineWidth: 1)
+        )
+        // A 1 pt catch of light along the top edge.
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.05), .clear], startPoint: .top, endPoint: .center),
+                    lineWidth: 1
+                )
+                .allowsHitTesting(false)
         )
         .padding(.horizontal, 6)
     }
+
+    private var isIdle: Bool { session.status == .idle }
+    private var isWorking: Bool { session.status == .processing || session.status == .running }
 
     /// The agent's colour, where each card used to carry its own mascot. Hatch is one
     /// character now, at the head of the panel, speaking for every session.
     @ViewBuilder
     private var mascotColumn: some View {
         VStack(spacing: 6) {
-            AgentDot(source: session.source, status: session.status, size: 9)
-                .padding(.top, 6)
+            AgentDot(source: session.source, status: session.status, size: 8)
+                .background(
+                    // A quiet ring around the dot of a session that is working.
+                    Circle()
+                        .stroke(Color(nsColor: HatchlingMascotView.eyeColor(for: session.source)).opacity(isWorking ? 0.22 : 0), lineWidth: 3)
+                        .frame(width: 11, height: 11)
+                )
+                .padding(.top, 5)
             if showAgentDetails && !session.subagents.isEmpty {
                 subagentGrid
             }
         }
-        .frame(width: showAgentDetails && !session.subagents.isEmpty ? 36 : 14)
-        .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .padding(.top, 10)
+        .frame(width: showAgentDetails && !session.subagents.isEmpty ? 36 : 28)
+        .padding(.top, 12)
     }
 
     @ViewBuilder
@@ -2132,38 +2018,55 @@ private struct SessionCard: View {
     // ── Content column ──────────────────────────────────────────────
     @ViewBuilder
     private var contentColumn: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        let _ = momentStore.objectWillChange
+        let moment = momentStore.moment(for: session, sessionId: sessionId)
+        VStack(alignment: .leading, spacing: 0) {
             headerRow
+                .frame(height: 18)
             contextRow
-            messagesBlock
-            metaFooter
+                .padding(.top, 4)
+            Text(moment.now)
+                .font(.system(size: fontSize + 1, weight: .medium))
+                .foregroundStyle(.white.opacity(isIdle ? 0.72 : 0.94))
+                .lineSpacing(2)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .animation(.easeOut(duration: 0.25), value: moment.now)
+                .padding(.top, 8)
+            footerRow(task: moment.task != moment.now ? moment.task : nil)
+                .padding(.top, 4)
         }
-        .padding(.trailing, 14)
-        .padding(.vertical, 10)
+        .padding(.trailing, 16)
+        .padding(.vertical, 12)
     }
 
-    /// Model + tokens-used / context-window. Hidden when we can't read it.
+    /// Model + tokens-used / context-window. Hidden when we can't read it. The token count
+    /// only shows under the mouse; at rest the percentage says enough.
     @ViewBuilder
     private var contextRow: some View {
         // Touch the published property so SwiftUI re-renders on cache updates
         let _ = contextStore.objectWillChange
         if let usage = ContextUsageStore.shared.lookup(for: session, sessionId: sessionId) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Text(usage.modelShort)
-                    .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .font(.system(size: fontSize - 1.5, weight: .medium, design: .monospaced))
+                    .tracking(0.2)
+                    .foregroundStyle(.white.opacity(0.48))
                     .lineLimit(1)
                 ContextProgressTrack(pct: usage.pct, color: usage.color)
-                    .frame(width: 70, height: 4)
+                    .frame(width: 60, height: 3)
                 Text("\(usage.pct)%")
-                    .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
+                    .font(.system(size: fontSize - 1.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(usage.color.opacity(0.92))
                     .monospacedDigit()
                 Text(usage.tokensCompact)
-                    .font(.system(size: fontSize - 3, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.32))
+                    .font(.system(size: fontSize - 2, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.26))
+                    .opacity(hovering ? 1 : 0)
                 Spacer(minLength: 0)
             }
+            .frame(height: 12)
         }
     }
 
@@ -2173,11 +2076,11 @@ private struct SessionCard: View {
             SessionIdentityLine(
                 session: session,
                 sessionId: sessionId,
-                projectFontSize: fontSize + 2,
-                projectColor: .white,
-                sessionFontSize: fontSize - 1,
-                sessionColor: .white.opacity(0.45),
-                dividerColor: .white.opacity(0.25)
+                projectFontSize: fontSize + 2.5,
+                projectColor: .white.opacity(isIdle ? 0.82 : 1),
+                sessionFontSize: fontSize - 1.5,
+                sessionColor: .white.opacity(0.43),
+                dividerColor: .white.opacity(0.2)
             )
             if let remote = session.remoteDisplayName {
                 SessionTag("@\(remote)", color: Color(red: 0.45, green: 0.72, blue: 1.0))
@@ -2185,67 +2088,55 @@ private struct SessionCard: View {
             if session.isYoloMode == true {
                 SessionTag("YOLO", color: Color(red: 1.0, green: 0.35, blue: 0.35))
             }
-            Spacer(minLength: 6)
+            Spacer(minLength: 8)
             statusPill
         }
     }
 
-    /// What is happening now, in a sentence that fits, and what the session is about under it.
-    /// Replaces the raw prompt and reply, which were cut off mid-sentence and said little.
-    @ViewBuilder
-    private var messagesBlock: some View {
-        let _ = momentStore.objectWillChange
-        let moment = momentStore.moment(for: session, sessionId: sessionId)
-        VStack(alignment: .leading, spacing: 3) {
-            Text(moment.now)
-                .font(.system(size: fontSize + 0.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .contentTransition(.opacity)
-                .animation(.easeOut(duration: 0.25), value: moment.now)
-            if let task = moment.task, task != moment.now {
-                Text(task)
-                    .font(.system(size: fontSize - 1))
-                    .foregroundStyle(.white.opacity(0.45))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        }
-    }
-
-    // ── Status pill (top-right of header) ───────────────────────────
+    // ── Status (top-right of header) ────────────────────────────────
     @ViewBuilder
     private var statusPill: some View {
         Text(statusLabel)
-            .font(.system(size: fontSize - 2, weight: .medium))
-            .foregroundStyle(session.status == .idle ? Color.white.opacity(0.38) : statusAccent)
+            .font(.system(size: fontSize - 1, weight: .medium))
+            .tracking(0.2)
+            .foregroundStyle(isIdle && !session.interrupted ? Color.white.opacity(0.36) : statusAccent)
             .lineLimit(1)
             .fixedSize()
     }
 
-    // ── Footer: how long ago, and in which terminal ─────────────────
+    // ── Footer: what the session is about, then the way in, how long ago, which app ──
     @ViewBuilder
-    private var metaFooter: some View {
-        HStack(spacing: 6) {
+    private func footerRow(task: String?) -> some View {
+        HStack(spacing: 8) {
+            Text(task ?? "")
+                .font(.system(size: fontSize - 0.5))
+                .tracking(0.1)
+                .foregroundStyle(.white.opacity(0.42))
+                .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 6)
             // The other way in, one click away: the chat when a click opens the app, and the
-            // app when a click opens the chat.
+            // app when a click opens the chat. Only under the mouse, so a resting card is calm.
             let alternateIsChat = cardClickAction != "chat"
             Button(action: alternateIsChat ? openChat : openApp) {
                 Image(systemName: alternateIsChat ? "text.bubble" : "macwindow")
                     .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(hovering ? 0.7 : 0.35))
+                    .foregroundStyle(.white.opacity(0.7))
                     .frame(width: 22, height: 18)
-                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(hovering ? 0.08 : 0)))
+                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.08)))
             }
             .buttonStyle(.plain)
+            .opacity(hovering ? 1 : 0)
+            .allowsHitTesting(hovering)
             .help(L10n.shared[alternateIsChat ? "card_open_chat" : "card_open_app"])
             Text(timeAgo(session.startTime))
-                .font(.system(size: fontSize - 2, weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.35))
+                .font(.system(size: fontSize - 1.5, weight: .medium).monospacedDigit())
+                .tracking(0.2)
+                .foregroundStyle(.white.opacity(0.32))
             TerminalBadge(session: session)
+                .opacity(isIdle ? 0.6 : 1)
         }
+        .frame(height: 18)
     }
 
     private func timeAgo(_ date: Date) -> String {

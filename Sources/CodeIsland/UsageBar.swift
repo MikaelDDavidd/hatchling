@@ -13,24 +13,32 @@ struct UsageBar: View {
     private static let codexColor  = Color(red: 0.35, green: 0.60, blue: 0.95)
 
     var body: some View {
-        HStack(spacing: 14) {
+        let hasClaude = claude.limits != nil
+        let hasCodex = !(codex.snapshot?.isEmpty ?? true)
+        HStack(spacing: 0) {
             if let lim = claude.limits {
                 claudeSegment(limits: lim)
+            }
+            if hasClaude && hasCodex {
+                // A hairline between the two agents instead of a wide gap.
+                Rectangle()
+                    .fill(.white.opacity(0.1))
+                    .frame(width: 1, height: 10)
+                    .padding(.horizontal, 12)
             }
             if let snap = codex.snapshot, !snap.isEmpty {
                 codexSegment(snapshot: snap)
             }
-            if claude.limits == nil && (codex.snapshot?.isEmpty ?? true) {
-                Text(claude.isInstalled
-                     ? "waiting for first Claude turn…"
-                     : "per-session context % shown on each card")
-                    .font(.system(size: 9, design: .monospaced))
+            if !hasClaude && !hasCodex {
+                Text(claude.isInstalled ? L10n.shared["usage_waiting"] : L10n.shared["usage_per_card"])
+                    .font(.system(size: 10))
+                    .tracking(0.2)
                     .foregroundStyle(.white.opacity(0.30))
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .frame(height: 14)
+        .padding(.horizontal, 16)
     }
 
     @ViewBuilder
@@ -66,26 +74,36 @@ struct UsageBar: View {
         Text(name.capitalized)
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(color.opacity(0.9))
+            .fixedSize()
     }
 
+    /// Label, bar, percentage and, when known, when the window starts over. Every window
+    /// has the same bar and the same number width, so the row lines up.
     @ViewBuilder
     private func window(label: String, pct: Int, resetsAt: Date?, accent: Color) -> some View {
         let accent = colorFor(pct: pct, accent: accent)
-        HStack(spacing: 5) {
-            Text(label)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.45))
+        HStack(spacing: 6) {
+            // Fixed size: when the row is tight SwiftUI squeezed these labels to nothing.
+            Text(verbatim: label)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .tracking(0.2)
+                .foregroundStyle(.white.opacity(0.38))
+                .fixedSize()
             ProgressTrack(pct: pct, color: accent)
-                .frame(width: 44, height: 4)
+                .frame(width: 40, height: 3)
             Text("\(pct)%")
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(accent.opacity(0.95))
-                .frame(width: 30, alignment: .trailing)
                 .monospacedDigit()
+                .fixedSize()
+                .frame(minWidth: 26, alignment: .leading)
             if let t = resetTimeShort(resetsAt) {
-                Text(t)
+                Text(String(format: L10n.shared["usage_resets_in"], t))
                     .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.35))
+                    .tracking(0.2)
+                    .foregroundStyle(.white.opacity(0.28))
+                    .lineLimit(1)
+                    .layoutPriority(-1)
             }
         }
     }
@@ -122,10 +140,10 @@ private struct ProgressTrack: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(color.opacity(0.15))
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(color.gradient)
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(color.opacity(0.2))
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(color)
                     .frame(width: geo.size.width * CGFloat(min(max(pct, 0), 100)) / 100.0)
             }
         }

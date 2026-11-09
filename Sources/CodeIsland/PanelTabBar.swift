@@ -42,10 +42,11 @@ struct PanelTabSelector: View {
                     HStack(spacing: 5) {
                         Image(systemName: tab.icon)
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(isSelected ? .white : .white.opacity(hovered == tab ? 0.6 : 0.35))
+                            .foregroundStyle(isSelected ? .white : .white.opacity(hovered == tab ? 0.6 : 0.38))
                         if isSelected {
                             Text(tab.label)
                                 .font(.system(size: 11, weight: .semibold))
+                                .tracking(0.1)
                                 .foregroundStyle(.white)
                                 .transition(.asymmetric(
                                     insertion: .opacity.combined(with: .scale(scale: 0.8, anchor: .leading)),
@@ -53,26 +54,27 @@ struct PanelTabSelector: View {
                                 ))
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 9)
+                    .frame(height: 20)
                     .background {
+                        // Concentric with the selector: 9 outside, 3 inset, 6 inside.
                         if isSelected {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(.white.opacity(0.11))
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(.white.opacity(0.12))
                                 .matchedGeometryEffect(id: "pill", in: pill)
                         } else if hovered == tab {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.white.opacity(0.05))
+                            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.white.opacity(0.05))
                         }
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 7))
+                    .contentShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 .help(tab.label)
                 .onHover { h in withAnimation(NotchAnimation.micro) { hovered = h ? tab : (hovered == tab ? nil : hovered) } }
             }
         }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.04)))
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.05)))
     }
 }
 
