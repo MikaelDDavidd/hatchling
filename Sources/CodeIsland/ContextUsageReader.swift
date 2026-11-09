@@ -101,20 +101,17 @@ final class ContextUsageStore: ObservableObject {
 // MARK: - Reader
 
 enum ContextUsageReader {
-    /// Default Claude/Sonnet/Opus/Haiku context window.
-    private static let defaultClaudeWindow = 200_000
-    /// Override for `[1m]` model variants and very large contexts.
+    private static let smallWindow = 200_000
     private static let extendedWindow = 1_000_000
 
-    /// Lookup table for known models. Falls back to a heuristic if missing.
-    private static let knownWindows: [String: Int] = [
-        "claude-opus-4-6":      200_000,
-        "claude-opus-4-5":      200_000,
-        "claude-sonnet-4-6":    200_000,
-        "claude-sonnet-4-5":    200_000,
-        "claude-haiku-4-5":     200_000,
-        "claude-opus-4-6[1m]":  1_000_000,
-        "claude-sonnet-4-6[1m]":1_000_000,
+    /// Claude models whose window is 200K. Every Claude model from Opus/Sonnet 4.6 on
+    /// (the 4.7/4.8 line, Opus/Sonnet/Haiku 5 and 5.5, Fable) has 1M, and the table used to
+    /// say 200K for all of them, so an Opus 5.5 session at 160K showed 80% instead of 16%.
+    /// Date-suffixed ids ("claude-sonnet-4-20250514") match by prefix.
+    private static let smallWindowPrefixes = [
+        "claude-haiku-4-5", "claude-opus-4-5", "claude-sonnet-4-5",
+        "claude-opus-4-1", "claude-opus-4-0", "claude-opus-4-2",
+        "claude-sonnet-4-0", "claude-sonnet-4-2", "claude-3",
     ]
 
     static func read(sessionId: String, source: String, cwd: String?) -> ContextUsage? {
@@ -189,12 +186,10 @@ enum ContextUsageReader {
     /// Pick a context-window size for the model. Heuristic: if the
     /// observed usage already exceeds 200k, the session must be on a 1m variant.
     private static func contextWindow(for model: String, usedTokens: Int) -> Int {
-        if let known = knownWindows[model] {
-            // Promote to 1m if the actual usage somehow exceeds the table value.
-            return max(known, usedTokens > known ? extendedWindow : known)
-        }
-        if model.contains("[1m]") || model.contains("1m") { return extendedWindow }
-        if usedTokens > defaultClaudeWindow { return extendedWindow }
-        return defaultClaudeWindow
+        if model.contains("[1m]") || usedTokens > smallWindow { return extendedWindow }
+        if smallWindowPrefixes.contains(where: { model.hasPrefix($0) }) { return smallWindow }
+        // Any other Claude model is a current one, with 1M; other vendors' models, unknown here,
+        // keep the conservative guess.
+        return model.hasPrefix("claude-") ? extendedWindow : smallWindow
     }
 }

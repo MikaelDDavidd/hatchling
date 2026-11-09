@@ -172,7 +172,7 @@ final class HatchCompanion {
         var candidates: [Remark] = []
 
         // The 5-hour Claude window is nearly used up.
-        if let lim = ClaudeRateLimitReader.shared.limits, let pct = lim.fiveHourPercent, pct >= 80 {
+        if let lim = ClaudeRateLimitReader.shared.limits, lim.isFresh, let pct = lim.fiveHourPercent, pct >= 80 {
             let resets = lim.fiveHourResetAt.map { Self.duration($0.timeIntervalSince(now)) }
             let window = lim.fiveHourResetAt.map { String(Int($0.timeIntervalSince1970 / 3600)) } ?? day
             candidates.append(Remark(
