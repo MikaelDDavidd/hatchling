@@ -1,4 +1,15 @@
 import SwiftUI
+import AppKit
+
+/// Whether the panel should hold still. Hatchling has its own switch, on by default, so the
+/// notch can stay lively on a Mac that reduces motion everywhere else; set to follow the
+/// system, it honours Reduce Motion.
+enum Motion {
+    static var isReduced: Bool {
+        let mode = UserDefaults.standard.string(forKey: SettingsKey.animationsMode) ?? SettingsDefaults.animationsMode
+        return mode == "system" && NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+}
 
 enum NotchAnimation {
     /// 展开面板：微弹，有少许回弹感

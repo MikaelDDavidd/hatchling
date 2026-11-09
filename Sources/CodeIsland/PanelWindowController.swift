@@ -121,7 +121,8 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // A folga precisa cobrir tudo que fica acima da lista — faixa do notch,
         // divisória, StatusBar e UsageBar —, senão o `.clipped()` do painel come
         // o último card quando a lista chega no teto de `maxSessions * 90`.
-        let chromeHeight: CGFloat = 140
+        // 140 de faixa + StatusBar + UsageBar, mais as margens da bandeja onde a lista fica.
+        let chromeHeight: CGFloat = 160
         // The chat needs room the list never asked for. The window is transparent and the
         // content sizes itself, so a taller window costs nothing when the chat is closed — but
         // without the headroom `.clipped()` would cut the conversation off.
@@ -328,7 +329,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        if !panel.isVisible || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if !panel.isVisible || Motion.isReduced {
             rebuildForCurrentScreen(screen)
             panel.alphaValue = 1
             return

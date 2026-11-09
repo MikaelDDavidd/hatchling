@@ -521,3 +521,46 @@ enum DebugHarness {
         state.activeSessionId = "preview-stress-0"
     }
 }
+
+#if DEBUG
+// MARK: - Mascot sheet
+//
+// `--mascot-sheet` opens a plain window with the Hatchling mascot drawn large in every mood,
+// so the character can be reviewed (and captured by window id) without touching the notch.
+@MainActor
+enum MascotSheet {
+    private static var window: NSWindow?
+
+    static func showIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("--mascot-sheet") else { return }
+        let sources = ["claude", "codex", "gemini"]
+        let moods: [(String, AgentStatus)] = [
+            ("resting", .idle), ("working", .running), ("approval", .waitingApproval), ("question", .waitingQuestion),
+        ]
+        let grid = VStack(alignment: .leading, spacing: 18) {
+            ForEach(moods, id: \.0) { name, status in
+                HStack(spacing: 28) {
+                    Text(name).font(.system(size: 12, design: .monospaced)).foregroundStyle(.white.opacity(0.6))
+                        .frame(width: 80, alignment: .leading)
+                    ForEach(sources, id: \.self) { source in
+                        HatchlingMascotView(source: source, status: status, size: 96)
+                            .frame(width: 96, height: 96)
+                    }
+                    HatchlingMascotView(source: "claude", status: status, size: 26)
+                        .frame(width: 26, height: 26)
+                }
+            }
+        }
+        .padding(28)
+        .background(Color.black)
+        let host = NSHostingView(rootView: grid)
+        let w = NSWindow(contentRect: NSRect(x: 80, y: 120, width: 560, height: 420),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.title = "Mascot sheet"
+        w.contentView = host
+        w.setContentSize(host.fittingSize)
+        w.orderFrontRegardless()
+        window = w
+    }
+}
+#endif

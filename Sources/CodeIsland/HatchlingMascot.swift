@@ -1,0 +1,504 @@
+import SwiftUI
+import AppKit
+import CodeIslandCore
+
+// MARK: - Hatch, the app's own mascot
+//
+// The app icon come to life: a dark rounded block with the notch cut into its top and two
+// big glowing eyes. The notch is its speech bubble — three dots while it works, a "!" when
+// it needs you, a "?" when it has a question.
+//
+// Every part is a vector layer and every movement is a Core Animation animation, so the
+// character never asks SwiftUI to redraw: the window server plays the breath, the blinks
+// and the glances on its own, and the app stays asleep while it does. The other mascots
+// redraw through a `TimelineView`, which is what kept the panel's CPU above zero.
+//
+// The eyes glow in the colour of the agent the session runs on, so a row of them still
+// tells Claude from Codex at a glance.
+
+struct HatchlingMascotView: NSViewRepresentable {
+    let source: String
+    let status: AgentStatus
+    var size: CGFloat = 27
+
+    func makeNSView(context: Context) -> HatchlingMascotLayerView {
+        HatchlingMascotLayerView()
+    }
+
+    func updateNSView(_ view: HatchlingMascotLayerView, context: Context) {
+        view.configure(eyes: Self.eyeColor(for: source), status: status)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: HatchlingMascotLayerView, context: Context) -> CGSize? {
+        CGSize(width: size, height: size)
+    }
+
+    static func eyeColor(for source: String) -> NSColor {
+        switch source {
+        case "claude":                         return NSColor(red: 1.0, green: 0.56, blue: 0.36, alpha: 1)
+        case "codex":                          return NSColor(red: 0.42, green: 0.66, blue: 1.0, alpha: 1)
+        case "gemini":                         return NSColor(red: 0.55, green: 0.55, blue: 1.0, alpha: 1)
+        case "cursor", "trae", "traecn":       return NSColor(red: 1.0, green: 0.48, blue: 0.24, alpha: 1)
+        case "copilot":                        return NSColor(red: 0.40, green: 0.84, blue: 1.0, alpha: 1)
+        case "qwen", "codebuddy", "codybuddycn", "stepfun", "antigravity", "workbuddy", "hermes":
+                                               return NSColor(red: 0.70, green: 0.52, blue: 1.0, alpha: 1)
+        default:                               return NSColor(red: 0.30, green: 0.92, blue: 0.45, alpha: 1)
+        }
+    }
+}
+
+final class HatchlingMascotLayerView: NSView {
+    private let figure = CALayer()
+    private let body = CAGradientLayer()
+    private let bodyMask = CAShapeLayer()
+    private let rim = CAShapeLayer()
+    private let sheen = CAGradientLayer()
+    private let sheenMask = CAShapeLayer()
+    private let slot = CALayer()
+    private let dots = CAReplicatorLayer()
+    private let dot = CAShapeLayer()
+    private let sign = CATextLayer()
+    private let face = CALayer()
+    private var eyes: [Eye] = [Eye(), Eye()]
+    private let happy = CALayer()
+    private let happyLeft = CAShapeLayer()
+    private let happyRight = CAShapeLayer()
+
+    /// One eye: a glowing iris with a dark pupil that moves inside it to look around.
+    private final class Eye {
+        let container = CALayer()
+        let iris = CAGradientLayer()
+        let irisMask = CAShapeLayer()
+        let pupilGroup = CALayer()
+        let pupil = CAGradientLayer()
+        let pupilMask = CAShapeLayer()
+        let shine = CAShapeLayer()
+        var all: [CALayer] { [container, iris, irisMask, pupilGroup, pupil, pupilMask, shine] }
+    }
+
+    private var status: AgentStatus?
+    private var eyeColor: NSColor = .clear
+    private var builtSize: CGSize = .zero
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        assemble()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isFlipped: Bool { true }
+
+    private var mood: MascotMood? { status.map(MascotMood.init) }
+
+    func configure(eyes color: NSColor, status newStatus: AgentStatus) {
+        let previousMood = mood
+        if color != eyeColor {
+            eyeColor = color
+            paintEyes()
+        }
+        let changed = status != newStatus
+        status = newStatus
+        guard changed else { return }
+        animate()
+        // After `animate`, which clears the eyes' animations and would cut the smile short.
+        if previousMood == .working && mood == .resting { celebrate() }
+    }
+
+    override func layout() {
+        super.layout()
+        rebuildIfResized()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        rebuildIfResized()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let scale = window?.backingScaleFactor {
+            for sub in allLayers { sub.contentsScale = scale }
+        }
+        animate()
+    }
+
+    // MARK: Build
+
+    private var allLayers: [CALayer] {
+        [figure, body, bodyMask, rim, sheen, sheenMask, slot, dots, dot, sign, face, happy, happyLeft, happyRight]
+            + eyes.flatMap(\.all)
+    }
+
+    private static let noActions: [String: CAAction] = [
+        "position": NSNull(), "bounds": NSNull(), "frame": NSNull(), "path": NSNull(),
+        "fillColor": NSNull(), "strokeColor": NSNull(), "transform": NSNull(), "opacity": NSNull(),
+        "contents": NSNull(), "colors": NSNull(), "anchorPoint": NSNull(), "string": NSNull(),
+        "instanceTransform": NSNull(), "shadowColor": NSNull(), "shadowOpacity": NSNull(),
+    ]
+
+    private func assemble() {
+        guard let root = layer else { return }
+        root.addSublayer(figure)
+        body.mask = bodyMask
+        figure.addSublayer(body)
+        sheen.mask = sheenMask
+        figure.addSublayer(sheen)
+        figure.addSublayer(rim)
+        slot.addSublayer(dots)
+        dots.addSublayer(dot)
+        slot.addSublayer(sign)
+        figure.addSublayer(slot)
+        for eye in eyes {
+            eye.iris.mask = eye.irisMask
+            eye.container.addSublayer(eye.iris)
+            eye.pupil.mask = eye.pupilMask
+            eye.pupilGroup.addSublayer(eye.pupil)
+            eye.pupilGroup.addSublayer(eye.shine)
+            eye.container.addSublayer(eye.pupilGroup)
+            face.addSublayer(eye.container)
+        }
+        happy.addSublayer(happyLeft)
+        happy.addSublayer(happyRight)
+        face.addSublayer(happy)
+        figure.addSublayer(face)
+
+        body.colors = [
+            NSColor(red: 0.16, green: 0.17, blue: 0.20, alpha: 1).cgColor,
+            NSColor(red: 0.06, green: 0.065, blue: 0.08, alpha: 1).cgColor,
+        ]
+        sheen.colors = [NSColor(white: 1, alpha: 0.10).cgColor, NSColor(white: 1, alpha: 0).cgColor]
+        rim.fillColor = nil
+        rim.strokeColor = NSColor(red: 0.36, green: 0.38, blue: 0.43, alpha: 1).cgColor
+        sign.alignmentMode = .center
+        sign.opacity = 0
+        dots.opacity = 0
+        happy.opacity = 0
+        for arc in [happyLeft, happyRight] {
+            arc.fillColor = nil
+            arc.lineCap = .round
+            arc.lineJoin = .round
+        }
+        for eye in eyes {
+            eye.pupil.colors = [
+                NSColor(red: 0.10, green: 0.16, blue: 0.22, alpha: 1).cgColor,
+                NSColor(red: 0.01, green: 0.02, blue: 0.03, alpha: 1).cgColor,
+            ]
+            eye.pupil.type = .radial
+            eye.pupil.startPoint = CGPoint(x: 0.4, y: 0.3)
+            eye.pupil.endPoint = CGPoint(x: 1.1, y: 1.1)
+            eye.shine.fillColor = NSColor.white.withAlphaComponent(0.92).cgColor
+        }
+        face.shadowOffset = .zero
+        figure.shadowOffset = .zero
+        figure.shadowOpacity = 0
+        for sub in allLayers { sub.actions = Self.noActions }
+    }
+
+    private func rebuildIfResized() {
+        guard bounds.width > 0, bounds.size != builtSize else { return }
+        builtSize = bounds.size
+        build(size: min(bounds.width, bounds.height))
+        animate()
+    }
+
+    /// Lays every part out on a 100×100 grid, scaled to the view.
+    private func build(size: CGFloat) {
+        let s = size / 100
+        let scale = CGAffineTransform(scaleX: s, y: s)
+        func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+            CGRect(x: x * s, y: y * s, width: w * s, height: h * s)
+        }
+        let full = CGRect(x: 0, y: 0, width: size, height: size)
+
+        // The figure pivots at its base, so breathing grows it upward and a squash flattens it.
+        figure.anchorPoint = CGPoint(x: 0.5, y: 0.9)
+        figure.bounds = full
+        figure.position = CGPoint(x: size / 2, y: size * 0.9)
+
+        // The block: a rounded rectangle with the notch cut into the middle of its top edge.
+        let block = CGMutablePath()
+        let (l, t, r, b, cr) = (CGFloat(5), CGFloat(20), CGFloat(95), CGFloat(88), CGFloat(20))
+        let (nl, nr, nd) = (CGFloat(35), CGFloat(65), CGFloat(8))
+        block.move(to: CGPoint(x: l + cr, y: t))
+        block.addLine(to: CGPoint(x: nl - 3, y: t))
+        block.addCurve(to: CGPoint(x: nl + 4, y: t + nd), control1: CGPoint(x: nl + 1.5, y: t), control2: CGPoint(x: nl + 1, y: t + nd))
+        block.addLine(to: CGPoint(x: nr - 4, y: t + nd))
+        block.addCurve(to: CGPoint(x: nr + 3, y: t), control1: CGPoint(x: nr - 1, y: t + nd), control2: CGPoint(x: nr - 1.5, y: t))
+        block.addLine(to: CGPoint(x: r - cr, y: t))
+        block.addCurve(to: CGPoint(x: r, y: t + cr), control1: CGPoint(x: r - cr * 0.38, y: t), control2: CGPoint(x: r, y: t + cr * 0.38))
+        block.addLine(to: CGPoint(x: r, y: b - cr))
+        block.addCurve(to: CGPoint(x: r - cr, y: b), control1: CGPoint(x: r, y: b - cr * 0.38), control2: CGPoint(x: r - cr * 0.38, y: b))
+        block.addLine(to: CGPoint(x: l + cr, y: b))
+        block.addCurve(to: CGPoint(x: l, y: b - cr), control1: CGPoint(x: l + cr * 0.38, y: b), control2: CGPoint(x: l, y: b - cr * 0.38))
+        block.addLine(to: CGPoint(x: l, y: t + cr))
+        block.addCurve(to: CGPoint(x: l + cr, y: t), control1: CGPoint(x: l, y: t + cr * 0.38), control2: CGPoint(x: l + cr * 0.38, y: t))
+        block.closeSubpath()
+        let blockPath = block.copy(using: [scale])
+
+        body.frame = full
+        bodyMask.frame = full
+        bodyMask.path = blockPath
+        sheen.frame = full
+        sheenMask.frame = full
+        sheenMask.path = blockPath
+        sheen.startPoint = CGPoint(x: 0.5, y: 0.15)
+        sheen.endPoint = CGPoint(x: 0.5, y: 0.55)
+        rim.frame = full
+        rim.path = blockPath
+        rim.lineWidth = max(1, 2.4 * s)
+
+        // The notch doubles as the speech bubble.
+        slot.frame = rect(nl + 4, t, nr - nl - 8, nd)
+        let dotRadius = 1.9 * s
+        dot.frame = CGRect(x: 0, y: 0, width: dotRadius * 2, height: dotRadius * 2)
+        dot.path = CGPath(ellipseIn: dot.bounds, transform: nil)
+        let gap = 6 * s
+        dots.instanceCount = 3
+        dots.instanceTransform = CATransform3DMakeTranslation(gap, 0, 0)
+        dots.instanceDelay = 0.13
+        dots.frame = CGRect(x: slot.bounds.midX - gap - dotRadius, y: slot.bounds.midY - dotRadius,
+                            width: gap * 2 + dotRadius * 2, height: dotRadius * 2)
+        // The sign is taller than the notch is deep, so it pokes out above the head like a
+        // little flag — readable even at the size of the notch strip.
+        sign.frame = CGRect(x: 0, y: -12 * s, width: slot.bounds.width, height: 22 * s)
+        sign.fontSize = 17 * s
+        sign.font = NSFont.systemFont(ofSize: 17, weight: .heavy)
+
+        // The eyes.
+        face.frame = full
+        let centres = [CGPoint(x: 33, y: 55), CGPoint(x: 67, y: 55)]
+        let irisRadius: CGFloat = 14.5
+        for (eye, c) in zip(eyes, centres) {
+            eye.container.frame = rect(c.x - irisRadius, c.y - irisRadius, irisRadius * 2, irisRadius * 2)
+            let box = eye.container.bounds
+            eye.iris.frame = box
+            eye.irisMask.frame = box
+            eye.irisMask.path = CGPath(ellipseIn: box, transform: nil)
+            eye.iris.type = .radial
+            eye.iris.startPoint = CGPoint(x: 0.3, y: 0.75)
+            eye.iris.endPoint = CGPoint(x: 1.2, y: 1.2)
+            // The pupil sits up and to the right, leaving a lit crescent below, as on the icon.
+            let pr = 11.2 * s
+            eye.pupilGroup.frame = box
+            eye.pupil.frame = CGRect(x: box.midX - pr + 2.2 * s, y: box.midY - pr - 2.4 * s, width: pr * 2, height: pr * 2)
+            eye.pupilMask.frame = eye.pupil.bounds
+            eye.pupilMask.path = CGPath(ellipseIn: eye.pupil.bounds, transform: nil)
+            let shine = CGRect(x: eye.pupil.frame.minX + pr * 0.95, y: eye.pupil.frame.minY + pr * 0.35,
+                               width: pr * 0.62, height: pr * 0.44)
+            eye.shine.frame = shine
+            eye.shine.path = CGPath(ellipseIn: CGRect(origin: .zero, size: shine.size), transform: nil)
+        }
+
+        // Closed, smiling eyes for the moment a run finishes: two little arches.
+        happy.frame = full
+        for (arc, c) in zip([happyLeft, happyRight], centres) {
+            arc.frame = full
+            let p = CGMutablePath()
+            p.move(to: CGPoint(x: c.x - 9, y: c.y + 4))
+            p.addQuadCurve(to: CGPoint(x: c.x + 9, y: c.y + 4), control: CGPoint(x: c.x, y: c.y - 9))
+            arc.path = p.copy(using: [scale])
+            arc.lineWidth = max(1.2, 4.2 * s)
+        }
+
+        face.shadowRadius = 5 * s
+        figure.shadowRadius = 9 * s
+        paintEyes()
+    }
+
+    private func paintEyes() {
+        let light = eyeColor.blended(withFraction: 0.45, of: .white) ?? eyeColor
+        for eye in eyes {
+            eye.iris.colors = [light.cgColor, eyeColor.cgColor]
+        }
+        happyLeft.strokeColor = eyeColor.cgColor
+        happyRight.strokeColor = eyeColor.cgColor
+        dot.fillColor = eyeColor.cgColor
+        face.shadowColor = eyeColor.cgColor
+        face.shadowOpacity = 0.55
+    }
+
+    // MARK: Motion
+
+    private enum Key {
+        static let figure = "hatch.figure"
+        static let blink = "hatch.blink"
+        static let look = "hatch.look"
+        static let glow = "hatch.glow"
+        static let dots = "hatch.dots"
+        static let sign = "hatch.sign"
+        static let hop = "hatch.hop"
+        static let happy = "hatch.happy"
+    }
+
+    private func animate() {
+        guard let status, let mood, builtSize != .zero else { return }
+        figure.removeAllAnimations()
+        face.removeAnimation(forKey: Key.glow)
+        dot.removeAllAnimations()
+        sign.removeAllAnimations()
+        for eye in eyes {
+            eye.container.removeAllAnimations()
+            eye.pupilGroup.removeAllAnimations()
+            eye.container.transform = CATransform3DIdentity
+            eye.pupilGroup.transform = CATransform3DIdentity
+        }
+
+        // What the notch says.
+        dots.opacity = mood == .working ? 1 : 0
+        switch status {
+        case .waitingApproval: showSign("!", color: NSColor(red: 1.0, green: 0.72, blue: 0.30, alpha: 1))
+        case .waitingQuestion: showSign("?", color: NSColor(red: 1.0, green: 0.72, blue: 0.30, alpha: 1))
+        default: sign.opacity = 0
+        }
+        figure.shadowOpacity = 0
+        face.shadowOpacity = mood == .resting ? 0.35 : 0.6
+
+        guard !Motion.isReduced else { return }
+        let s = builtSize.width / 100
+        let phase = CACurrentMediaTime() - Double.random(in: 0...3)
+
+        switch mood {
+        case .resting:
+            figure.add(breathe(phase: phase), forKey: Key.figure)
+            blink(every: 5.2, phase: phase)
+            for eye in eyes { eye.pupilGroup.add(lookAround(s: s, phase: phase), forKey: Key.look) }
+        case .working:
+            figure.add(bob(s: s), forKey: Key.figure)
+            blink(every: 3.1, phase: phase)
+            // Eyes on the work: down and to the side, where the terminal would be.
+            for eye in eyes { eye.pupilGroup.transform = CATransform3DMakeTranslation(1.8 * s, 2.4 * s, 0) }
+            face.add(pulse(from: 0.35, to: 0.85, duration: 1.4), forKey: Key.glow)
+            let hop = CAKeyframeAnimation(keyPath: "transform.translation.y")
+            hop.values = [0, -2.4 * s, 0, 0]
+            hop.keyTimes = [0, 0.2, 0.42, 1]
+            hop.duration = 0.9
+            dot.add(repeating(hop), forKey: Key.dots)
+        case .needsYou:
+            figure.add(fidget(), forKey: Key.figure)
+            for eye in eyes { eye.container.transform = CATransform3DMakeScale(1.14, 1.14, 1) }
+            face.add(pulse(from: 0.4, to: 1.0, duration: 0.8), forKey: Key.glow)
+            let flash = CABasicAnimation(keyPath: "opacity")
+            flash.fromValue = 1
+            flash.toValue = 0.35
+            flash.duration = 0.55
+            flash.autoreverses = true
+            sign.add(repeating(flash), forKey: Key.sign)
+        }
+    }
+
+    private func showSign(_ text: String, color: NSColor) {
+        sign.string = text
+        sign.foregroundColor = color.cgColor
+        sign.opacity = 1
+    }
+
+    private func repeating(_ animation: CAAnimation, phase: CFTimeInterval? = nil) -> CAAnimation {
+        animation.repeatCount = .infinity
+        animation.isRemovedOnCompletion = false
+        if let phase { animation.beginTime = phase }
+        return animation
+    }
+
+    private func breathe(phase: CFTimeInterval) -> CAAnimation {
+        let a = CAKeyframeAnimation(keyPath: "transform")
+        a.values = [
+            CATransform3DIdentity,
+            CATransform3DMakeScale(1.02, 1.045, 1),
+            CATransform3DIdentity,
+        ].map { NSValue(caTransform3D: $0) }
+        a.keyTimes = [0, 0.45, 1]
+        a.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        a.duration = 3.4
+        return repeating(a, phase: phase)
+    }
+
+    private func bob(s: CGFloat) -> CAAnimation {
+        let squash = CATransform3DMakeScale(1.05, 0.94, 1)
+        var up = CATransform3DMakeTranslation(0, -4 * s, 0)
+        up = CATransform3DScale(up, 0.98, 1.04, 1)
+        let a = CAKeyframeAnimation(keyPath: "transform")
+        a.values = [CATransform3DIdentity, squash, up, CATransform3DIdentity].map { NSValue(caTransform3D: $0) }
+        a.keyTimes = [0, 0.18, 0.55, 1]
+        a.timingFunctions = [
+            CAMediaTimingFunction(name: .easeOut),
+            CAMediaTimingFunction(name: .easeOut),
+            CAMediaTimingFunction(name: .easeIn),
+        ]
+        a.duration = 0.6
+        return repeating(a)
+    }
+
+    /// A quick shiver, then stillness: catches the eye without vibrating for minutes.
+    private func fidget() -> CAAnimation {
+        let a = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        a.values = [0, 0.13, -0.13, 0.09, -0.05, 0, 0]
+        a.keyTimes = [0, 0.05, 0.11, 0.17, 0.23, 0.29, 1]
+        a.duration = 2.2
+        return repeating(a)
+    }
+
+    private func pulse(from: Float, to: Float, duration: CFTimeInterval) -> CAAnimation {
+        let a = CABasicAnimation(keyPath: "shadowOpacity")
+        a.fromValue = from
+        a.toValue = to
+        a.duration = duration
+        a.autoreverses = true
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        return repeating(a)
+    }
+
+    private func blink(every period: CFTimeInterval, phase: CFTimeInterval) {
+        // A single blink, and now and then a double one, at fixed points inside the period.
+        let a = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        a.values = [1, 1, 0.08, 1, 1, 0.08, 1, 0.08, 1]
+        let length = 0.13 / (period * 2)
+        a.keyTimes = [0, 0.42, NSNumber(value: 0.42 + length / 2), NSNumber(value: 0.42 + length),
+                      0.86, NSNumber(value: 0.86 + length / 2), NSNumber(value: 0.86 + length),
+                      NSNumber(value: 0.86 + length * 1.6), NSNumber(value: min(0.86 + length * 2.2, 1))]
+        a.duration = period * 2
+        for eye in eyes { eye.container.add(repeating(a, phase: phase), forKey: Key.blink) }
+    }
+
+    private func lookAround(s: CGFloat, phase: CFTimeInterval) -> CAAnimation {
+        let a = CAKeyframeAnimation(keyPath: "transform.translation")
+        let points: [CGSize] = [
+            .zero, .zero, CGSize(width: -4.2, height: 0.8), CGSize(width: -4.2, height: 0.8),
+            .zero, .zero, CGSize(width: 3.6, height: -1.6), CGSize(width: 3.6, height: -1.6), .zero, .zero,
+        ]
+        a.values = points.map { NSValue(size: NSSize(width: $0.width * s, height: $0.height * s)) }
+        a.keyTimes = [0, 0.12, 0.17, 0.33, 0.38, 0.55, 0.6, 0.74, 0.79, 1]
+        a.duration = 9.5
+        a.calculationMode = .cubic
+        return repeating(a, phase: phase)
+    }
+
+    /// A run just finished: a hop, and the eyes close into a smile for a moment.
+    private func celebrate() {
+        guard !Motion.isReduced, builtSize != .zero, let root = layer else { return }
+        let s = builtSize.width / 100
+        let hop = CAKeyframeAnimation(keyPath: "sublayerTransform.translation.y")
+        hop.values = [0, -14 * s, 0, -4 * s, 0]
+        hop.keyTimes = [0, 0.32, 0.62, 0.8, 1]
+        hop.timingFunctions = [
+            CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn),
+            CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn),
+        ]
+        hop.duration = 0.62
+        root.add(hop, forKey: Key.hop)
+
+        let smile = CAKeyframeAnimation(keyPath: "opacity")
+        smile.values = [0, 1, 1, 0]
+        smile.keyTimes = [0, 0.08, 0.85, 1]
+        smile.duration = 1.8
+        happy.add(smile, forKey: Key.happy)
+        let open = CAKeyframeAnimation(keyPath: "opacity")
+        open.values = [1, 0, 0, 1]
+        open.keyTimes = [0, 0.08, 0.85, 1]
+        open.duration = 1.8
+        for eye in eyes { eye.container.add(open, forKey: Key.happy) }
+    }
+}
