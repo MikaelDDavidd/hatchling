@@ -137,9 +137,7 @@ enum BuddyLines {
             return (genericPT[mood] ?? genericPT[.philosopher] ?? ["…"]).randomElement() ?? "…"
         }
         var pool = generic[mood] ?? generic[.philosopher] ?? ["…"]
-        if let species = buddy?.species, let flavor = bySpecies[species], Bool.random() {
-            pool.append(contentsOf: flavor)
-        }
+        // No species lines: the buddy is Hatch now, not a goose or a cat.
         // Legendary buddies get a tiny easter egg
         if buddy?.rarity == .legendary, mood == .greeting {
             pool.append("\(buddy?.name ?? "buddy") online. legendary instincts engaged.")
@@ -160,7 +158,8 @@ enum BuddyVoice {
         guard AIText.isAvailable else { return nil }
         let language = L10n.shared.effectiveLanguage == "pt" ? "Brazilian Portuguese" : "English"
         let name = buddy?.name ?? "Hatch"
-        let personality = buddy?.personality ?? "a small, curious companion who watches over coding sessions"
+        // Hatch's own description, from the stats: never the species text Claude Code wrote.
+        let personality = buddy?.hatchPersonality(pt: false) ?? "A small, curious companion who watches over coding sessions."
         let moment: String
         switch mood {
         case .idle: moment = "Nothing has happened for a while."

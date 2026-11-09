@@ -4,6 +4,7 @@ import SwiftUI
 /// personality, rarity and stats from `~/.claude.json`. The buddy is drawn as Hatch; the
 /// species only flavours what it says.
 struct BuddyPage: View {
+    private var pt: Bool { L10n.shared.effectiveLanguage == "pt" }
     @ObservedObject private var reader = BuddyReader.shared
     @State private var isPetting = false
 
@@ -42,23 +43,19 @@ struct BuddyPage: View {
                                         .foregroundStyle(.yellow)
                                 }
                             }
-                            Text(buddy.personality)
+                            Text(buddy.hatchPersonality(pt: pt))
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
 
                             HStack(spacing: 6) {
                                 Text(buddy.rarity.displayName)
                                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                     .foregroundStyle(buddy.rarity.color)
-                                Text("·")
-                                    .foregroundStyle(.tertiary)
-                                Text("hat: \(buddy.hat)")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(.secondary)
                             }
                             if let hatchedAt = buddy.hatchedAt {
-                                Text("hatched \(hatchedAt.formatted(date: .abbreviated, time: .omitted))")
+                                Text((pt ? "nasceu em " : "hatched ") + hatchedAt.formatted(date: .abbreviated, time: .omitted))
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.tertiary)
                             }
@@ -67,7 +64,7 @@ struct BuddyPage: View {
                     }
                     .padding(.vertical, 6)
                 } header: {
-                    Text("Your Buddy")
+                    Text(pt ? "Seu companheiro" : "Your buddy")
                 }
 
                 Section {
@@ -77,9 +74,10 @@ struct BuddyPage: View {
                     StatBar(name: "WISDOM",    value: buddy.stats.wisdom,    color: .purple)
                     StatBar(name: "SNARK",     value: buddy.stats.snark,     color: .orange)
                 } header: {
-                    Text("Stats")
+                    Text(pt ? "Atributos" : "Stats")
                 } footer: {
-                    Text("Stats são determinísticos — derivados do seu user id + salt do Claude Code via wyhash. Não mudam entre sessões.")
+                    Text(pt ? "Os atributos vêm do companheiro que o Claude Code criou pra você e não mudam. A descrição acima e o jeito de falar do Hatch saem deles."
+                            : "The stats come from the companion Claude Code made for you and never change. The description above and the way Hatch talks come from them.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
