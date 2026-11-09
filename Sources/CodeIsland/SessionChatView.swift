@@ -16,6 +16,7 @@ struct SessionChatView: View {
     static let transcriptMaxHeight: CGFloat = 380
 
     @State private var store = SessionChatStore.shared
+    @ObservedObject private var moments = MomentStore.shared
     @State private var draft = ""
     @State private var sendError: String?
     @FocusState private var composerFocused: Bool
@@ -63,17 +64,29 @@ struct SessionChatView: View {
             }
             .buttonStyle(.plain)
 
-            LivelyMascot(source: session.source, status: session.status, size: 20)
+            MascotView(source: session.source, status: session.status, size: 20)
 
-            Text(session.projectDisplayName)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-
-            if let model = session.shortModelName {
-                Text(model)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(session.projectDisplayName)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let model = session.shortModelName {
+                        Text(model)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.3))
+                    }
+                }
+                // Where the session is right now, so the header answers "what is it doing?"
+                // before you scroll.
+                Text(moments.moment(for: session, sessionId: sessionId).now)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .foregroundStyle(accent.opacity(session.status == .idle ? 0.55 : 0.9))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .contentTransition(.opacity)
+                    .animation(.easeOut(duration: 0.25), value: session.status)
             }
 
             Spacer(minLength: 6)
@@ -116,8 +129,13 @@ struct SessionChatView: View {
                         ForEach(Array(store.messages.enumerated()), id: \.offset) { index, message in
                             turn(message)
                                 .id(index)
+                                .transition(.opacity.combined(with: .offset(y: 10)))
+                        }
+                        if session.status != .idle {
+                            liveRow.id("live")
                         }
                     }
+                    .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.messages.count)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                 }
@@ -161,55 +179,105 @@ struct SessionChatView: View {
         }
     }
 
+    /// Turns the harness writes on your side of the transcript: skill bodies, task
+    /// notifications, system reminders. They are not something you said, and shown in full
+    /// they buried the conversation under pages of instructions.
+    private static func isHarnessTurn(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.hasPrefix("<") || t.hasPrefix("Base directory for this skill")
+            || t.hasPrefix("[Request interrupted") || t.hasPrefix("This session is being continued")
+            || t.hasPrefix("Caveat:")
+    }
+
+    @ViewBuilder
     private func turn(_ message: MobileChatMessage) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            // Who spoke is carried by a rail, so both sides start at the same margin and the
-            // text reads as one column instead of zig-zagging.
-            Rectangle()
-                .fill((message.user ? Color.white.opacity(0.28) : accent).opacity(0.75))
-                .frame(width: 2)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(message.user ? "YOU" : session.sourceLabel.uppercased())
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundStyle(message.user ? .white.opacity(0.35) : accent.opacity(0.8))
-
+        if message.user && Self.isHarnessTurn(message.text) {
+            HStack(spacing: 6) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 8.5, weight: .semibold))
+                Text(MomentStore.cleanLine(message.text, limit: 70))
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .foregroundStyle(.white.opacity(0.25))
+            .frame(maxWidth: .infinity, alignment: .center)
+        } else if message.user {
+            // Your side reads as a reply bubble on the right, so the agent's longer turns keep
+            // the full width and the conversation is easy to follow at a glance.
+            HStack {
+                Spacer(minLength: 48)
                 if !message.text.isEmpty {
-                    // What the user typed is shown as typed — running their own prose through a
-                    // markdown renderer would eat their asterisks and backticks.
-                    if message.user {
-                        Text(message.text)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
+                    Text(message.text)
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .textSelection(.enabled)
+                        .lineLimit(12)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.white.opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                        )
+                }
+            }
+        } else {
+            HStack(alignment: .top, spacing: 9) {
+                Rectangle()
+                    .fill(accent.opacity(0.75))
+                    .frame(width: 2)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    if !message.text.isEmpty {
                         MarkdownText(text: message.text)
                     }
-                }
 
                 if !message.tools.isEmpty {
-                    let summary = ToolSummary.summarize(message.tools)
-                    // Wraps, because a coalesced turn can name more tools than fit on one line.
-                    FlowLayout(spacing: 5, lineSpacing: 4) {
-                        ForEach(summary.prefix(8), id: \.self) { entry in
-                            Text(entry.label)
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.4))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.06)))
-                        }
-                        if summary.count > 8 {
-                            Text("+\(summary.count - 8)")
-                                .font(.system(size: 9, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.25))
+                        let summary = ToolSummary.summarize(message.tools)
+                        // Wraps, because a coalesced turn can name more tools than fit on one line.
+                        FlowLayout(spacing: 5, lineSpacing: 4) {
+                            ForEach(summary.prefix(8), id: \.self) { entry in
+                                Text(entry.label)
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(RoundedRectangle(cornerRadius: 4).fill(.white.opacity(0.06)))
+                            }
+                            if summary.count > 8 {
+                                Text("+\(summary.count - 8)")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.25))
+                            }
                         }
                     }
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The agent's current step at the foot of the conversation while it works.
+    private var liveRow: some View {
+        HStack(spacing: 8) {
+            MascotView(source: session.source, status: session.status, size: 18)
+            Text(moments.moment(for: session, sessionId: sessionId).now)
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(accent.opacity(0.9))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .contentTransition(.opacity)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(accent.opacity(0.08)))
+        .transition(.opacity.combined(with: .offset(y: 6)))
     }
 
     private func centered(_ text: String) -> some View {

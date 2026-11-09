@@ -299,6 +299,7 @@ struct NotchPanelView: View {
             }
             .contentShape(Rectangle())
             .onHover { hovering in
+                if DebugFlags.pinOpen { return }
                 // Idle indicator hover — delay un-hover to prevent oscillation when
                 // the animated width change crosses the mouse position (#52).
                 if showIdleIndicator {
@@ -488,7 +489,11 @@ private struct CompactLeftWing: View {
     var body: some View {
         HStack(spacing: 6) {
             if expanded {
-                AppLogoView(size: 36, showBackground: false)
+                // Hatch stands at the head of the panel in the mood of the session that most
+                // needs attention, so the panel has a face even before you read a card.
+                let lead = rankedSessions.first
+                MascotView(source: lead?.source ?? displaySource, status: lead?.status ?? displayStatus, size: 30)
+                    .padding(.trailing, 2)
                 PanelTabSelector()
             } else {
                 let sessions = rankedSessions
@@ -497,13 +502,13 @@ private struct CompactLeftWing: View {
                 let perSize = stripMascotSize(count: max(visible.count, 1))
 
                 if visible.isEmpty {
-                    LivelyMascot(source: displaySource, status: displayStatus, size: mascotSize)
+                    MascotView(source: displaySource, status: displayStatus, size: mascotSize)
                         .transition(.opacity)
                 } else {
                     HStack(spacing: 3) {
                         ForEach(visible.indices, id: \.self) { i in
                             let s = visible[i]
-                            LivelyMascot(
+                            MascotView(
                                 source: s.source ?? "claude",
                                 status: s.status,
                                 size: perSize
@@ -850,7 +855,7 @@ private struct IdleIndicatorBar: View {
         HStack(spacing: 0) {
             // Left: mascot
             HStack(spacing: 6) {
-                LivelyMascot(source: "claude", status: .idle, size: mascotSize)
+                MascotView(source: "claude", status: .idle, size: mascotSize)
                     .opacity(hovered ? 0.9 : 0.5)
             }
             .padding(.leading, 6)
@@ -2061,6 +2066,7 @@ private struct SessionCard: View {
     var isCompletion: Bool = false
     @State private var hovering = false
     @ObservedObject private var contextStore = ContextUsageStore.shared
+    @ObservedObject private var momentStore = MomentStore.shared
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -2144,7 +2150,7 @@ private struct SessionCard: View {
     @ViewBuilder
     private var mascotColumn: some View {
         VStack(spacing: 3) {
-            LivelyMascot(source: session.source, status: session.status, size: 30, glow: true)
+            MascotView(source: session.source, status: session.status, size: 30)
             if showAgentDetails && !session.subagents.isEmpty {
                 subagentGrid
             }
@@ -2233,22 +2239,31 @@ private struct SessionCard: View {
         }
     }
 
-    private var visibleMessages: [ChatMessage] {
-        if !session.recentMessages.isEmpty {
-            return Array(session.recentMessages.suffix(2))
-        }
-        if let prompt = session.lastUserPrompt {
-            return [ChatMessage(isUser: true, text: prompt)]
-        }
-        return []
-    }
-
+    /// What is happening now, in a sentence that fits, and what the session is about under it.
+    /// Replaces the raw prompt and reply, which were cut off mid-sentence and said little.
     @ViewBuilder
     private var messagesBlock: some View {
-        if !visibleMessages.isEmpty {
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(visibleMessages) { msg in
-                    cleanMessageRow(msg)
+        let _ = momentStore.objectWillChange
+        let moment = momentStore.moment(for: session, sessionId: sessionId)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(moment.now)
+                .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .animation(.easeOut(duration: 0.25), value: moment.now)
+            if let task = moment.task, task != moment.now {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("❯")
+                        .font(.system(size: fontSize - 2, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.28))
+                    Text(task)
+                        .font(.system(size: fontSize - 1, design: .monospaced))
+                        .italic()
+                        .foregroundStyle(.white.opacity(0.48))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
         }
@@ -2276,41 +2291,6 @@ private struct SessionCard: View {
     }
 
     // ── Message row without "$" / ">" prefixes — uses subtle marker ─
-    @ViewBuilder
-    private func cleanMessageRow(_ msg: ChatMessage) -> some View {
-        if msg.isUser {
-            HStack(alignment: .top, spacing: 6) {
-                Text("❯")
-                    .font(.system(size: fontSize - 1, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.30))
-                Text(ChatMessageTextFormatter.literalText(msg.text))
-                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                    .italic()
-                    .foregroundStyle(.white.opacity(0.62))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        } else {
-            Text(ChatMessageTextFormatter.inlineMarkdown(compactedText(msg.text)))
-                .font(.system(size: fontSize, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.92))
-                .lineLimit(aiLineLimit)
-                .truncationMode(.tail)
-                .padding(.leading, 14) // align with "❯ " indent
-        }
-    }
-
-    private func compactedText(_ text: String) -> String {
-        text.components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .reduce(into: [String]()) { result, line in
-                if line.isEmpty && (result.last?.isEmpty ?? true) { return }
-                result.append(line)
-            }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     // ── Compact meta line: gerund verb · tool · time · terminal ─────
     @ViewBuilder
     private var metaFooter: some View {

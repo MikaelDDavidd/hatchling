@@ -346,9 +346,36 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.rotationInterval) private var rotationInterval = SettingsDefaults.rotationInterval
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoAcceptPermissions) private var autoAcceptPermissions = SettingsDefaults.autoAcceptPermissions
+    @AppStorage(SettingsKey.aiMomentSummary) private var aiMomentSummary = SettingsDefaults.aiMomentSummary
+    @State private var apiKeyDraft = ""
+    @State private var hasApiKey = AnthropicKeychain.hasKey
 
     var body: some View {
         Form {
+            Section {
+                Toggle(l10n["ai_summary"], isOn: $aiMomentSummary)
+                HStack(spacing: 8) {
+                    SecureField(hasApiKey ? l10n["ai_key_saved"] : "sk-ant-…", text: $apiKeyDraft)
+                        .textFieldStyle(.roundedBorder)
+                    Button(l10n["ai_key_save"]) {
+                        hasApiKey = AnthropicKeychain.save(apiKeyDraft)
+                        apiKeyDraft = ""
+                    }
+                    .disabled(apiKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if hasApiKey {
+                        Button(l10n["ai_key_remove"], role: .destructive) {
+                            AnthropicKeychain.delete()
+                            hasApiKey = false
+                        }
+                    }
+                }
+                Text(l10n["ai_summary_hint"])
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text(l10n["ai_summary_section"])
+            }
+
             Section {
                 Toggle(isOn: $autoAcceptPermissions) {
                     HStack(spacing: 10) {
@@ -915,8 +942,6 @@ private struct AppearancePreview: View {
 private struct MascotsPage: View {
     @ObservedObject private var l10n = L10n.shared
     @State private var previewStatus: AgentStatus = .processing
-    @AppStorage(SettingsKey.mascotSpeed) private var mascotSpeed = SettingsDefaults.mascotSpeed
-    @AppStorage(SettingsKey.mascotStyle) private var mascotStyle = SettingsDefaults.mascotStyle
     @AppStorage(SettingsKey.animationsMode) private var animationsMode = SettingsDefaults.animationsMode
 
     private let mascotList: [(name: String, source: String, desc: String, color: Color)] = [
@@ -946,27 +971,6 @@ private struct MascotsPage: View {
                     Text(l10n["processing"]).tag(AgentStatus.processing)
                     Text(l10n["idle"]).tag(AgentStatus.idle)
                     Text(l10n["waiting_approval"]).tag(AgentStatus.waitingApproval)
-                }
-                .pickerStyle(.segmented)
-
-                HStack {
-                    Text(l10n["mascot_speed"])
-                    Spacer()
-                    Text(mascotSpeed == 0
-                         ? l10n["speed_off"]
-                         : String(format: "%.1f×", Double(mascotSpeed) / 100.0))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(value: Binding(
-                    get: { Double(mascotSpeed) },
-                    set: { mascotSpeed = Int($0) }
-                ), in: 0...300, step: 25)
-
-                Picker(l10n["mascot_style"], selection: $mascotStyle) {
-                    Text("Hatchling").tag("hatchling")
-                    Text("Pixel art").tag("pixel")
-                    Text("Brand icons").tag("brand")
                 }
                 .pickerStyle(.segmented)
 
