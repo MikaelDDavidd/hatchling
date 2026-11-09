@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Notch overlay that appears below the menubar showing the buddy
-/// ASCII sprite + a little speech bubble. Auto-dismisses, click to close.
+/// Notch overlay that appears below the menubar with Hatch speaking as the user's buddy.
+/// Auto-dismisses, click to close.
 struct BuddySpeechBubble: View {
     let speech: BuddySpeech
     let buddy: BuddyInfo?
@@ -11,23 +11,15 @@ struct BuddySpeechBubble: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            // Mascot — falls back to a generic blob silhouette if no buddy
-            Group {
-                if let buddy {
-                    BuddyASCIIView(buddy: buddy)
-                        .padding(.top, 2)
-                } else {
-                    Image(systemName: "pawprint.fill")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.white.opacity(0.55))
-                }
-            }
-            .frame(minWidth: 56, alignment: .center)
+            // Hatch speaks for the buddy; the hands float outside the block, so leave room.
+            MascotView(source: "claude", status: .idle, size: 46, global: true)
+                .padding(.horizontal, 12)
+                .padding(.top, 2)
 
             // Speech bubble
             VStack(alignment: .leading, spacing: 4) {
                 Text(speech.text)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
@@ -38,8 +30,8 @@ struct BuddySpeechBubble: View {
                         Circle()
                             .fill(buddy?.rarity.color ?? .white.opacity(0.4))
                             .frame(width: 5, height: 5)
-                        Text(name.lowercased())
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        Text(name)
+                            .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.45))
                     }
                 }

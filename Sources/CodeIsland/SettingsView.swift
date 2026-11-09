@@ -348,10 +348,21 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.autoAcceptPermissions) private var autoAcceptPermissions = SettingsDefaults.autoAcceptPermissions
     @AppStorage(SettingsKey.aiMomentSummary) private var aiMomentSummary = SettingsDefaults.aiMomentSummary
     @State private var apiKeyDraft = ""
+    @AppStorage(SettingsKey.cardClickAction) private var cardClickAction = SettingsDefaults.cardClickAction
     @State private var hasApiKey = AnthropicKeychain.hasKey
 
     var body: some View {
         Form {
+            Section {
+                Picker(l10n["card_click"], selection: $cardClickAction) {
+                    Text(l10n["card_open_app"]).tag("app")
+                    Text(l10n["card_open_chat"]).tag("chat")
+                }
+                Text(l10n["card_click_hint"])
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 Toggle(l10n["ai_summary"], isOn: $aiMomentSummary)
                 HStack(spacing: 8) {

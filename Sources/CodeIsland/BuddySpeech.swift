@@ -88,8 +88,50 @@ enum BuddyLines {
         .chonk:    ["heavy commit. heavy heart.", "expanding scope. literally."],
     ]
 
+    /// The same moods in Portuguese, for when the app speaks it. Species flavour stays
+    /// English-only, so it is skipped there.
+    private static let genericPT: [BuddyMood: [String]] = [
+        .idle: [
+            "Ainda tô aqui. Só curtindo.",
+            "Alguém vai subir alguma coisa hoje?",
+            "Contei os pixels. São muitos.",
+            "Soneca em 5… 4… 3…",
+            "O cursor pisca. Eu também.",
+            "Bora dar um git status, só por diversão?",
+        ],
+        .afterTask: [
+            "Entregue. Melhor não falar do tamanho do diff.",
+            "Feito. Essa foi suspeitamente fácil.",
+            "Quem escreve a mensagem do commit?",
+            "Mais um bug despejado do código.",
+            "Pequena vitória. Confiança moderada.",
+        ],
+        .onError: [
+            "Deu ruim. Culpa minha, provavelmente.",
+            "Bom. Isso escalou rápido.",
+            "Ctrl+Z é um amigo de verdade.",
+            "Voltar atrás também é uma forma de carinho.",
+        ],
+        .greeting: [
+            "Bom dia, pastor de código.",
+            "Pronto quando você estiver.",
+            "Guardei o lugar quentinho.",
+            "De volta. Nível de café: a definir.",
+        ],
+        .philosopher: [
+            "Se uma função retorna e nenhum teste vê, ela rodou mesmo?",
+            "Todo TODO é problema do eu do futuro.",
+            "Documentação é bilhete do você de ontem pro você de amanhã.",
+            "Dar nome às coisas é difícil. Por isso eu existo.",
+            "O melhor refactor é o que ninguém percebe.",
+        ],
+    ]
+
     /// Pick a line for the given mood. Species adds occasional flavor.
     static func pick(buddy: BuddyInfo?, mood: BuddyMood) -> String {
+        if L10n.shared.effectiveLanguage == "pt" {
+            return (genericPT[mood] ?? genericPT[.philosopher] ?? ["…"]).randomElement() ?? "…"
+        }
         var pool = generic[mood] ?? generic[.philosopher] ?? ["…"]
         if let species = buddy?.species, let flavor = bySpecies[species], Bool.random() {
             pool.append(contentsOf: flavor)
@@ -99,5 +141,78 @@ enum BuddyLines {
             pool.append("\(buddy?.name ?? "buddy") online. legendary instincts engaged.")
         }
         return pool.randomElement() ?? "…"
+    }
+}
+
+// MARK: - Spontaneous lines, in the buddy's own voice
+
+/// Writes what the buddy says with Claude Haiku, in character: the name and personality
+/// Claude Code gave the companion (in `~/.claude.json`), plus a line on what the sessions
+/// are doing. Only those two things leave the Mac — never a CLAUDE.md or a transcript.
+/// Returns nil without an API key or on any failure, and the caller falls back to the
+/// built-in lines.
+enum BuddyVoice {
+    private struct Request: Encodable {
+        struct Message: Encodable { let role: String; let content: String }
+        struct Thinking: Encodable { let type: String }
+        struct OutputConfig: Encodable { let effort: String }
+        let model: String
+        let max_tokens: Int
+        let system: String
+        let messages: [Message]
+        let thinking: Thinking
+        let output_config: OutputConfig
+    }
+
+    private struct Response: Decodable {
+        struct Block: Decodable { let type: String; let text: String? }
+        let content: [Block]
+        let stop_reason: String?
+    }
+
+    static func line(buddy: BuddyInfo?, mood: BuddyMood, situation: String) async -> String? {
+        guard let key = AnthropicKeychain.read() else { return nil }
+        let language = L10n.shared.effectiveLanguage == "pt" ? "Brazilian Portuguese" : "English"
+        let name = buddy?.name ?? "Hatch"
+        let personality = buddy?.personality ?? "a small, curious companion who watches over coding sessions"
+        let moment: String
+        switch mood {
+        case .idle: moment = "Nothing has happened for a while."
+        case .afterTask: moment = "A coding session just finished its work."
+        case .onError: moment = "A session just hit an error or was interrupted."
+        case .greeting: moment = "The developer just came back."
+        case .philosopher: moment = "A quiet moment; muse about programming."
+        }
+        let system = """
+        You are \(name), a tiny companion who lives in the notch of a developer's Mac and keeps an eye on their \
+        AI coding sessions. Your personality: \(personality)
+        Say one short, spontaneous line in character, in \(language): at most 80 characters, no quotes, no emoji, \
+        no hashtags. Be specific to the situation when you can; never explain yourself.
+        """
+        let body = Request(
+            model: "claude-haiku-5-5",
+            max_tokens: 120,
+            system: system,
+            messages: [.init(role: "user", content: "\(moment)\nSessions right now: \(situation)")],
+            thinking: .init(type: "disabled"),
+            output_config: .init(effort: "low")
+        )
+        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        request.setValue("2026-10-21", forHTTPHeaderField: "anthropic-version")
+        guard let payload = try? JSONEncoder().encode(body) else { return nil }
+        request.httpBody = payload
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let decoded = try? JSONDecoder().decode(Response.self, from: data),
+              decoded.stop_reason != "refusal" else { return nil }
+        let text = decoded.content.compactMap { $0.type == "text" ? $0.text : nil }.joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”"))
+        guard !text.isEmpty else { return nil }
+        return MomentStore.cleanLine(text, limit: 110)
     }
 }

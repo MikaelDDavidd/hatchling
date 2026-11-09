@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Settings page that surfaces the user's Claude Code buddy (companion):
-/// species, rarity, stats and an animated ASCII sprite — all derived
-/// deterministically from `~/.claude.json` via BuddyReader.
+/// Settings page that surfaces the user's Claude Code buddy (companion): its name,
+/// personality, rarity and stats from `~/.claude.json`. The buddy is drawn as Hatch; the
+/// species only flavours what it says.
 struct BuddyPage: View {
     @ObservedObject private var reader = BuddyReader.shared
     @State private var isPetting = false
@@ -14,9 +14,9 @@ struct BuddyPage: View {
                     HStack(alignment: .top, spacing: 24) {
                         // Sprite card (dark backdrop, like MioIsland)
                         VStack {
-                            BuddyASCIIView(buddy: buddy, isPetting: isPetting)
-                                .padding(.vertical, 14)
-                                .padding(.horizontal, 18)
+                            MascotView(source: "claude", status: .idle, size: 72, global: true)
+                                .padding(.vertical, 22)
+                                .padding(.horizontal, 34)
                         }
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -24,6 +24,7 @@ struct BuddyPage: View {
                         )
                         .frame(minWidth: 160)
                         .onTapGesture {
+                            HatchReaction.wave.post()
                             withAnimation(.easeInOut(duration: 0.2)) { isPetting = true }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
                                 withAnimation(.easeInOut(duration: 0.2)) { isPetting = false }

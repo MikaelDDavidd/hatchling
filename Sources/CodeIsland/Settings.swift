@@ -73,6 +73,7 @@ enum SettingsKey {
     // Animations
     static let animationsMode = "animationsMode"           // "on" | "system"
     static let aiMomentSummary = "aiMomentSummary"         // summarise each card with Claude Haiku
+    static let cardClickAction = "cardClickAction"         // "app" | "chat"
 
     // Permissions — YOLO toggle that auto-allows every PermissionRequest
     static let autoAcceptPermissions = "autoAcceptPermissions"
@@ -151,6 +152,7 @@ struct SettingsDefaults {
 
     static let animationsMode = "on"  // "on" = always animate, "system" = follow Reduce Motion
     static let aiMomentSummary = true  // only takes effect once an API key is saved
+    static let cardClickAction = "app"  // a click opens the session's app or terminal; ⌘-click the chat
     static let autoAcceptPermissions = false  // OFF — opt-in YOLO mode
 
     static let sessionGroupingMode = "all"
@@ -206,6 +208,7 @@ class SettingsManager {
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.animationsMode: SettingsDefaults.animationsMode,
             SettingsKey.aiMomentSummary: SettingsDefaults.aiMomentSummary,
+            SettingsKey.cardClickAction: SettingsDefaults.cardClickAction,
             SettingsKey.autoAcceptPermissions: SettingsDefaults.autoAcceptPermissions,
             SettingsKey.sessionGroupingMode: SettingsDefaults.sessionGroupingMode,
             SettingsKey.selectedPanelTab: SettingsDefaults.selectedPanelTab,
