@@ -34,7 +34,8 @@ extension EnvironmentValues {
 }
 
 /// Routes a CLI source identifier to the correct mascot view.
-/// Honors `mascotStyle` setting: "pixel" → pixel-art mascots, "brand" → official brand icon animated.
+/// Honors `mascotStyle` setting: "hatchling" → the app's own vector chick, "pixel" → pixel-art
+/// mascots, "brand" → official brand icon animated.
 struct MascotView: View {
     let source: String
     let status: AgentStatus
@@ -44,7 +45,10 @@ struct MascotView: View {
 
     var body: some View {
         Group {
-            if mascotStyle == "brand" {
+            if mascotStyle == "hatchling" {
+                HatchlingMascotView(source: source, status: status, size: size)
+                    .frame(width: size, height: size)
+            } else if mascotStyle == "brand" {
                 BrandMascotView(source: source, status: status, size: size)
             } else {
                 pixelMascot

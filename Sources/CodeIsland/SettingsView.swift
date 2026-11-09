@@ -917,6 +917,7 @@ private struct MascotsPage: View {
     @State private var previewStatus: AgentStatus = .processing
     @AppStorage(SettingsKey.mascotSpeed) private var mascotSpeed = SettingsDefaults.mascotSpeed
     @AppStorage(SettingsKey.mascotStyle) private var mascotStyle = SettingsDefaults.mascotStyle
+    @AppStorage(SettingsKey.animationsMode) private var animationsMode = SettingsDefaults.animationsMode
 
     private let mascotList: [(name: String, source: String, desc: String, color: Color)] = [
         ("Clawd", "claude", "Claude Code", Color(red: 0.871, green: 0.533, blue: 0.427)),
@@ -962,9 +963,16 @@ private struct MascotsPage: View {
                     set: { mascotSpeed = Int($0) }
                 ), in: 0...300, step: 25)
 
-                Picker("Mascot style", selection: $mascotStyle) {
+                Picker(l10n["mascot_style"], selection: $mascotStyle) {
+                    Text("Hatchling").tag("hatchling")
                     Text("Pixel art").tag("pixel")
                     Text("Brand icons").tag("brand")
+                }
+                .pickerStyle(.segmented)
+
+                Picker(l10n["animations"], selection: $animationsMode) {
+                    Text(l10n["animations_on"]).tag("on")
+                    Text(l10n["animations_system"]).tag("system")
                 }
                 .pickerStyle(.segmented)
             }

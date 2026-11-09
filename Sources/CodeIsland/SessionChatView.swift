@@ -63,7 +63,7 @@ struct SessionChatView: View {
             }
             .buttonStyle(.plain)
 
-            MascotView(source: session.source, status: session.status, size: 20)
+            LivelyMascot(source: session.source, status: session.status, size: 20)
 
             Text(session.projectDisplayName)
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))

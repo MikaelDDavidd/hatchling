@@ -37,6 +37,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let en: [String: String] = [
+        "mascot_style": "Mascot style",
+        "animations": "Animations",
+        "animations_on": "Always on",
+        "animations_system": "Follow Reduce Motion",
         // Settings pages
         "general": "General",
         "behavior": "Behavior",
@@ -270,6 +274,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let zh: [String: String] = [
+        "mascot_style": "吉祥物风格",
+        "animations": "动画",
+        "animations_on": "始终开启",
+        "animations_system": "跟随“减弱动态效果”",
         // Settings pages
         "general": "通用",
         "behavior": "行为",
@@ -503,6 +511,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let tr: [String: String] = [
+        "mascot_style": "Maskot stili",
+        "animations": "Animasyonlar",
+        "animations_on": "Her zaman açık",
+        "animations_system": "Hareketi Azalt ayarını izle",
         // Settings pages
         "general": "Genel",
         "behavior": "Davranış",
@@ -736,6 +748,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let pt: [String: String] = [
+        "mascot_style": "Estilo do mascote",
+        "animations": "Animações",
+        "animations_on": "Sempre ligadas",
+        "animations_system": "Seguir o Reduzir movimento",
         // Settings pages
         "general": "Geral",
         "behavior": "Comportamento",

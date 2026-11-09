@@ -72,6 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         #if DEBUG
+        MascotSheet.showIfRequested()
         // Preview mode: inject mock data if --preview flag is present
         if let scenario = DebugHarness.requestedScenario() {
             Self.log.debug("Loading scenario: \(scenario.rawValue)")
