@@ -14,11 +14,11 @@ struct StatusBar: View {
                     .frame(width: 6, height: 6)
 
                 Text("Anthropic:")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.45))
 
                 Text(s.description)
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(s.color.opacity(0.95))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -27,7 +27,7 @@ struct StatusBar: View {
                     Text("·")
                         .foregroundStyle(.white.opacity(0.20))
                     Text(degradedSummary(s.degradedComponents))
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: 10))
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -37,7 +37,7 @@ struct StatusBar: View {
                     Text("·")
                         .foregroundStyle(.white.opacity(0.20))
                     Text("\(s.incidents.count) incident\(s.incidents.count == 1 ? "" : "s")")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(s.color.opacity(0.85))
                 }
 
@@ -71,7 +71,7 @@ struct StatusBar: View {
             lines.append("  • \(c.name): \(humanize(c.status))")
         }
         for i in s.incidents.prefix(4) {
-            lines.append("  ⚠ \(i.name) (\(i.status))")
+            lines.append("  ! \(i.name) (\(i.status))")
         }
         return lines.joined(separator: "\n")
     }

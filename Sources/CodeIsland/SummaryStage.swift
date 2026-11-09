@@ -31,19 +31,20 @@ struct SummaryStage: View {
                     .offset(x: stepAside ? 0 : centred)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(session.projectDisplayName.uppercased())
-                        .font(.system(size: 9.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(accent.opacity(0.85))
-                        .tracking(0.6)
+                    HStack(spacing: 6) {
+                        AgentDot(source: session.source, status: .running, size: 7)
+                        Text(session.projectDisplayName)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
                     Text(moment.now)
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                     if let task = moment.task, task != moment.now {
                         Text(task)
-                            .font(.system(size: 10.5, design: .monospaced))
-                            .italic()
+                            .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.45))
                             .lineLimit(1)
                     }
@@ -54,7 +55,7 @@ struct SummaryStage: View {
                                 appState.surface = .sessionChat(sessionId: sessionId)
                             }
                         }
-                        stageButton("TERMINAL", prominent: false) {
+                        stageButton(l10n["terminal"], prominent: false) {
                             TerminalActivator.activate(session: session, sessionId: sessionId)
                         }
                     }
@@ -87,17 +88,13 @@ struct SummaryStage: View {
     private func stageButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                .foregroundStyle(prominent ? Color.black : .white.opacity(0.6))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(prominent ? Color.black : .white.opacity(0.7))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
                 .background(
-                    Capsule(style: .continuous)
-                        .fill(prominent ? accent : Color.white.opacity(0.06))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(prominent ? .clear : Color.white.opacity(0.12), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(prominent ? Color.white.opacity(0.9) : Color.white.opacity(0.07))
                 )
         }
         .buttonStyle(.plain)

@@ -81,8 +81,8 @@ struct SessionChatView: View {
                 // Where the session is right now, so the header answers "what is it doing?"
                 // before you scroll.
                 Text(moments.moment(for: session, sessionId: sessionId).now)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(accent.opacity(session.status == .idle ? 0.55 : 0.9))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.white.opacity(session.status == .idle ? 0.45 : 0.7))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .contentTransition(.opacity)
@@ -96,8 +96,8 @@ struct SessionChatView: View {
             Button {
                 TerminalActivator.activate(session: session, sessionId: sessionId)
             } label: {
-                Text("TERMINAL")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                Text(L10n.shared["terminal"])
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.45))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
@@ -116,11 +116,11 @@ struct SessionChatView: View {
     @ViewBuilder
     private var transcript: some View {
         if !store.available {
-            centered("\(session.sourceLabel) keeps no conversation log this app can read")
+            centered(String(format: L10n.shared["chat_no_log"], session.sourceLabel))
         } else if store.messages.isEmpty && store.loading {
-            centered("reading the transcript")
+            centered(L10n.shared["chat_reading"])
         } else if store.messages.isEmpty {
-            centered("nothing said yet")
+            centered(L10n.shared["chat_empty"])
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -160,7 +160,7 @@ struct SessionChatView: View {
     @ViewBuilder
     private var topMarker: some View {
         if store.reachedStart {
-            Text("start of the conversation")
+            Text(L10n.shared["chat_start"])
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.2))
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -168,7 +168,7 @@ struct SessionChatView: View {
             Button {
                 store.loadMore()
             } label: {
-                Text(store.loading ? "loading" : "load earlier")
+                Text(store.loading ? L10n.shared["chat_loading"] : L10n.shared["chat_load_earlier"])
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(store.loading ? 0.2 : 0.4))
                     .frame(maxWidth: .infinity)
@@ -196,7 +196,7 @@ struct SessionChatView: View {
                 Image(systemName: "gearshape")
                     .font(.system(size: 8.5, weight: .semibold))
                 Text(MomentStore.cleanLine(message.text, limit: 70))
-                    .font(.system(size: 9.5, design: .monospaced))
+                    .font(.system(size: 10))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -209,8 +209,8 @@ struct SessionChatView: View {
                 Spacer(minLength: 48)
                 if !message.text.isEmpty {
                     Text(message.text)
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.85))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.88))
                         .textSelection(.enabled)
                         .lineLimit(12)
                         .fixedSize(horizontal: false, vertical: true)
@@ -227,11 +227,7 @@ struct SessionChatView: View {
                 }
             }
         } else {
-            HStack(alignment: .top, spacing: 9) {
-                Rectangle()
-                    .fill(accent.opacity(0.75))
-                    .frame(width: 2)
-
+            HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 6) {
                     if !message.text.isEmpty {
                         MarkdownText(text: message.text)
@@ -267,8 +263,8 @@ struct SessionChatView: View {
         HStack(spacing: 8) {
             AgentDot(source: session.source, status: session.status, size: 7)
             Text(moments.moment(for: session, sessionId: sessionId).now)
-                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                .foregroundStyle(accent.opacity(0.9))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .contentTransition(.opacity)
@@ -282,8 +278,8 @@ struct SessionChatView: View {
 
     private func centered(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.28))
+            .font(.system(size: 11))
+            .foregroundStyle(.white.opacity(0.35))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -293,9 +289,9 @@ struct SessionChatView: View {
     private var composer: some View {
         if PromptInjector.canInject(into: session) {
             HStack(spacing: 8) {
-                TextField("Send a message", text: $draft, axis: .vertical)
+                TextField(L10n.shared["chat_placeholder"], text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(.system(size: 12))
                     .foregroundStyle(.white)
                     .lineLimit(1...4)
                     .focused($composerFocused)
@@ -325,9 +321,9 @@ struct SessionChatView: View {
             .padding(.vertical, 9)
         } else {
             // Says why instead of offering a field that would be refused after it was typed in.
-            Text("Not in tmux, so Hatchling cannot type into this session. Turn on keystroke injection in Settings to send messages.")
-                .font(.system(size: 9.5, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.28))
+            Text(L10n.shared["chat_no_tmux"])
+                .font(.system(size: 10))
+                .foregroundStyle(.white.opacity(0.35))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)

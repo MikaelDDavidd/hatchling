@@ -7,9 +7,9 @@ enum PanelTab: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .agents: return "AGENTS"
-        case .files:  return "FILES"
-        case .notes:  return "NOTES"
+        case .agents: return L10n.shared["tab_agents"]
+        case .files:  return L10n.shared["tab_files"]
+        case .notes:  return L10n.shared["tab_notes"]
         }
     }
 
@@ -25,13 +25,12 @@ enum PanelTab: String, CaseIterable {
     var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
 }
 
-/// Icons for every tab, the name only on the chosen one, and a pill that slides between them.
+/// Icons for every tab, the name only on the chosen one, and a quiet highlight that slides
+/// between them. Neutral on purpose: the panel's one colour is reserved for the agents.
 struct PanelTabSelector: View {
     @AppStorage(SettingsKey.selectedPanelTab) private var selected: String = SettingsDefaults.selectedPanelTab
     @Namespace private var pill
     @State private var hovered: PanelTab?
-
-    private static let accent = Color(red: 0.3, green: 0.85, blue: 0.4)
 
     var body: some View {
         HStack(spacing: 2) {
@@ -43,9 +42,11 @@ struct PanelTabSelector: View {
                     HStack(spacing: 5) {
                         Image(systemName: tab.icon)
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(isSelected ? Self.accent : .white.opacity(hovered == tab ? 0.6 : 0.32))
+                            .foregroundStyle(isSelected ? .white : .white.opacity(hovered == tab ? 0.6 : 0.35))
                         if isSelected {
-                            PixelText(text: tab.label, color: Self.accent, pixelSize: 1.3)
+                            Text(tab.label)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.white)
                                 .transition(.asymmetric(
                                     insertion: .opacity.combined(with: .scale(scale: 0.8, anchor: .leading)),
                                     removal: .opacity
@@ -56,23 +57,22 @@ struct PanelTabSelector: View {
                     .padding(.vertical, 5)
                     .background {
                         if isSelected {
-                            Capsule(style: .continuous)
-                                .fill(Self.accent.opacity(0.13))
-                                .overlay(Capsule(style: .continuous).strokeBorder(Self.accent.opacity(0.22), lineWidth: 1))
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(.white.opacity(0.11))
                                 .matchedGeometryEffect(id: "pill", in: pill)
                         } else if hovered == tab {
-                            Capsule(style: .continuous).fill(.white.opacity(0.06))
+                            RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.white.opacity(0.05))
                         }
                     }
-                    .contentShape(Capsule())
+                    .contentShape(RoundedRectangle(cornerRadius: 7))
                 }
                 .buttonStyle(.plain)
-                .help(tab.label.capitalized)
+                .help(tab.label)
                 .onHover { h in withAnimation(NotchAnimation.micro) { hovered = h ? tab : (hovered == tab ? nil : hovered) } }
             }
         }
         .padding(2)
-        .background(Capsule(style: .continuous).fill(.white.opacity(0.04)))
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(0.04)))
     }
 }
 
