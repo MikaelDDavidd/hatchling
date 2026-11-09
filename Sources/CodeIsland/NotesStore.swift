@@ -34,10 +34,7 @@ final class NotesStore: ObservableObject {
     private let storeURL: URL
 
     private init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = base.appendingPathComponent("Hatchling", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        self.storeURL = appDir.appendingPathComponent("notes.json")
+        self.storeURL = HatchlingData.directory.appendingPathComponent("notes.json")
         load()
     }
 
