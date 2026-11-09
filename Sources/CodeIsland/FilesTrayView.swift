@@ -8,66 +8,72 @@ struct FilesTrayView: View {
     @State private var isTargeted = false
     @State private var hoveredId: UUID?
 
-    var body: some View {
-        VStack(spacing: 6) {
-            if store.items.isEmpty {
-                emptyDropZone
-            } else {
-                HStack(spacing: 0) {
-                    trayHatch(size: 46)
-                        .padding(.leading, 18)
-                        .padding(.trailing, 6)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        addTile
-                        ForEach(store.items) { item in
-                            FileTile(
-                                item: item,
-                                hovered: hoveredId == item.id,
-                                onHover: { h in hoveredId = h ? item.id : nil },
-                                onRemove: { store.remove(item) }
-                            )
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                }
-                .frame(maxHeight: 88)
-                }
-                .padding(.top, 14)
-                .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted, perform: handleDrop)
-                .onChange(of: isTargeted) { _, targeted in
-                    (targeted ? HatchReaction.catchStart : HatchReaction.catchEnd).post()
-                }
-            }
-        }
-    }
+    @ObservedObject private var stage = TrayStage.shared
 
-    private var emptyDropZone: some View {
-        VStack(spacing: 8) {
-            trayHatch(size: 56)
-            Text(isTargeted ? L10n.shared["tray_drop_now"] : L10n.shared["tray_drop_hint"])
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(.white.opacity(isTargeted ? 0.85 : 0.5))
+    private let hatchSize: CGFloat = 54
+    private var hatchBox: CGFloat { hatchSize * 1.44 }
+
+    var body: some View {
+        // One Hatch for every state of the tray, so the one that opens up for a file is the
+        // one that swallows it. While a file is on its way the tray clears and Hatch takes
+        // the middle, bigger; once every file is in, it steps back to the left and the
+        // items come back, the new one sliding out from beside it.
+        GeometryReader { geo in
+            let centred = (geo.size.width - hatchBox) / 2 - 16
+            ZStack(alignment: .leading) {
+                trayContent
+                    .padding(.leading, 16 + hatchBox + 6)
+                    .opacity(stage.centred ? 0 : 1)
+                    .allowsHitTesting(!stage.centred)
+
+                trayHatch(size: hatchSize)
+                    .scaleEffect(stage.centred ? 1.3 : 1)
+                    .offset(x: stage.centred ? centred : 0)
+                    .padding(.leading, 16)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 26)
-        .frame(height: 132)
-        .padding(.horizontal, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(
-                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                )
-                .foregroundStyle(.white.opacity(isTargeted ? 0.6 : 0.18))
-        )
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .frame(height: 124)
+        .padding(.top, 8)
+        .contentShape(Rectangle())
         .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted, perform: handleDrop)
         .onChange(of: isTargeted) { _, targeted in
-            (targeted ? HatchReaction.catchStart : HatchReaction.catchEnd).post()
+            if targeted { stage.dragEntered("tray") } else { stage.dragExited("tray") }
         }
-        .animation(.easeInOut(duration: 0.15), value: isTargeted)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: stage.centred)
+        .animation(.spring(response: 0.45, dampingFraction: 0.78), value: store.items.count)
+    }
+
+    @ViewBuilder
+    private var trayContent: some View {
+        if store.items.isEmpty {
+            Text(L10n.shared["tray_drop_hint"])
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.5))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    addTile
+                    ForEach(store.items) { item in
+                        FileTile(
+                            item: item,
+                            hovered: hoveredId == item.id,
+                            onHover: { h in hoveredId = h ? item.id : nil },
+                            onRemove: { store.remove(item) }
+                        )
+                        // A file arrives from Hatch's side, as if handed over.
+                        .transition(.asymmetric(
+                            insertion: .offset(x: -80).combined(with: .scale(scale: 0.3, anchor: .leading)).combined(with: .opacity),
+                            removal: .opacity.combined(with: .scale(scale: 0.8))
+                        ))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .frame(maxHeight: 88)
+        }
     }
 
     /// Hatch keeps the tray: it opens the slot on its head while a file is dragged over and
@@ -110,9 +116,7 @@ struct FilesTrayView: View {
                     }
                     guard let fileURL = url else { return }
                     Task { @MainActor in
-                        TrayStore.shared.add(fileURL: fileURL)
-                        HatchReaction.catchEnd.post()
-                        HatchDirector.shared.fileCaught(fileURL.lastPathComponent)
+                        TrayFeed.feed(fileURL)
                     }
                 }
                 didAdd = true
@@ -130,7 +134,7 @@ struct FilesTrayView: View {
             guard response == .OK else { return }
             for url in panel.urls {
                 Task { @MainActor in
-                    TrayStore.shared.add(fileURL: url)
+                    TrayFeed.feed(url)
                 }
             }
         }
@@ -187,5 +191,95 @@ private struct FileTile: View {
         }
         .onHover { onHover($0) }
         .animation(.easeInOut(duration: 0.12), value: hovered)
+    }
+}
+
+/// Whether Hatch has the tray to itself: from the moment a file is dragged over the panel
+/// until the last dropped file is in, or the drag leaves without dropping.
+@MainActor
+final class TrayStage: ObservableObject {
+    static let shared = TrayStage()
+
+    @Published private(set) var centred = false
+    private var dragOver: Set<String> = []
+    private var pending = 0
+
+    func dragEntered(_ source: String) {
+        dragOver.insert(source)
+        guard !centred else { return }
+        centred = true
+        HatchDirector.shared.fileHovering()
+    }
+
+    /// The drag left one of the drop targets. If it left them all and nothing was dropped,
+    /// Hatch closes up and steps back; a drop arrives a moment after the exit, so wait.
+    func dragExited(_ source: String) {
+        dragOver.remove(source)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.dragOver.isEmpty, self.pending == 0, self.centred else { return }
+            HatchReaction.catchEnd.post()
+            self.centred = false
+        }
+    }
+
+    func fileDropped() {
+        pending += 1
+        centred = true
+    }
+
+    /// One swallowed file is ready to land. When it was the last, Hatch steps back first and
+    /// the tile follows it out a beat later.
+    func fileSwallowed(land: @escaping () -> Void) {
+        pending = max(0, pending - 1)
+        guard pending == 0 else { land(); return }
+        centred = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.isReduced ? 0 : 0.35), execute: land)
+    }
+}
+
+/// Hands dropped files to Hatch one at a time: each is swallowed first and lands in the
+/// tray only when the gulp is done, so the drop, the swallow and the new tile read as one
+/// motion. Several files queue up a beat apart.
+@MainActor
+enum TrayFeed {
+    private static var nextFree = Date.distantPast
+    /// How long the swallow takes before the file comes out the other side.
+    private static let swallowTime: TimeInterval = 1.0
+    private static let spacing: TimeInterval = 1.15
+
+    #if DEBUG
+    /// Plays a whole drag and drop without a file, for reviewing the sequence
+    /// (`--rehearse-drop`). Nothing is added to the tray.
+    static func rehearse() {
+        TrayStage.shared.dragEntered("rehearsal")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            TrayStage.shared.fileDropped()
+            TrayStage.shared.dragExited("rehearsal")
+            HatchReaction.catchEnd.post()
+            HatchDirector.shared.fileCaught("relatorio.pdf")
+            DispatchQueue.main.asyncAfter(deadline: .now() + swallowTime) {
+                TrayStage.shared.fileSwallowed {}
+            }
+        }
+    }
+    #endif
+
+    static func feed(_ url: URL) {
+        TrayStage.shared.fileDropped()
+        let start = max(Date(), nextFree)
+        nextFree = start.addingTimeInterval(spacing)
+        let wait = start.timeIntervalSinceNow
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            HatchReaction.catchEnd.post()
+            HatchDirector.shared.fileCaught(url.lastPathComponent)
+            let land = Motion.isReduced ? 0 : swallowTime
+            DispatchQueue.main.asyncAfter(deadline: .now() + land) {
+                TrayStage.shared.fileSwallowed {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
+                        TrayStore.shared.add(fileURL: url)
+                    }
+                }
+            }
+        }
     }
 }

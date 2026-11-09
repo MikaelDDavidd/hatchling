@@ -192,9 +192,9 @@ struct NotchPanelView: View {
             .onDrop(of: [UTType.fileURL], isTargeted: $isFileDragTargeted, perform: handleNotchFileDrop)
             .onChange(of: isFileDragTargeted) { _, targeted in
                 if targeted {
-                    HatchDirector.shared.fileHovering()
+                    TrayStage.shared.dragEntered("panel")
                 } else {
-                    HatchReaction.catchEnd.post()
+                    TrayStage.shared.dragExited("panel")
                 }
                 if targeted {
                     selectedPanelTab = PanelTab.files.rawValue
@@ -415,9 +415,7 @@ struct NotchPanelView: View {
                 }
                 guard let fileURL = url else { return }
                 Task { @MainActor in
-                    TrayStore.shared.add(fileURL: fileURL)
-                    HatchReaction.catchEnd.post()
-                    HatchDirector.shared.fileCaught(fileURL.lastPathComponent)
+                    TrayFeed.feed(fileURL)
                 }
             }
             didAccept = true

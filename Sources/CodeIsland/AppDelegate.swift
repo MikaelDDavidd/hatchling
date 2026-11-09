@@ -109,8 +109,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DebugHarness.apply(scenario, to: appState)
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 300_000_000)
-                // `--open-chat <project>` opens that session's conversation, for reviewing the chat.
                 let args = ProcessInfo.processInfo.arguments
+                if args.contains("--rehearse-drop") {
+                    Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { _ in
+                        MainActor.assumeIsolated { TrayFeed.rehearse() }
+                    }.fire()
+                }
+                // `--open-chat <project>` opens that session's conversation, for reviewing the chat.
                 if let i = args.firstIndex(of: "--open-chat"), i + 1 < args.count,
                    let id = appState.sessions.first(where: { $0.value.projectDisplayName == args[i + 1] })?.key {
                     appState.surface = .sessionChat(sessionId: id)
