@@ -74,6 +74,8 @@ enum SettingsKey {
     static let animationsMode = "animationsMode"           // "on" | "system"
     static let hatchSpontaneous = "hatchSpontaneous"
     static let autoUpdate = "autoUpdate"
+    static let aiProvider = "aiProvider"          // "auto" | "anthropic" | "nvidia"
+    static let nvidiaModel = "nvidiaModel"
     /// The version the app was on before an automatic update restarted it.
     static let updatedFrom = "updatedFrom"
     static let aiMomentSummary = "aiMomentSummary"         // summarise each card with Claude Haiku

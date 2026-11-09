@@ -156,26 +156,8 @@ enum BuddyLines {
 /// Returns nil without an API key or on any failure, and the caller falls back to the
 /// built-in lines.
 enum BuddyVoice {
-    private struct Request: Encodable {
-        struct Message: Encodable { let role: String; let content: String }
-        struct Thinking: Encodable { let type: String }
-        struct OutputConfig: Encodable { let effort: String }
-        let model: String
-        let max_tokens: Int
-        let system: String
-        let messages: [Message]
-        let thinking: Thinking
-        let output_config: OutputConfig
-    }
-
-    private struct Response: Decodable {
-        struct Block: Decodable { let type: String; let text: String? }
-        let content: [Block]
-        let stop_reason: String?
-    }
-
     static func line(buddy: BuddyInfo?, mood: BuddyMood, situation: String) async -> String? {
-        guard let key = AnthropicKeychain.read() else { return nil }
+        guard AIText.isAvailable else { return nil }
         let language = L10n.shared.effectiveLanguage == "pt" ? "Brazilian Portuguese" : "English"
         let name = buddy?.name ?? "Hatch"
         let personality = buddy?.personality ?? "a small, curious companion who watches over coding sessions"
@@ -190,31 +172,15 @@ enum BuddyVoice {
         let system = """
         You are \(name), a tiny companion who lives in the notch of a developer's Mac and keeps an eye on their \
         AI coding sessions. Your personality: \(personality)
-        Say one short, spontaneous line in character, in \(language): at most 80 characters, no quotes, no emoji, \
-        no hashtags. Be specific to the situation when you can; never explain yourself.
+        Say one short, spontaneous line in character, in \(language): a complete sentence of 30 to 80 characters, \
+        talking to the developer, about something in the situation below (a project by name, the time of day, \
+        what a session is doing). No quotes, no emoji, no hashtags, never explain yourself.
+        Examples of the tone (do not copy them): Esse Dashboard tá ficando bonito, hein? | \
+        Segunda à tarde e o relay ainda dormindo. | Cinco da tarde, hora do café?
         """
-        let body = Request(
-            model: "claude-haiku-5-5",
-            max_tokens: 120,
-            system: system,
-            messages: [.init(role: "user", content: "\(moment)\nSessions right now: \(situation)")],
-            thinking: .init(type: "disabled"),
-            output_config: .init(effort: "low")
-        )
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 8
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
-        request.setValue("2026-10-21", forHTTPHeaderField: "anthropic-version")
-        guard let payload = try? JSONEncoder().encode(body) else { return nil }
-        request.httpBody = payload
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let decoded = try? JSONDecoder().decode(Response.self, from: data),
-              decoded.stop_reason != "refusal" else { return nil }
-        let text = decoded.content.compactMap { $0.type == "text" ? $0.text : nil }.joined()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw = await AIText.complete(system: system, user: "\(moment)\nSessions right now: \(situation)",
+                                              maxTokens: 120, timeout: 8, temperature: 0.7) else { return nil }
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”"))
         guard !text.isEmpty else { return nil }
         return MomentStore.cleanLine(text, limit: 110)

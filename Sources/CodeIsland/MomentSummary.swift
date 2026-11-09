@@ -213,29 +213,10 @@ final class MomentStore: ObservableObject {
 enum MomentSummarizer {
     static var isEnabled: Bool {
         UserDefaults.standard.object(forKey: SettingsKey.aiMomentSummary) as? Bool ?? SettingsDefaults.aiMomentSummary
-            && AnthropicKeychain.hasKey
-    }
-
-    private struct Request: Encodable {
-        struct Message: Encodable { let role: String; let content: String }
-        struct Thinking: Encodable { let type: String }
-        struct OutputConfig: Encodable { let effort: String }
-        let model: String
-        let max_tokens: Int
-        let system: String
-        let messages: [Message]
-        let thinking: Thinking
-        let output_config: OutputConfig
-    }
-
-    private struct Response: Decodable {
-        struct Block: Decodable { let type: String; let text: String? }
-        let content: [Block]
-        let stop_reason: String?
+            && AIText.isAvailable
     }
 
     static func summarize(_ session: SessionSnapshot) async -> SessionMoment? {
-        guard let key = AnthropicKeychain.read() else { return nil }
         let language = L10n.shared.effectiveLanguage == "pt" ? "Brazilian Portuguese"
             : L10n.shared.effectiveLanguage == "zh" ? "Simplified Chinese"
             : L10n.shared.effectiveLanguage == "tr" ? "Turkish" : "English"
@@ -251,28 +232,7 @@ enum MomentSummarizer {
         if let tool = session.currentTool { context += "Current tool: \(tool) \(session.toolDescription ?? "")\n" }
         if let reply = MomentStore.lastReply(of: session) { context += "Agent's latest message:\n\(reply.prefix(3000))\n" }
 
-        let body = Request(
-            model: "claude-haiku-5-5",
-            max_tokens: 200,
-            system: system,
-            messages: [.init(role: "user", content: context)],
-            thinking: .init(type: "disabled"),
-            output_config: .init(effort: "low")
-        )
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 15
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
-        request.setValue("2026-10-21", forHTTPHeaderField: "anthropic-version")
-        guard let payload = try? JSONEncoder().encode(body) else { return nil }
-        request.httpBody = payload
-
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let decoded = try? JSONDecoder().decode(Response.self, from: data),
-              decoded.stop_reason != "refusal" else { return nil }
-        let text = decoded.content.compactMap { $0.type == "text" ? $0.text : nil }.joined()
+        guard let text = await AIText.complete(system: system, user: context, maxTokens: 200, timeout: 15) else { return nil }
         let lines = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -281,61 +241,5 @@ enum MomentSummarizer {
             now: MomentStore.cleanLine(first, limit: 90),
             task: lines.dropFirst().first.map { MomentStore.cleanLine($0, limit: 80) }
         )
-    }
-}
-
-// MARK: - API key in the Keychain
-
-enum AnthropicKeychain {
-    private static let service = "dev.mikaeldavid.hatchling"
-    private static let account = "anthropic-api-key"
-    private static var cachedPresence: Bool?
-
-    static var hasKey: Bool {
-        if let cachedPresence { return cachedPresence }
-        let present = read() != nil
-        cachedPresence = present
-        return present
-    }
-
-    static func read() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data, let key = String(data: data, encoding: .utf8), !key.isEmpty else { return nil }
-        return key
-    }
-
-    @discardableResult
-    static func save(_ key: String) -> Bool {
-        delete()
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: Data(trimmed.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-        ]
-        let ok = SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
-        cachedPresence = ok
-        return ok
-    }
-
-    static func delete() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
-        cachedPresence = false
     }
 }

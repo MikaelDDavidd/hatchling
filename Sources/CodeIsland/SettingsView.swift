@@ -348,8 +348,33 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.autoAcceptPermissions) private var autoAcceptPermissions = SettingsDefaults.autoAcceptPermissions
     @AppStorage(SettingsKey.aiMomentSummary) private var aiMomentSummary = SettingsDefaults.aiMomentSummary
     @State private var apiKeyDraft = ""
+    @State private var nvidiaKeyDraft = ""
     @AppStorage(SettingsKey.cardClickAction) private var cardClickAction = SettingsDefaults.cardClickAction
-    @State private var hasApiKey = AnthropicKeychain.hasKey
+    @AppStorage(SettingsKey.aiProvider) private var aiProvider = AIProvider.auto.rawValue
+    @State private var hasApiKey = KeychainSecret.anthropic.hasKey
+    @State private var hasNvidiaKey = KeychainSecret.nvidia.hasKey
+
+    /// A key field with Save and, once saved, Remove. The key goes straight to the Keychain.
+    private func keyRow(title: String, placeholder: String, draft: Binding<String>, saved: Binding<Bool>,
+                        secret: KeychainSecret) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .frame(width: 72, alignment: .leading)
+            SecureField(saved.wrappedValue ? l10n["ai_key_saved"] : placeholder, text: draft)
+                .textFieldStyle(.roundedBorder)
+            Button(l10n["ai_key_save"]) {
+                saved.wrappedValue = secret.save(draft.wrappedValue)
+                draft.wrappedValue = ""
+            }
+            .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
+            if saved.wrappedValue {
+                Button(l10n["ai_key_remove"], role: .destructive) {
+                    secret.delete()
+                    saved.wrappedValue = false
+                }
+            }
+        }
+    }
 
     var body: some View {
         Form {
@@ -365,21 +390,13 @@ private struct BehaviorPage: View {
 
             Section {
                 Toggle(l10n["ai_summary"], isOn: $aiMomentSummary)
-                HStack(spacing: 8) {
-                    SecureField(hasApiKey ? l10n["ai_key_saved"] : "sk-ant-…", text: $apiKeyDraft)
-                        .textFieldStyle(.roundedBorder)
-                    Button(l10n["ai_key_save"]) {
-                        hasApiKey = AnthropicKeychain.save(apiKeyDraft)
-                        apiKeyDraft = ""
-                    }
-                    .disabled(apiKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
-                    if hasApiKey {
-                        Button(l10n["ai_key_remove"], role: .destructive) {
-                            AnthropicKeychain.delete()
-                            hasApiKey = false
-                        }
-                    }
+                Picker(l10n["ai_provider"], selection: $aiProvider) {
+                    Text(l10n["ai_provider_auto"]).tag(AIProvider.auto.rawValue)
+                    Text("Anthropic (Claude Haiku)").tag(AIProvider.anthropic.rawValue)
+                    Text("NVIDIA").tag(AIProvider.nvidia.rawValue)
                 }
+                keyRow(title: "Anthropic", placeholder: "sk-ant-…", draft: $apiKeyDraft, saved: $hasApiKey, secret: .anthropic)
+                keyRow(title: "NVIDIA", placeholder: "nvapi-…", draft: $nvidiaKeyDraft, saved: $hasNvidiaKey, secret: .nvidia)
                 Text(l10n["ai_summary_hint"])
                     .font(.caption)
                     .foregroundStyle(.secondary)
