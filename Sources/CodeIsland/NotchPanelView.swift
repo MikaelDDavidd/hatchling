@@ -2009,6 +2009,20 @@ private struct SessionCard: View {
     @State private var hovering = false
     @ObservedObject private var contextStore = ContextUsageStore.shared
     @ObservedObject private var momentStore = MomentStore.shared
+    @AppStorage(SettingsKey.cardClickAction) private var cardClickAction = SettingsDefaults.cardClickAction
+
+    private func openChat() {
+        withAnimation(NotchAnimation.open) {
+            appState.surface = .sessionChat(sessionId: sessionId)
+        }
+    }
+
+    /// Brings up the exact terminal tab or IDE window for the session; for a desktop app
+    /// (Claude, Codex) only the app itself, which offers no way to pick the conversation.
+    private func openApp() {
+        TerminalActivator.activate(session: session, sessionId: sessionId)
+        appState.collapsePanel()
+    }
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -2049,12 +2063,10 @@ private struct SessionCard: View {
 
     var body: some View {
         Button {
-            // Opens the conversation rather than jumping to the terminal. The terminal is still
-            // one click away inside the chat, and reading what was said is the thing more often
-            // wanted from a glance at the panel.
-            withAnimation(NotchAnimation.open) {
-                appState.surface = .sessionChat(sessionId: sessionId)
-            }
+            // A click does what Settings says (the session's app or terminal, by default);
+            // ⌘-click does the other one, and the small button on the card does too.
+            let wantsChat = (cardClickAction == "chat") != NSEvent.modifierFlags.contains(.command)
+            if wantsChat { openChat() } else { openApp() }
         } label: {
             cardContent
         } // end Button label
@@ -2217,6 +2229,18 @@ private struct SessionCard: View {
     private var metaFooter: some View {
         HStack(spacing: 6) {
             Spacer(minLength: 6)
+            // The other way in, one click away: the chat when a click opens the app, and the
+            // app when a click opens the chat.
+            let alternateIsChat = cardClickAction != "chat"
+            Button(action: alternateIsChat ? openChat : openApp) {
+                Image(systemName: alternateIsChat ? "text.bubble" : "macwindow")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.white.opacity(hovering ? 0.7 : 0.35))
+                    .frame(width: 22, height: 18)
+                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(hovering ? 0.08 : 0)))
+            }
+            .buttonStyle(.plain)
+            .help(L10n.shared[alternateIsChat ? "card_open_chat" : "card_open_app"])
             Text(timeAgo(session.startTime))
                 .font(.system(size: fontSize - 2, weight: .medium).monospacedDigit())
                 .foregroundStyle(.white.opacity(0.35))

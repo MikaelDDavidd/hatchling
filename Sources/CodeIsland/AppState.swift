@@ -1809,10 +1809,20 @@ final class AppState {
         showBuddySpeech(mood: mood)
     }
 
-    /// Force-show a speech regardless of cooldown/probability.
+    /// Force-show a speech regardless of cooldown/probability. The line is written in the
+    /// buddy's own voice by Claude Haiku when an API key is set, from the built-in lines
+    /// otherwise.
     func showBuddySpeech(mood: BuddyMood) {
         let buddy = BuddyReader.shared.buddy
-        showBuddySpeech(text: BuddyLines.pick(buddy: buddy, mood: mood), mood: mood)
+        let situation = sessions.values.prefix(5).map { s in
+            "\(s.projectDisplayName): \(MomentStore.localMoment(for: s).now)"
+        }.joined(separator: "; ")
+        lastBuddySpeechAt = Date()
+        Task { @MainActor [weak self] in
+            let written = await BuddyVoice.line(buddy: buddy, mood: mood, situation: situation.isEmpty ? "none" : situation)
+            guard let self, self.surface == .collapsed || self.surface == .buddySpeech else { return }
+            self.showBuddySpeech(text: written ?? BuddyLines.pick(buddy: buddy, mood: mood), mood: mood)
+        }
     }
 
     /// Same bubble, but with caller-supplied text — used to report the outcome

@@ -37,6 +37,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let en: [String: String] = [
+        "card_click": "Clicking a session card",
+        "card_open_app": "Open its app or terminal",
+        "card_open_chat": "Open the conversation in the panel",
+        "card_click_hint": "⌘-click does the other one, and so does the small button on each card. Desktop apps (Claude, Codex) come to the front but cannot be told which conversation to show.",
         "tray_drop_hint": "Drag files here and I’ll keep them",
         "tray_drop_now": "Let go, I’ve got it",
         "tab_agents": "Agents",
@@ -300,6 +304,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let zh: [String: String] = [
+        "card_click": "点击会话卡片时",
+        "card_open_app": "打开对应的应用或终端",
+        "card_open_chat": "在面板中打开对话",
+        "card_click_hint": "⌘+点击执行另一个操作，每张卡片上的小按钮也一样。桌面应用（Claude、Codex）会被带到前台，但无法指定显示哪段对话。",
         "tray_drop_hint": "把文件拖到这里，我来保管",
         "tray_drop_now": "松手吧，我接住了",
         "tab_agents": "代理",
@@ -563,6 +571,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let tr: [String: String] = [
+        "card_click": "Oturum kartına tıklayınca",
+        "card_open_app": "Uygulamasını veya terminalini aç",
+        "card_open_chat": "Sohbeti panelde aç",
+        "card_click_hint": "⌘+tıklama diğerini yapar, her karttaki küçük düğme de öyle. Masaüstü uygulamaları (Claude, Codex) öne gelir ama hangi sohbeti göstereceği seçilemez.",
         "tray_drop_hint": "Dosyaları buraya sürükle, saklarım",
         "tray_drop_now": "Bırak, yakaladım",
         "tab_agents": "Ajanlar",
@@ -826,6 +838,10 @@ final class L10n: ObservableObject {
     ]
 
     private static let pt: [String: String] = [
+        "card_click": "Ao clicar no card de uma sessão",
+        "card_open_app": "Abrir o app ou terminal dela",
+        "card_open_chat": "Abrir a conversa no painel",
+        "card_click_hint": "⌘+clique faz a outra opção, e o botãozinho em cada card também. Apps desktop (Claude, Codex) vêm pra frente, mas não dá pra escolher a conversa lá dentro.",
         "tray_drop_hint": "Arraste arquivos pra eu guardar",
         "tray_drop_now": "Pode soltar que eu pego",
         "tab_agents": "Agentes",
