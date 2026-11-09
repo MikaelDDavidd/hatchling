@@ -37,6 +37,12 @@ final class L10n: ObservableObject {
     ]
 
     private static let en: [String: String] = [
+        "ai_summary_section": "Session summaries",
+        "ai_summary": "Summarise each card with Claude Haiku",
+        "ai_key_saved": "API key saved in the Keychain",
+        "ai_key_save": "Save key",
+        "ai_key_remove": "Remove",
+        "ai_summary_hint": "Each card shows what the agent is doing now and what the session is about. With an Anthropic API key, Claude Haiku writes the summary (the request and the latest reply leave your Mac, a fraction of a cent per summary); without one, local rules do.",
         "mascot_style": "Mascot style",
         "animations": "Animations",
         "animations_on": "Always on",
@@ -274,6 +280,12 @@ final class L10n: ObservableObject {
     ]
 
     private static let zh: [String: String] = [
+        "ai_summary_section": "会话摘要",
+        "ai_summary": "用 Claude Haiku 概括每张卡片",
+        "ai_key_saved": "API 密钥已存入钥匙串",
+        "ai_key_save": "保存密钥",
+        "ai_key_remove": "移除",
+        "ai_summary_hint": "每张卡片显示代理当前在做什么以及会话主题。设置 Anthropic API 密钥后由 Claude Haiku 撰写摘要（请求和最新回复会离开本机，每次不到一美分）；没有密钥时使用本地规则。",
         "mascot_style": "吉祥物风格",
         "animations": "动画",
         "animations_on": "始终开启",
@@ -511,6 +523,12 @@ final class L10n: ObservableObject {
     ]
 
     private static let tr: [String: String] = [
+        "ai_summary_section": "Oturum özetleri",
+        "ai_summary": "Her kartı Claude Haiku ile özetle",
+        "ai_key_saved": "API anahtarı Anahtar Zinciri’nde kayıtlı",
+        "ai_key_save": "Anahtarı kaydet",
+        "ai_key_remove": "Kaldır",
+        "ai_summary_hint": "Her kart, ajanın şu anda ne yaptığını ve oturumun konusunu gösterir. Anthropic API anahtarıyla özeti Claude Haiku yazar (istek ve son yanıt Mac’ten çıkar, özet başına bir sentin çok altında); anahtar yoksa yerel kurallar kullanılır.",
         "mascot_style": "Maskot stili",
         "animations": "Animasyonlar",
         "animations_on": "Her zaman açık",
@@ -748,6 +766,12 @@ final class L10n: ObservableObject {
     ]
 
     private static let pt: [String: String] = [
+        "ai_summary_section": "Resumo das sessões",
+        "ai_summary": "Resumir cada card com o Claude Haiku",
+        "ai_key_saved": "Chave salva no Keychain",
+        "ai_key_save": "Salvar chave",
+        "ai_key_remove": "Remover",
+        "ai_summary_hint": "Cada card mostra o que o agente está fazendo agora e do que a sessão trata. Com uma chave da API da Anthropic, o Claude Haiku escreve o resumo (o pedido e a última resposta saem do Mac, fração de centavo por resumo); sem chave, regras locais fazem isso.",
         "mascot_style": "Estilo do mascote",
         "animations": "Animações",
         "animations_on": "Sempre ligadas",

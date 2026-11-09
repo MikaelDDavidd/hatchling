@@ -116,7 +116,7 @@ struct DiagnosticsExporter {
                 "smartSuppress": UserDefaults.standard.bool(forKey: SettingsKey.smartSuppress),
                 "sessionTimeout": UserDefaults.standard.integer(forKey: SettingsKey.sessionTimeout),
                 "maxVisibleSessions": UserDefaults.standard.integer(forKey: SettingsKey.maxVisibleSessions),
-                "mascotSpeed": UserDefaults.standard.integer(forKey: SettingsKey.mascotSpeed),
+                "animationsMode": UserDefaults.standard.string(forKey: SettingsKey.animationsMode) ?? SettingsDefaults.animationsMode,
                 "displayChoice": UserDefaults.standard.string(forKey: SettingsKey.displayChoice) ?? "auto",
             ],
         ]

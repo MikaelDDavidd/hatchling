@@ -10,11 +10,33 @@ import CodeIslandCore
 //
 // Every part is a vector layer and every movement is a Core Animation animation, so the
 // character never asks SwiftUI to redraw: the window server plays the breath, the blinks
-// and the glances on its own, and the app stays asleep while it does. The other mascots
-// redraw through a `TimelineView`, which is what kept the panel's CPU above zero.
+// and the glances on its own, and the app stays asleep while it does. The old per-agent mascots
+// redrew through a `TimelineView`, which kept the panel's CPU above zero.
 //
 // The eyes glow in the colour of the agent the session runs on, so a row of them still
 // tells Claude from Codex at a glance.
+
+enum MascotMood: Equatable {
+    case resting
+    case working
+    case needsYou
+
+    init(_ status: AgentStatus) {
+        switch status {
+        case .idle:                               self = .resting
+        case .processing, .running:               self = .working
+        case .waitingApproval, .waitingQuestion:  self = .needsYou
+        }
+    }
+
+    var glowColor: NSColor {
+        switch self {
+        case .resting:  return NSColor(white: 1, alpha: 1)
+        case .working:  return NSColor(red: 0.36, green: 0.85, blue: 0.50, alpha: 1)
+        case .needsYou: return NSColor(red: 1.0, green: 0.65, blue: 0.25, alpha: 1)
+        }
+    }
+}
 
 struct HatchlingMascotView: NSViewRepresentable {
     let source: String
@@ -79,6 +101,14 @@ final class HatchlingMascotLayerView: NSView {
     private var status: AgentStatus?
     private var eyeColor: NSColor = .clear
     private var builtSize: CGSize = .zero
+    /// When the mascot last had something to do. Long enough at rest and it dozes off.
+    private var restingSince = Date()
+    private var sleepy = false
+    /// Drives the little things a resting mascot does on its own. Fires every few seconds,
+    /// starts one Core Animation and goes back to sleep, so it costs a wake-up, not a redraw.
+    private var idleTimer: Timer?
+    private var hasAppeared = false
+    private static let dozeAfter: TimeInterval = 180
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -103,6 +133,8 @@ final class HatchlingMascotLayerView: NSView {
         let changed = status != newStatus
         status = newStatus
         guard changed else { return }
+        restingSince = Date()
+        sleepy = false
         animate()
         // After `animate`, which clears the eyes' animations and would cut the smile short.
         if previousMood == .working && mood == .resting { celebrate() }
@@ -120,10 +152,38 @@ final class HatchlingMascotLayerView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard window != nil else {
+            idleTimer?.invalidate()
+            idleTimer = nil
+            return
+        }
         if let scale = window?.backingScaleFactor {
             for sub in allLayers { sub.contentsScale = scale }
         }
         animate()
+        if !hasAppeared {
+            hasAppeared = true
+            popIn()
+        }
+        scheduleIdleBehaviour()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    /// Notices the cursor: a quick widening of the eyes and a little jump. Wakes it if it dozed.
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        if sleepy {
+            sleepy = false
+            restingSince = Date()
+            animate()
+        }
+        notice()
     }
 
     // MARK: Build
@@ -332,6 +392,9 @@ final class HatchlingMascotLayerView: NSView {
         static let sign = "hatch.sign"
         static let hop = "hatch.hop"
         static let happy = "hatch.happy"
+        static let idle = "hatch.idle"
+        static let notice = "hatch.notice"
+        static let pop = "hatch.pop"
     }
 
     private func animate() {
@@ -349,10 +412,12 @@ final class HatchlingMascotLayerView: NSView {
 
         // What the notch says.
         dots.opacity = mood == .working ? 1 : 0
+        let amber = NSColor(red: 1.0, green: 0.72, blue: 0.30, alpha: 1)
         switch status {
-        case .waitingApproval: showSign("!", color: NSColor(red: 1.0, green: 0.72, blue: 0.30, alpha: 1))
-        case .waitingQuestion: showSign("?", color: NSColor(red: 1.0, green: 0.72, blue: 0.30, alpha: 1))
-        default: sign.opacity = 0
+        case .waitingApproval: showSign("!", color: amber)
+        case .waitingQuestion: showSign("?", color: amber)
+        default:
+            if sleepy { showSign("z", color: NSColor(white: 0.75, alpha: 1)) } else { sign.opacity = 0 }
         }
         figure.shadowOpacity = 0
         face.shadowOpacity = mood == .resting ? 0.35 : 0.6
@@ -362,10 +427,35 @@ final class HatchlingMascotLayerView: NSView {
         let phase = CACurrentMediaTime() - Double.random(in: 0...3)
 
         switch mood {
+        case .resting where sleepy:
+            // Dozing: eyes half shut, slow deep breaths, a "z" drifting out of the notch.
+            figure.add(breathe(phase: phase, duration: 5.2, depth: 1.07), forKey: Key.figure)
+            for eye in eyes { eye.container.transform = CATransform3DMakeScale(1, 0.28, 1) }
+            face.shadowOpacity = 0.15
+            let drift = CAKeyframeAnimation(keyPath: "transform")
+            drift.values = [
+                CATransform3DMakeTranslation(0, 2 * s, 0), CATransform3DMakeTranslation(2 * s, -4 * s, 0),
+                CATransform3DMakeTranslation(4 * s, -9 * s, 0),
+            ].map { NSValue(caTransform3D: $0) }
+            drift.duration = 2.6
+            let fade = CAKeyframeAnimation(keyPath: "opacity")
+            fade.values = [0, 1, 0]
+            fade.keyTimes = [0, 0.3, 1]
+            fade.duration = 2.6
+            let float = CAAnimationGroup()
+            float.animations = [drift, fade]
+            float.duration = 2.6
+            sign.add(repeating(float), forKey: Key.sign)
         case .resting:
             figure.add(breathe(phase: phase), forKey: Key.figure)
             blink(every: 5.2, phase: phase)
             for eye in eyes { eye.pupilGroup.add(lookAround(s: s, phase: phase), forKey: Key.look) }
+        case .working where status == .processing:
+            // Thinking: eyes up and to the side, a slow sway, the dots in no hurry.
+            figure.add(sway(s: s), forKey: Key.figure)
+            blink(every: 4.0, phase: phase)
+            for eye in eyes { eye.pupilGroup.add(ponder(s: s, phase: phase), forKey: Key.look) }
+            face.add(pulse(from: 0.3, to: 0.7, duration: 2.0), forKey: Key.glow)
         case .working:
             figure.add(bob(s: s), forKey: Key.figure)
             blink(every: 3.1, phase: phase)
@@ -403,16 +493,38 @@ final class HatchlingMascotLayerView: NSView {
         return animation
     }
 
-    private func breathe(phase: CFTimeInterval) -> CAAnimation {
+    private func breathe(phase: CFTimeInterval, duration: CFTimeInterval = 3.4, depth: CGFloat = 1.045) -> CAAnimation {
         let a = CAKeyframeAnimation(keyPath: "transform")
         a.values = [
             CATransform3DIdentity,
-            CATransform3DMakeScale(1.02, 1.045, 1),
+            CATransform3DMakeScale(1 + (depth - 1) * 0.45, depth, 1),
             CATransform3DIdentity,
         ].map { NSValue(caTransform3D: $0) }
         a.keyTimes = [0, 0.45, 1]
         a.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
-        a.duration = 3.4
+        a.duration = duration
+        return repeating(a, phase: phase)
+    }
+
+    private func sway(s: CGFloat) -> CAAnimation {
+        let a = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        a.values = [0, 0.06, 0, -0.06, 0]
+        a.keyTimes = [0, 0.25, 0.5, 0.75, 1]
+        a.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
+        a.duration = 3.0
+        return repeating(a)
+    }
+
+    private func ponder(s: CGFloat, phase: CFTimeInterval) -> CAAnimation {
+        let a = CAKeyframeAnimation(keyPath: "transform.translation")
+        let points: [CGSize] = [
+            CGSize(width: -3.2, height: -3.0), CGSize(width: -3.2, height: -3.0),
+            CGSize(width: 2.6, height: -3.4), CGSize(width: 2.6, height: -3.4), CGSize(width: -3.2, height: -3.0),
+        ]
+        a.values = points.map { NSValue(size: NSSize(width: $0.width * s, height: $0.height * s)) }
+        a.keyTimes = [0, 0.4, 0.5, 0.9, 1]
+        a.duration = 5.0
+        a.calculationMode = .cubic
         return repeating(a, phase: phase)
     }
 
@@ -476,6 +588,102 @@ final class HatchlingMascotLayerView: NSView {
         return repeating(a, phase: phase)
     }
 
+    // MARK: Things it does on its own
+
+    private func scheduleIdleBehaviour() {
+        idleTimer?.invalidate()
+        guard window != nil, !Motion.isReduced else { return }
+        idleTimer = Timer.scheduledTimer(withTimeInterval: .random(in: 6...13), repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.idleBehaviour()
+                self.scheduleIdleBehaviour()
+            }
+        }
+        idleTimer?.tolerance = 2
+    }
+
+    private func idleBehaviour() {
+        guard mood == .resting, builtSize != .zero else { return }
+        if !sleepy, Date().timeIntervalSince(restingSince) > Self.dozeAfter {
+            sleepy = true
+            animate()
+            return
+        }
+        guard !sleepy else { return }
+        let s = builtSize.width / 100
+        switch Int.random(in: 0..<5) {
+        case 0: // a stretch: tall and thin, then back with a little wobble
+            let a = CAKeyframeAnimation(keyPath: "sublayerTransform")
+            a.values = [
+                CATransform3DIdentity, CATransform3DMakeScale(0.94, 1.12, 1), CATransform3DMakeScale(1.05, 0.95, 1),
+                CATransform3DMakeScale(0.99, 1.01, 1), CATransform3DIdentity,
+            ].map { NSValue(caTransform3D: $0) }
+            a.keyTimes = [0, 0.35, 0.6, 0.8, 1]
+            a.duration = 1.1
+            figure.add(a, forKey: Key.idle)
+        case 1: // a happy squint
+            flashHappyEyes(duration: 1.2)
+        case 2: // a double take to the side
+            let a = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            a.values = [0, 4.5 * s, 4.5 * s, 0, 4.5 * s, 0]
+            a.keyTimes = [0, 0.12, 0.4, 0.5, 0.62, 1]
+            a.duration = 1.6
+            a.isAdditive = true
+            for eye in eyes { eye.pupilGroup.add(a, forKey: Key.idle) }
+        case 3: // a wiggle
+            let a = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            a.values = [0, 0.1, -0.08, 0.05, 0]
+            a.duration = 0.7
+            a.isAdditive = true
+            figure.add(a, forKey: Key.idle)
+        default: // a little hop for no reason
+            notice()
+        }
+    }
+
+    private func notice() {
+        guard !Motion.isReduced, builtSize != .zero, let root = layer else { return }
+        let s = builtSize.width / 100
+        let hop = CAKeyframeAnimation(keyPath: "sublayerTransform.translation.y")
+        hop.values = [0, -7 * s, 0, -2 * s, 0]
+        hop.keyTimes = [0, 0.3, 0.6, 0.8, 1]
+        hop.duration = 0.45
+        root.add(hop, forKey: Key.notice)
+        let widen = CAKeyframeAnimation(keyPath: "transform.scale")
+        widen.values = [1, 1.22, 1]
+        widen.duration = 0.4
+        widen.isAdditive = false
+        for eye in eyes { eye.pupilGroup.add(widen, forKey: Key.notice) }
+    }
+
+    /// Pops out of nowhere the first time it is shown, like it just hatched.
+    private func popIn() {
+        guard !Motion.isReduced, let root = layer else { return }
+        let pop = CAKeyframeAnimation(keyPath: "sublayerTransform.scale")
+        pop.values = [0.3, 1.12, 0.94, 1]
+        pop.keyTimes = [0, 0.45, 0.75, 1]
+        pop.timingFunctions = [
+            CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut),
+            CAMediaTimingFunction(name: .easeOut),
+        ]
+        pop.duration = 0.5
+        root.add(pop, forKey: Key.pop)
+    }
+
+    private func flashHappyEyes(duration: CFTimeInterval) {
+        let smile = CAKeyframeAnimation(keyPath: "opacity")
+        smile.values = [0, 1, 1, 0]
+        smile.keyTimes = [0, 0.1, 0.85, 1]
+        smile.duration = duration
+        happy.add(smile, forKey: Key.happy)
+        let open = CAKeyframeAnimation(keyPath: "opacity")
+        open.values = [1, 0, 0, 1]
+        open.keyTimes = [0, 0.1, 0.85, 1]
+        open.duration = duration
+        for eye in eyes { eye.container.add(open, forKey: Key.happy) }
+    }
+
     /// A run just finished: a hop, and the eyes close into a smile for a moment.
     private func celebrate() {
         guard !Motion.isReduced, builtSize != .zero, let root = layer else { return }
@@ -489,16 +697,6 @@ final class HatchlingMascotLayerView: NSView {
         ]
         hop.duration = 0.62
         root.add(hop, forKey: Key.hop)
-
-        let smile = CAKeyframeAnimation(keyPath: "opacity")
-        smile.values = [0, 1, 1, 0]
-        smile.keyTimes = [0, 0.08, 0.85, 1]
-        smile.duration = 1.8
-        happy.add(smile, forKey: Key.happy)
-        let open = CAKeyframeAnimation(keyPath: "opacity")
-        open.values = [1, 0, 0, 1]
-        open.keyTimes = [0, 0.08, 0.85, 1]
-        open.duration = 1.8
-        for eye in eyes { eye.container.add(open, forKey: Key.happy) }
+        flashHappyEyes(duration: 1.8)
     }
 }

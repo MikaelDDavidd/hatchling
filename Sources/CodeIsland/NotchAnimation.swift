@@ -4,6 +4,18 @@ import AppKit
 /// Whether the panel should hold still. Hatchling has its own switch, on by default, so the
 /// notch can stay lively on a Mac that reduces motion everywhere else; set to follow the
 /// system, it honours Reduce Motion.
+/// `--pin-open` (debug builds only) keeps the panel open whatever the mouse does, so a
+/// state can be reviewed and captured while someone else is using the machine.
+enum DebugFlags {
+    static let pinOpen: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("--pin-open")
+        #else
+        return false
+        #endif
+    }()
+}
+
 enum Motion {
     static var isReduced: Bool {
         let mode = UserDefaults.standard.string(forKey: SettingsKey.animationsMode) ?? SettingsDefaults.animationsMode
