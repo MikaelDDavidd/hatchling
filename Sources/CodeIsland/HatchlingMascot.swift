@@ -42,6 +42,8 @@ enum MascotMood: Equatable {
 enum HatchReaction: String, CaseIterable {
     case wave, cheer, surprised, annoyed, wink, think, write, poke
     case clap, shrug, scratch, point
+    /// A file drops into the slot on its head and gets gulped down.
+    case swallow
     /// Hands up to catch a file being dragged over the notch, until `catchEnd`.
     case catchStart, catchEnd
 
@@ -72,10 +74,13 @@ struct HatchlingMascotView: NSViewRepresentable {
     var onPoke: ((Int) -> Void)? = nil
     /// Holds the hands in a pose (previews only).
     var pose: HatchPose? = nil
+    /// The files-tray Hatch: the notch on its head is a pocket that opens for files.
+    var pocket: Bool = false
 
     func makeNSView(context: Context) -> HatchlingMascotLayerView {
         let view = HatchlingMascotLayerView()
         view.heldPose = pose
+        view.pocketMode = pocket
         view.reactsToEveryRun = global
         view.celebratesOnAppear = celebrates
         view.onPoke = onPoke
@@ -120,6 +125,18 @@ final class HatchlingMascotLayerView: NSView {
     private let happy = CALayer()
     private let happyLeft = CAShapeLayer()
     private let happyRight = CAShapeLayer()
+    /// The notch on its head, lit up and widened while a file is dragged over: a slot.
+    private let slotGlow = CAShapeLayer()
+    /// A little document that drops into the slot when a file is let go.
+    private let fileGlyph = CALayer()
+    private let fileSheet = CAShapeLayer()
+    private let fileLines = CAShapeLayer()
+    /// The back panel of the pocket, rising behind the head like the back of an open folder.
+    private let backFlap = CAShapeLayer()
+    var pocketMode = false
+    /// How far open the pocket is: a little at rest, all the way while a file hovers.
+    private var pocketOpen: CGFloat = 0
+    private static let pocketResting: CGFloat = 0.35
     /// Closed eyes for sleeping: two lids curving down, the opposite of the smile's arches.
     private let sleepEyes = CALayer()
     private let sleepLeft = CAShapeLayer()
@@ -285,7 +302,8 @@ final class HatchlingMascotLayerView: NSView {
 
     private var allLayers: [CALayer] {
         [figure, body, bodyMask, rim, sheen, sheenMask, slot, dots, dot, sign, face, happy, happyLeft, happyRight,
-         handsRig, leftHand, rightHand, leftShineHand, rightShineHand, mouth, sleepEyes, sleepLeft, sleepRight]
+         handsRig, leftHand, rightHand, leftShineHand, rightShineHand, mouth, sleepEyes, sleepLeft, sleepRight,
+         slotGlow, fileGlyph, fileSheet, fileLines, backFlap]
             + lids + zzz + eyes.flatMap(\.all)
     }
 
@@ -337,6 +355,20 @@ final class HatchlingMascotLayerView: NSView {
             z.foregroundColor = NSColor(white: 0.85, alpha: 1).cgColor
             root.addSublayer(z)
         }
+        slotGlow.opacity = 0
+        figure.addSublayer(slotGlow)
+        fileGlyph.addSublayer(fileSheet)
+        fileGlyph.addSublayer(fileLines)
+        fileGlyph.opacity = 0
+        // Behind the body, so it disappears into the slot instead of over the face.
+        root.insertSublayer(fileGlyph, below: figure)
+        // Further back still: the file falls in front of the back panel, behind the front.
+        root.insertSublayer(backFlap, below: fileGlyph)
+        backFlap.fillColor = NSColor(red: 0.15, green: 0.16, blue: 0.19, alpha: 1).cgColor
+        backFlap.strokeColor = NSColor(red: 0.36, green: 0.38, blue: 0.43, alpha: 1).cgColor
+        backFlap.transform = CATransform3DMakeScale(1, 0, 1)
+        fileSheet.fillColor = NSColor(white: 0.93, alpha: 1).cgColor
+        fileLines.fillColor = NSColor(white: 0.65, alpha: 1).cgColor
         handsRig.addSublayer(leftHand)
         handsRig.addSublayer(rightHand)
         leftHand.addSublayer(leftShineHand)
@@ -412,24 +444,9 @@ final class HatchlingMascotLayerView: NSView {
         figure.position = CGPoint(x: size / 2, y: size * 0.9)
 
         // The block: a rounded rectangle with the notch cut into the middle of its top edge.
-        let block = CGMutablePath()
-        let (l, t, r, b, cr) = (CGFloat(5), CGFloat(20), CGFloat(95), CGFloat(88), CGFloat(20))
-        let (nl, nr, nd) = (CGFloat(35), CGFloat(65), CGFloat(8))
-        block.move(to: CGPoint(x: l + cr, y: t))
-        block.addLine(to: CGPoint(x: nl - 3, y: t))
-        block.addCurve(to: CGPoint(x: nl + 4, y: t + nd), control1: CGPoint(x: nl + 1.5, y: t), control2: CGPoint(x: nl + 1, y: t + nd))
-        block.addLine(to: CGPoint(x: nr - 4, y: t + nd))
-        block.addCurve(to: CGPoint(x: nr + 3, y: t), control1: CGPoint(x: nr - 1, y: t + nd), control2: CGPoint(x: nr - 1.5, y: t))
-        block.addLine(to: CGPoint(x: r - cr, y: t))
-        block.addCurve(to: CGPoint(x: r, y: t + cr), control1: CGPoint(x: r - cr * 0.38, y: t), control2: CGPoint(x: r, y: t + cr * 0.38))
-        block.addLine(to: CGPoint(x: r, y: b - cr))
-        block.addCurve(to: CGPoint(x: r - cr, y: b), control1: CGPoint(x: r, y: b - cr * 0.38), control2: CGPoint(x: r - cr * 0.38, y: b))
-        block.addLine(to: CGPoint(x: l + cr, y: b))
-        block.addCurve(to: CGPoint(x: l, y: b - cr), control1: CGPoint(x: l + cr * 0.38, y: b), control2: CGPoint(x: l, y: b - cr * 0.38))
-        block.addLine(to: CGPoint(x: l, y: t + cr))
-        block.addCurve(to: CGPoint(x: l + cr, y: t), control1: CGPoint(x: l, y: t + cr * 0.38), control2: CGPoint(x: l + cr * 0.38, y: t))
-        block.closeSubpath()
-        let blockPath = block.copy(using: [scale])
+        if pocketMode, pocketOpen == 0 { pocketOpen = Self.pocketResting }
+        let blockPath = Self.blockPath(scale: s, pocket: pocketOpen)
+        let (t, nl, nr, nd) = (CGFloat(20), CGFloat(35), CGFloat(65), CGFloat(8))
 
         body.frame = full
         bodyMask.frame = full
@@ -543,6 +560,47 @@ final class HatchlingMascotLayerView: NSView {
         }
         if let heldPose { hold(heldPose, s: s) }
 
+        // The slot: the notch's own outline, inset a little.
+        slotGlow.frame = rect(37, 20.5, 26, 6.5)
+        slotGlow.path = CGPath(roundedRect: slotGlow.bounds, cornerWidth: 3 * s, cornerHeight: 3 * s, transform: nil)
+
+        // The back panel: hinged along the pocket's floor line, standing up behind the head.
+        backFlap.anchorPoint = CGPoint(x: 0.5, y: 1)
+        backFlap.bounds = CGRect(x: 0, y: 0, width: 40 * s, height: 26 * s)
+        backFlap.position = CGPoint(x: 50 * s, y: 30 * s)
+        backFlap.path = CGPath(roundedRect: backFlap.bounds, cornerWidth: 5 * s, cornerHeight: 5 * s, transform: nil)
+        backFlap.lineWidth = max(1, 2.2 * s)
+        backFlap.opacity = pocketMode ? 1 : 0
+        backFlap.transform = CATransform3DMakeScale(1, pocketMode ? pocketOpen : 0, 1)
+        face.transform = CATransform3DMakeTranslation(0, pocketMode ? pocketOpen * 6 * s : 0, 0)
+        if pocketMode {
+            // The pocket says what the notch would; no slot light or dots in it.
+            slotGlow.isHidden = true
+            dots.isHidden = true
+        }
+
+        // The document: a page with a folded corner and two lines of "text".
+        let pageW = 22 * s, pageH = 27 * s, fold = 7 * s
+        fileGlyph.bounds = CGRect(x: 0, y: 0, width: pageW, height: pageH)
+        fileGlyph.position = CGPoint(x: 50 * s, y: -26 * s)
+        fileSheet.frame = fileGlyph.bounds
+        let page = CGMutablePath()
+        page.move(to: CGPoint(x: 0, y: 2.5 * s))
+        page.addQuadCurve(to: CGPoint(x: 2.5 * s, y: 0), control: .zero)
+        page.addLine(to: CGPoint(x: pageW - fold, y: 0))
+        page.addLine(to: CGPoint(x: pageW, y: fold))
+        page.addLine(to: CGPoint(x: pageW, y: pageH - 2.5 * s))
+        page.addQuadCurve(to: CGPoint(x: pageW - 2.5 * s, y: pageH), control: CGPoint(x: pageW, y: pageH))
+        page.addLine(to: CGPoint(x: 2.5 * s, y: pageH))
+        page.addQuadCurve(to: CGPoint(x: 0, y: pageH - 2.5 * s), control: CGPoint(x: 0, y: pageH))
+        page.closeSubpath()
+        fileSheet.path = page
+        fileLines.frame = fileGlyph.bounds
+        let lines = CGMutablePath()
+        lines.addRoundedRect(in: CGRect(x: 4 * s, y: 12 * s, width: pageW - 8 * s, height: 2.2 * s), cornerWidth: s, cornerHeight: s)
+        lines.addRoundedRect(in: CGRect(x: 4 * s, y: 17 * s, width: pageW - 11 * s, height: 2.2 * s), cornerWidth: s, cornerHeight: s)
+        fileLines.path = lines
+
         for (i, z) in zzz.enumerated() {
             let size = (14 + CGFloat(i) * 3) * s
             z.bounds = CGRect(x: 0, y: 0, width: size, height: size * 1.25)
@@ -556,6 +614,61 @@ final class HatchlingMascotLayerView: NSView {
         paintEyes()
     }
 
+    /// The block's outline. With `pocket` above zero the notch widens and deepens into a
+    /// cavity; every value keeps the same points, so Core Animation can morph between them.
+    private static func blockPath(scale s: CGFloat, pocket: CGFloat) -> CGPath {
+        let block = CGMutablePath()
+        let (l, t, r, b, cr) = (CGFloat(5), CGFloat(20), CGFloat(95), CGFloat(88), CGFloat(20))
+        let nl = 35 - 5 * pocket, nr = 65 + 5 * pocket, nd = 8 + 11 * pocket
+        block.move(to: CGPoint(x: l + cr, y: t))
+        block.addLine(to: CGPoint(x: nl - 3, y: t))
+        block.addCurve(to: CGPoint(x: nl + 4, y: t + nd), control1: CGPoint(x: nl + 1.5, y: t), control2: CGPoint(x: nl + 1, y: t + nd))
+        block.addLine(to: CGPoint(x: nr - 4, y: t + nd))
+        block.addCurve(to: CGPoint(x: nr + 3, y: t), control1: CGPoint(x: nr - 1, y: t + nd), control2: CGPoint(x: nr - 1.5, y: t))
+        block.addLine(to: CGPoint(x: r - cr, y: t))
+        block.addCurve(to: CGPoint(x: r, y: t + cr), control1: CGPoint(x: r - cr * 0.38, y: t), control2: CGPoint(x: r, y: t + cr * 0.38))
+        block.addLine(to: CGPoint(x: r, y: b - cr))
+        block.addCurve(to: CGPoint(x: r - cr, y: b), control1: CGPoint(x: r, y: b - cr * 0.38), control2: CGPoint(x: r - cr * 0.38, y: b))
+        block.addLine(to: CGPoint(x: l + cr, y: b))
+        block.addCurve(to: CGPoint(x: l, y: b - cr), control1: CGPoint(x: l + cr * 0.38, y: b), control2: CGPoint(x: l, y: b - cr * 0.38))
+        block.addLine(to: CGPoint(x: l, y: t + cr))
+        block.addCurve(to: CGPoint(x: l + cr, y: t), control1: CGPoint(x: l, y: t + cr * 0.38), control2: CGPoint(x: l + cr * 0.38, y: t))
+        block.closeSubpath()
+        return block.copy(using: [CGAffineTransform(scaleX: s, y: s)]) ?? block
+    }
+
+    /// Opens or closes the pocket: the outline morphs, the back panel rises or sinks, and
+    /// the face moves down out of the way.
+    private func setPocket(_ open: CGFloat, duration: CFTimeInterval = 0.35) {
+        guard pocketMode, builtSize != .zero else { return }
+        let s = builtSize.width / 100
+        let old = Self.blockPath(scale: s, pocket: pocketOpen)
+        let new = Self.blockPath(scale: s, pocket: open)
+        pocketOpen = open
+        for layer in [bodyMask, sheenMask, rim] {
+            let morph = CABasicAnimation(keyPath: "path")
+            morph.fromValue = layer.presentation()?.path ?? old
+            morph.toValue = new
+            morph.duration = duration
+            morph.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 1.3, 0.4, 1)
+            layer.path = new
+            layer.add(morph, forKey: "hatch.pocket")
+        }
+        let flap = CABasicAnimation(keyPath: "transform.scale.y")
+        flap.fromValue = backFlap.presentation()?.value(forKeyPath: "transform.scale.y") ?? 0
+        flap.toValue = open
+        flap.duration = duration
+        flap.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 1.4, 0.4, 1)
+        backFlap.transform = CATransform3DMakeScale(1, open, 1)
+        backFlap.add(flap, forKey: "hatch.pocket")
+        let sink = CABasicAnimation(keyPath: "transform.translation.y")
+        sink.fromValue = face.presentation()?.value(forKeyPath: "transform.translation.y") ?? 0
+        sink.toValue = open * 6 * s
+        sink.duration = duration
+        face.transform = CATransform3DMakeTranslation(0, open * 6 * s, 0)
+        face.add(sink, forKey: "hatch.pocket")
+    }
+
     private func paintEyes() {
         let light = eyeColor.blended(withFraction: 0.45, of: .white) ?? eyeColor
         for eye in eyes {
@@ -564,6 +677,7 @@ final class HatchlingMascotLayerView: NSView {
         happyLeft.strokeColor = eyeColor.cgColor
         happyRight.strokeColor = eyeColor.cgColor
         mouth.strokeColor = eyeColor.cgColor
+        slotGlow.fillColor = eyeColor.cgColor
         let sleepy = (eyeColor.blended(withFraction: 0.35, of: .black) ?? eyeColor).cgColor
         sleepLeft.strokeColor = sleepy
         sleepRight.strokeColor = sleepy
@@ -980,6 +1094,7 @@ final class HatchlingMascotLayerView: NSView {
         case .point: point()
         case .catchStart: setCatching(true)
         case .catchEnd: setCatching(false)
+        case .swallow: swallow()
         }
     }
 
@@ -1186,15 +1301,80 @@ final class HatchlingMascotLayerView: NSView {
         for eye in eyes { eye.pupilGroup.add(look, forKey: "hatch.point") }
     }
 
+    /// The file appears above its head, wobbles, drops into the slot, and it gulps it down,
+    /// pleased with itself.
+    private func swallow() {
+        let s = builtSize.width / 100
+        let above = CGPoint(x: 50 * s, y: -26 * s)
+        let slot = CGPoint(x: 50 * s, y: pocketMode ? 40 * s : 22 * s)
+        let t0 = CACurrentMediaTime()
+
+        let move = CAKeyframeAnimation(keyPath: "position")
+        move.values = [above, CGPoint(x: above.x, y: above.y - 4 * s), above, slot].map { NSValue(point: $0) }
+        move.keyTimes = [0, 0.3, 0.5, 1]
+        move.timingFunctions = [
+            CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeIn),
+            CAMediaTimingFunction(controlPoints: 0.55, 0, 0.9, 0.4),
+        ]
+        let turn = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        turn.values = [-0.25, 0.12, -0.08, 0]
+        turn.keyTimes = [0, 0.3, 0.5, 1]
+        let size = CAKeyframeAnimation(keyPath: "transform.scale")
+        size.values = [0.5, 1.05, 1, 0.35]
+        size.keyTimes = [0, 0.25, 0.55, 1]
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [0, 1, 1, 1, 0]
+        fade.keyTimes = [0, 0.15, 0.6, 0.9, 1]
+        let drop = CAAnimationGroup()
+        drop.animations = [move, turn, size, fade]
+        drop.duration = 0.95
+        drop.beginTime = t0
+        fileGlyph.add(drop, forKey: "hatch.swallow")
+
+        // The slot flashes as the file goes in.
+        let flash = CAKeyframeAnimation(keyPath: "opacity")
+        flash.values = [slotGlow.opacity, 1, 0]
+        flash.keyTimes = [0, 0.3, 1]
+        flash.duration = 0.5
+        flash.beginTime = t0 + 0.8
+        flash.fillMode = .backwards
+        slotGlow.add(flash, forKey: "hatch.flash")
+
+        // Gulp: squash down, stretch up, settle.
+        let gulp = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        gulp.values = [0, -0.1, 0.07, -0.02, 0]
+        gulp.duration = 0.5
+        gulp.isAdditive = true
+        gulp.beginTime = t0 + 0.85
+        addBodyMotion(gulp, forKey: "hatch.gulp")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.flashHappyEyes(duration: 1.1)
+            self?.showMouth(.smile, for: 1.1)
+        }
+        if pocketMode {
+            // Keep the pocket open until the file is in, then close it to rest.
+            setPocket(1, duration: 0.2)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) { [weak self] in
+                self?.setPocket(Self.pocketResting)
+            }
+        }
+    }
+
     /// Hands up and open while a file is dragged over the notch, as if to catch it.
     private func setCatching(_ on: Bool) {
         guard on != catching else { return }
         catching = on
         let s = builtSize.width / 100
+        setPocket(on ? 1 : Self.pocketResting)
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.3)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        let targets = on ? [CGPoint(x: -12 * s, y: 30 * s), CGPoint(x: 112 * s, y: 30 * s)] : handRest
+        // A pocket is held open at its top corners; the plain Hatch just reaches up.
+        let reach = pocketMode
+            ? [CGPoint(x: 6 * s, y: 8 * s), CGPoint(x: 94 * s, y: 8 * s)]
+            : [CGPoint(x: -12 * s, y: 30 * s), CGPoint(x: 112 * s, y: 30 * s)]
+        let targets = on ? reach : handRest
         for (hand, target) in zip([leftHand, rightHand], targets) {
             let move = CABasicAnimation(keyPath: "position")
             move.fromValue = NSValue(point: hand.presentation()?.position ?? hand.position)
@@ -1205,14 +1385,30 @@ final class HatchlingMascotLayerView: NSView {
         }
         for eye in eyes {
             eye.container.transform = on ? CATransform3DMakeScale(1.18, 1.18, 1) : CATransform3DIdentity
+            // Looking up, at the file coming.
+            eye.pupilGroup.transform = on ? CATransform3DMakeTranslation(0, -3.4 * s, 0) : CATransform3DIdentity
         }
         mouth.opacity = on ? 1 : 0
+        slotGlow.opacity = on ? 0.9 : 0
+        slotGlow.transform = on ? CATransform3DMakeScale(1.25, 1.4, 1) : CATransform3DIdentity
         CATransaction.commit()
+        if on, !Motion.isReduced {
+            // The slot breathes while it waits.
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 0.55
+            pulse.toValue = 0.95
+            pulse.duration = 0.5
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            slotGlow.add(pulse, forKey: "hatch.slot")
+        } else {
+            slotGlow.removeAnimation(forKey: "hatch.slot")
+        }
         if on {
             showMouthHeld(.open)
         } else {
+            // No smile here: if a file was dropped, the swallow smiles once it is in.
             mouth.opacity = 0
-            flashHappyEyes(duration: 1.0)
         }
     }
 

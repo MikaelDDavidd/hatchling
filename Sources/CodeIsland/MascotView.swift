@@ -26,9 +26,12 @@ struct MascotView: View {
     var celebrates: Bool = false
     /// Called with the number of recent clicks when the global Hatch is clicked.
     var onPoke: ((Int) -> Void)? = nil
+    /// The files-tray Hatch, whose notch opens into a pocket for files.
+    var pocket: Bool = false
 
     var body: some View {
-        HatchlingMascotView(source: source, status: status, size: size, global: global, celebrates: celebrates, onPoke: onPoke)
+        HatchlingMascotView(source: source, status: status, size: size, global: global, celebrates: celebrates,
+                            onPoke: onPoke, pocket: pocket)
             .frame(width: size, height: size)
     }
 }

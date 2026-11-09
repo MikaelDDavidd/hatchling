@@ -449,7 +449,7 @@ private struct CompactLeftWing: View {
     private var isPresenting: Bool {
         switch appState.surface {
         case .completionCard: return true
-        case .sessionList: return selectedPanelTab == PanelTab.agents.rawValue
+        case .sessionList: return selectedPanelTab != PanelTab.notes.rawValue
         default: return false
         }
     }
