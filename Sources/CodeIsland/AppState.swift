@@ -38,6 +38,19 @@ final class AppState {
     private var completionQueue: [String] = []
     /// When each queued run finished. A queued summary is only worth showing while it is news.
     private var completionQueuedAt: [String: Date] = [:]
+    /// What each session's last summary card showed. A session whose run ended again with
+    /// nothing new (a repeated Stop, a hook firing twice) doesn't get the same card again.
+    private var shownCompletion: [String: String] = [:]
+
+    private func completionFingerprint(_ sessionId: String) -> String? {
+        guard let s = sessions[sessionId] else { return nil }
+        return "\(s.lastUserPrompt ?? "")\u{1F}\(s.lastAssistantMessage ?? "")"
+    }
+
+    private func alreadyShown(_ sessionId: String) -> Bool {
+        guard let shown = shownCompletion[sessionId] else { return false }
+        return shown == completionFingerprint(sessionId)
+    }
     /// Mouse must enter the panel before auto-collapse is allowed (prevents instant dismiss)
     var completionHasBeenEntered = false
     /// Auto-collapse timer fired but mouse is inside panel — defer collapse until mouse leaves
@@ -411,6 +424,7 @@ final class AppState {
         modelReadRetryAt.removeValue(forKey: sessionId)
         completionQueue.removeAll { $0 == sessionId }
         completionQueuedAt[sessionId] = nil
+        shownCompletion[sessionId] = nil
         if activeSessionId == sessionId {
             activeSessionId = mostActiveSessionId()
         }
@@ -587,6 +601,8 @@ final class AppState {
     private func enqueueCompletion(_ sessionId: String) {
         // Don't queue duplicates
         if completionQueue.contains(sessionId) || justCompletedSessionId == sessionId { return }
+        // Nothing new since this session's last card: no card, and no hop either.
+        if alreadyShown(sessionId) { return }
         // Hatch hops for every finished run, whether or not a card gets shown for it.
         NotificationCenter.default.post(name: .hatchCelebrate, object: sessionId)
 
@@ -641,6 +657,7 @@ final class AppState {
     private func doShowCompletion(_ sessionId: String) {
         activeSessionId = sessionId
         surface = .completionCard(sessionId: sessionId)
+        shownCompletion[sessionId] = completionFingerprint(sessionId)
         completionHasBeenEntered = false
         deferCollapseOnMouseLeave = false
 
@@ -1324,7 +1341,7 @@ final class AppState {
     private func freshestQueuedCompletion() -> String? {
         let now = Date()
         let fresh = completionQueue.filter { sid in
-            guard sessions[sid]?.status == .idle, let at = completionQueuedAt[sid] else { return false }
+            guard sessions[sid]?.status == .idle, !alreadyShown(sid), let at = completionQueuedAt[sid] else { return false }
             return now.timeIntervalSince(at) < 20
         }
         completionQueue.removeAll()
