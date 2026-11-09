@@ -14,6 +14,24 @@ struct TrayItem: Identifiable, Codable, Equatable {
     }
 }
 
+/// Where the tray and the notes live. A debug build can point it elsewhere with
+/// `HATCHLING_DATA_DIR`, so previews never read or write the real ones.
+enum HatchlingData {
+    nonisolated static let directory: URL = {
+        #if DEBUG
+        if let custom = ProcessInfo.processInfo.environment["HATCHLING_DATA_DIR"], !custom.isEmpty {
+            let dir = URL(fileURLWithPath: custom, isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        }
+        #endif
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("Hatchling", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+}
+
 @MainActor
 final class TrayStore: ObservableObject {
     static let shared = TrayStore()
@@ -22,17 +40,13 @@ final class TrayStore: ObservableObject {
 
     private let manifestURL: URL
     nonisolated static let trayDirectory: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = base.appendingPathComponent("Hatchling/tray", isDirectory: true)
+        let dir = HatchlingData.directory.appendingPathComponent("tray", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
 
     private init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = base.appendingPathComponent("Hatchling", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        self.manifestURL = appDir.appendingPathComponent("tray.json")
+        self.manifestURL = HatchlingData.directory.appendingPathComponent("tray.json")
         load()
     }
 
