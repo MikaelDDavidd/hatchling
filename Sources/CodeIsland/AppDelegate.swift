@@ -143,10 +143,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         SoundManager.shared.playBoot()
         setupGlobalShortcut()
 
-        // Boot animation: brief expand to confirm app is running
+        // Boot animation: brief expand to confirm app is running. Hatch's hello does that
+        // job when it is on, so the panel opens straight into it instead of flashing the
+        // agents list first.
+        let hatchGreets = UserDefaults.standard.object(forKey: SettingsKey.hatchSpontaneous) as? Bool
+            ?? SettingsDefaults.hatchSpontaneous
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard appState.surface == .collapsed else { return }
+            guard !hatchGreets, appState.surface == .collapsed else { return }
             withAnimation(NotchAnimation.pop) {
                 appState.surface = .sessionList
             }

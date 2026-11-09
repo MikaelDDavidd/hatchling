@@ -41,8 +41,9 @@ final class HatchCompanion {
         self.appState = appState
         self.panel = panel
         guard !ProcessInfo.processInfo.arguments.contains("--preview") else { return }
-        // Sessions are found a moment after launch; greet once they are in.
-        greet(attempt: 0, after: 2.5)
+        // Saved sessions are restored at launch; a beat later is enough to count them, and
+        // the hello is the first thing the notch shows.
+        greet(attempt: 0, after: 0.9)
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: Self.tick, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.evaluate() }
@@ -58,7 +59,8 @@ final class HatchCompanion {
 
     private func greet(attempt: Int, after delay: TimeInterval) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, let appState = self.appState else { return }
+            // With Hatch's remarks turned off, the plain boot flash shows instead.
+            guard let self, let appState = self.appState, self.enabled else { return }
             // Something already needs the user (a permission, a question): say hello later.
             guard self.canSpeak(ignoringGap: true) else {
                 if attempt < 8 { self.greet(attempt: attempt + 1, after: 5) }
