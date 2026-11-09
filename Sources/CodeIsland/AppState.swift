@@ -36,6 +36,8 @@ final class AppState {
     private var cleanupTimer: Timer?
     private var autoCollapseTask: Task<Void, Never>?
     private var completionQueue: [String] = []
+    /// When each queued run finished. A queued summary is only worth showing while it is news.
+    private var completionQueuedAt: [String: Date] = [:]
     /// Mouse must enter the panel before auto-collapse is allowed (prevents instant dismiss)
     var completionHasBeenEntered = false
     /// Auto-collapse timer fired but mouse is inside panel — defer collapse until mouse leaves
@@ -408,6 +410,7 @@ final class AppState {
         exitingSessions.removeValue(forKey: sessionId)
         modelReadRetryAt.removeValue(forKey: sessionId)
         completionQueue.removeAll { $0 == sessionId }
+        completionQueuedAt[sessionId] = nil
         if activeSessionId == sessionId {
             activeSessionId = mostActiveSessionId()
         }
@@ -590,6 +593,7 @@ final class AppState {
         if isShowingCompletion || isShowingInteractive {
             // Already showing one — queue this for later
             completionQueue.append(sessionId)
+            completionQueuedAt[sessionId] = Date()
         } else {
             // Show immediately
             showCompletion(sessionId)
@@ -651,6 +655,7 @@ final class AppState {
     func cancelCompletionQueue() {
         autoCollapseTask?.cancel()
         completionQueue.removeAll()
+        completionQueuedAt.removeAll()
         deferCollapseOnMouseLeave = false
     }
 
@@ -1300,21 +1305,31 @@ final class AppState {
             activeSessionId = sid
             surface = .questionCard(sessionId: sid)
             return true
-        } else if !completionQueue.isEmpty {
-            while let next = completionQueue.first {
-                completionQueue.removeFirst()
-                if sessions[next] != nil {
-                    withAnimation(NotchAnimation.pop) { doShowCompletion(next) }
-                    return true
-                }
-            }
-            return false
+        } else if let next = freshestQueuedCompletion() {
+            // One follow-up at most: the latest run to finish, if it is still news. The
+            // queue used to replay every run that ended while a card was up, one after
+            // another, minutes later and even for sessions already working again.
+            withAnimation(NotchAnimation.pop) { doShowCompletion(next) }
+            return true
         } else if case .approvalCard = surface {
             surface = .collapsed
         } else if case .questionCard = surface {
             surface = .collapsed
         }
         return false
+    }
+
+    /// The most recent queued run that finished under 20 seconds ago and whose session is
+    /// still idle. Empties the queue either way: the rest are on the list already.
+    private func freshestQueuedCompletion() -> String? {
+        let now = Date()
+        let fresh = completionQueue.filter { sid in
+            guard sessions[sid]?.status == .idle, let at = completionQueuedAt[sid] else { return false }
+            return now.timeIntervalSince(at) < 20
+        }
+        completionQueue.removeAll()
+        completionQueuedAt.removeAll()
+        return fresh.last
     }
 
     /// Find the most recently active non-idle session
