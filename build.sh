@@ -10,12 +10,26 @@ ICON_SOURCE="AppIcon.icon"
 ICON_INFO_PLIST=".build/AppIcon.partial.plist"
 
 echo "Building $APP_NAME (universal)..."
-swift build -c release --arch arm64
-swift build -c release --arch x86_64
+# Each arch is built on its own and its products copied out right away. The Swift build
+# system that ships with Xcode 27 writes both archs to the same folder (`--show-bin-path`
+# gives .build/out/Products/Release for either), so the second build overwrites the first,
+# and the old per-arch folders this script used to read are no longer written at all —
+# it kept packaging an August binary while reporting success.
+STAGE=".build/universal-stage"
+rm -rf "$STAGE"
+for ARCH in arm64 x86_64; do
+    swift build -c release --arch "$ARCH"
+    BIN_PATH=$(swift build -c release --arch "$ARCH" --show-bin-path)
+    mkdir -p "$STAGE/$ARCH"
+    cp "$BIN_PATH/$BIN_TARGET" "$BIN_PATH/codeisland-bridge" "$STAGE/$ARCH/"
+    for bundle in "$BIN_PATH"/*.bundle; do
+        [ -e "$bundle" ] && cp -R "$bundle" "$STAGE/$ARCH/"
+    done
+done
 
 echo "Creating universal binaries..."
-ARM_DIR=".build/arm64-apple-macosx/release"
-X86_DIR=".build/x86_64-apple-macosx/release"
+ARM_DIR="$STAGE/arm64"
+X86_DIR="$STAGE/x86_64"
 
 echo "Creating app bundle..."
 rm -rf "$APP_BUNDLE"
@@ -45,7 +59,7 @@ xcrun actool \
     "$ICON_SOURCE"
 
 # Copy SPM resource bundles into Contents/Resources/ (required for code signing)
-for bundle in .build/*/release/*.bundle; do
+for bundle in "$ARM_DIR"/*.bundle; do
     if [ -e "$bundle" ]; then
         cp -R "$bundle" "$APP_BUNDLE/Contents/Resources/"
         break
