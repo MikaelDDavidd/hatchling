@@ -533,7 +533,7 @@ enum MascotSheet {
 
     static func showIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("--mascot-sheet") else { return }
-        let poses: [(String, HatchPose)] = [("parado", .rest), ("acenando", .wave), ("mãos pra cima", .handsUp)]
+        let poses: [(String, HatchPose)] = [("parado", .rest), ("acenando", .wave), ("mãos pra cima", .handsUp), ("dormindo", .asleep)]
         let cast: [(String, AgentStatus, String)] = [
             ("claude", .idle, "parado"), ("codex", .running, "trabalhando"), ("gemini", .processing, "pensando"),
         ]
