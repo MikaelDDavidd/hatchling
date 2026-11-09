@@ -955,6 +955,7 @@ private struct MascotsPage: View {
     @State private var previewStatus: AgentStatus = .processing
     @AppStorage(SettingsKey.animationsMode) private var animationsMode = SettingsDefaults.animationsMode
     @AppStorage(SettingsKey.hatchSpontaneous) private var hatchSpontaneous = SettingsDefaults.hatchSpontaneous
+    @AppStorage(SettingsKey.autoUpdate) private var autoUpdate = SettingsDefaults.autoUpdate
 
     private let mascotList: [(name: String, source: String, desc: String, color: Color)] = [
         ("Clawd", "claude", "Claude Code", Color(red: 0.871, green: 0.533, blue: 0.427)),
@@ -996,6 +997,15 @@ private struct MascotsPage: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(l10n["hatch_spontaneous"])
                         Text(l10n["hatch_spontaneous_hint"])
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle(isOn: $autoUpdate) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l10n["auto_update"])
+                        Text(String(format: l10n["auto_update_hint"], AppVersion.current))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
