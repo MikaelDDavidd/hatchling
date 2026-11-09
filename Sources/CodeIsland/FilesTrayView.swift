@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import CodeIslandCore
 
 struct FilesTrayView: View {
     @ObservedObject private var store = TrayStore.shared
@@ -12,6 +13,10 @@ struct FilesTrayView: View {
             if store.items.isEmpty {
                 emptyDropZone
             } else {
+                HStack(spacing: 0) {
+                    trayHatch(size: 46)
+                        .padding(.leading, 18)
+                        .padding(.trailing, 6)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         addTile
@@ -28,26 +33,26 @@ struct FilesTrayView: View {
                     .padding(.vertical, 8)
                 }
                 .frame(maxHeight: 88)
+                }
+                .padding(.top, 14)
                 .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted, perform: handleDrop)
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.green.opacity(isTargeted ? 0.5 : 0), lineWidth: 1)
-                )
+                .onChange(of: isTargeted) { _, targeted in
+                    (targeted ? HatchReaction.catchStart : HatchReaction.catchEnd).post()
+                }
             }
         }
     }
 
     private var emptyDropZone: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(.white.opacity(isTargeted ? 0.85 : 0.4))
-            Text(isTargeted ? "Solte aqui" : "Arraste arquivos para guardar")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.55))
+        VStack(spacing: 8) {
+            trayHatch(size: 56)
+            Text(isTargeted ? L10n.shared["tray_drop_now"] : L10n.shared["tray_drop_hint"])
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.white.opacity(isTargeted ? 0.85 : 0.5))
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 80)
+        .padding(.top, 26)
+        .frame(height: 132)
         .padding(.horizontal, 12)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -59,7 +64,17 @@ struct FilesTrayView: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted, perform: handleDrop)
+        .onChange(of: isTargeted) { _, targeted in
+            (targeted ? HatchReaction.catchStart : HatchReaction.catchEnd).post()
+        }
         .animation(.easeInOut(duration: 0.15), value: isTargeted)
+    }
+
+    /// Hatch keeps the tray: it opens the slot on its head while a file is dragged over and
+    /// gulps each one dropped in.
+    private func trayHatch(size: CGFloat) -> some View {
+        MascotView(source: "claude", status: .idle, size: size, global: true, pocket: true)
+            .padding(.horizontal, size * 0.22)
     }
 
     private var addTile: some View {
@@ -96,6 +111,8 @@ struct FilesTrayView: View {
                     guard let fileURL = url else { return }
                     Task { @MainActor in
                         TrayStore.shared.add(fileURL: fileURL)
+                        HatchReaction.catchEnd.post()
+                        HatchDirector.shared.fileCaught(fileURL.lastPathComponent)
                     }
                 }
                 didAdd = true

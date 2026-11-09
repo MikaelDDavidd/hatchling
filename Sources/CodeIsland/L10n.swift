@@ -37,6 +37,8 @@ final class L10n: ObservableObject {
     ]
 
     private static let en: [String: String] = [
+        "tray_drop_hint": "Drag files here and I’ll keep them",
+        "tray_drop_now": "Let go, I’ve got it",
         "tab_agents": "Agents",
         "tab_files": "Files",
         "tab_notes": "Notes",
@@ -298,6 +300,8 @@ final class L10n: ObservableObject {
     ]
 
     private static let zh: [String: String] = [
+        "tray_drop_hint": "把文件拖到这里，我来保管",
+        "tray_drop_now": "松手吧，我接住了",
         "tab_agents": "代理",
         "tab_files": "文件",
         "tab_notes": "笔记",
@@ -559,6 +563,8 @@ final class L10n: ObservableObject {
     ]
 
     private static let tr: [String: String] = [
+        "tray_drop_hint": "Dosyaları buraya sürükle, saklarım",
+        "tray_drop_now": "Bırak, yakaladım",
         "tab_agents": "Ajanlar",
         "tab_files": "Dosyalar",
         "tab_notes": "Notlar",
@@ -820,6 +826,8 @@ final class L10n: ObservableObject {
     ]
 
     private static let pt: [String: String] = [
+        "tray_drop_hint": "Arraste arquivos pra eu guardar",
+        "tray_drop_now": "Pode soltar que eu pego",
         "tab_agents": "Agentes",
         "tab_files": "Arquivos",
         "tab_notes": "Notas",

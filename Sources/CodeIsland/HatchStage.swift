@@ -83,7 +83,7 @@ final class HatchDirector: ObservableObject {
     }
 
     func fileCaught(_ name: String) {
-        say(pt ? "Guardei \(name)." : "Got \(name).", reaction: .cheer, hold: 4)
+        say(pt ? "Guardei \(name)." : "Got \(name).", reaction: .swallow, hold: 4)
     }
 
     func fileHovering() {

@@ -550,6 +550,11 @@ enum MascotSheet {
             Text("Ao vivo: acenam e comemoram a cada 3 s; as mãos seguem o corpo com atraso")
                 .font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
             HStack(spacing: 56) {
+                VStack(spacing: 12) {
+                    HatchlingMascotView(source: "claude", status: .idle, size: 120, global: true, pocket: true)
+                        .frame(width: 120, height: 120)
+                    Text("bandeja de arquivos").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                }
                 ForEach(cast, id: \.0) { source, status, label in
                     VStack(spacing: 12) {
                         HatchlingMascotView(source: source, status: status, size: 120, global: true)
@@ -563,10 +568,21 @@ enum MascotSheet {
         .padding(48)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.black)
-        var flip = false
-        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
-            flip.toggle()
-            (flip ? HatchReaction.wave : HatchReaction.cheer).post()
+        // `--sheet-drop` rehearses a file drop on a loop: slot opens, the file falls in.
+        if ProcessInfo.processInfo.arguments.contains("--sheet-drop") {
+            Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { _ in
+                HatchReaction.catchStart.post()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                    HatchReaction.catchEnd.post()
+                    HatchReaction.swallow.post()
+                }
+            }
+        } else {
+            var flip = false
+            Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+                flip.toggle()
+                (flip ? HatchReaction.wave : HatchReaction.cheer).post()
+            }
         }
         let host = NSHostingView(rootView: grid)
         let w = NSWindow(contentRect: NSRect(x: 80, y: 120, width: 760, height: 620),
