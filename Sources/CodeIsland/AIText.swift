@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os.log
 
 // MARK: - Who writes the AI lines
 //
@@ -13,6 +14,8 @@ enum AIProvider: String, CaseIterable {
 }
 
 enum AIText {
+    /// What each call did (provider, outcome, time), never the key or the text.
+    static let log = Logger(subsystem: "dev.mikaeldavid.hatchling", category: "AI")
     /// The model used on NVIDIA's API. On 2026-11-09 only 3 of the 53 chat models listed
     /// for the free key actually answered (the rest gave 404 or timed out); this one did in
     /// under a second, in the two-line format, in good Portuguese. The second is the
@@ -54,7 +57,10 @@ enum AIText {
     /// `temperature` applies to NVIDIA models; Claude keeps its default.
     static func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval,
                          temperature: Double = 0.3) async -> String? {
-        guard let route else { return nil }
+        guard let route else {
+            log.notice("no key for the chosen provider; local rules instead")
+            return nil
+        }
         switch route {
         case .anthropic(let key):
             return await anthropic(key: key, system: system, user: user, maxTokens: maxTokens, timeout: timeout)
@@ -147,10 +153,22 @@ enum AIText {
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         guard let payload = try? JSONEncoder().encode(body) else { return nil }
         request.httpBody = payload
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200,
+        let started = Date()
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            log.notice("nvidia \(model, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200,
               let decoded = try? JSONDecoder().decode(NvidiaResponse.self, from: data),
-              var text = decoded.choices.first?.message.content else { return nil }
+              var text = decoded.choices.first?.message.content else {
+            log.notice("nvidia \(model, privacy: .public): HTTP \(status) unusable answer")
+            return nil
+        }
+        log.notice("nvidia \(model, privacy: .public): ok in \(Int(Date().timeIntervalSince(started) * 1000))ms")
         // Some models think out loud first; keep only what comes after.
         if let end = text.range(of: "</think>") { text = String(text[end.upperBound...]) }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -185,7 +203,11 @@ struct KeychainSecret {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            AIText.log.notice("keychain \(account, privacy: .public): OSStatus \(status)")
+        }
+        guard status == errSecSuccess,
               let data = item as? Data, let key = String(data: data, encoding: .utf8), !key.isEmpty else { return nil }
         return key
     }
