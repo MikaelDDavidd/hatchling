@@ -16,12 +16,56 @@ enum UpdateState: Equatable {
 final class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
     private static let log = Logger(subsystem: "com.codeisland", category: "UpdateChecker")
-    private let repo = "wxtsky/CodeIsland"
+    // Hatchling's own releases. It pointed at the upstream CodeIsland, whose versions
+    // (1.x) are always "newer" than ours, so every copy offered to replace itself with
+    // a different app.
+    private let repo = "MikaelDDavidd/hatchling"
 
     @Published var state: UpdateState = .idle
 
     private var currentVersion: String { AppVersion.current }
     private var isChecking = false
+
+    private weak var appState: AppState?
+    private var schedule: Timer?
+    private var idleWait: Timer?
+
+    /// Checks now and every six hours. With auto-update on (the default), a newer release
+    /// is downloaded and installed by itself the next time nothing is going on: no
+    /// session working, nothing waiting for the user, the notch closed. The app restarts
+    /// into the new version and Hatch says so.
+    func startAutomaticUpdates(appState: AppState) {
+        self.appState = appState
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in self?.checkForUpdates() }
+        schedule?.invalidate()
+        schedule = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForUpdates() }
+        }
+        schedule?.tolerance = 600
+    }
+
+    private var autoUpdateEnabled: Bool {
+        UserDefaults.standard.object(forKey: SettingsKey.autoUpdate) as? Bool ?? SettingsDefaults.autoUpdate
+    }
+
+    private func installWhenIdle() {
+        guard autoUpdateEnabled, !isHomebrewInstall, idleWait == nil else { return }
+        guard case .available(_, let dmg, _) = state, dmg != nil else { return }
+        idleWait = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let appState = self.appState else { return }
+                let busy = appState.sessions.values.contains {
+                    $0.status == .processing || $0.status == .running
+                        || $0.status == .waitingApproval || $0.status == .waitingQuestion
+                }
+                guard !busy, !appState.hasPendingInteraction, appState.surface == .collapsed else { return }
+                self.idleWait?.invalidate()
+                self.idleWait = nil
+                self.performUpdate()
+            }
+        }
+        idleWait?.fire()
+    }
 
     var isHomebrewInstall: Bool {
         let path = Bundle.main.bundlePath
@@ -72,6 +116,7 @@ final class UpdateChecker: ObservableObject {
 
                 if isNewer(remote: remote, local: currentVersion) {
                     state = .available(version: remote, dmgURL: dmgURL, releaseURL: htmlURL)
+                    installWhenIdle()
                 } else {
                     state = .upToDate
                 }
@@ -94,8 +139,8 @@ final class UpdateChecker: ObservableObject {
         state = .downloading(progress: 0)
 
         let currentAppPath = Bundle.main.bundlePath
-        let dmgPath = NSTemporaryDirectory() + "CodeIsland-update.dmg"
-        let mountPoint = "/tmp/codeisland-update-mount"
+        let dmgPath = NSTemporaryDirectory() + "Hatchling-update.dmg"
+        let mountPoint = NSTemporaryDirectory() + "hatchling-update-mount"
 
         Task {
             do {
@@ -129,8 +174,17 @@ final class UpdateChecker: ObservableObject {
                         throw UpdateError.appNotFoundInDMG
                     }
 
-                    // Replace current app
+                    // Only an app signed by the same developer team replaces this one, so a
+                    // tampered or foreign download can never take its place.
                     let sourceAppPath = mountPoint + "/" + appName
+                    guard Self.signatureIsValid(sourceAppPath),
+                          let newTeam = Self.teamIdentifier(sourceAppPath),
+                          newTeam == Self.teamIdentifier(currentAppPath) else {
+                        _ = try? Self.runShellProcess("/usr/bin/hdiutil", args: ["detach", mountPoint, "-quiet"])
+                        try? fm.removeItem(atPath: dmgPath)
+                        throw UpdateError.untrustedSignature
+                    }
+                    // Replace current app
                     if fm.fileExists(atPath: currentAppPath) {
                         try fm.removeItem(atPath: currentAppPath)
                     }
@@ -141,7 +195,8 @@ final class UpdateChecker: ObservableObject {
                     try? fm.removeItem(atPath: dmgPath)
                 }.value
 
-                // 3. Relaunch (back on MainActor)
+                // 3. Relaunch (back on MainActor). Hatch mentions the update on the way up.
+                UserDefaults.standard.set(currentVersion, forKey: SettingsKey.updatedFrom)
                 Self.log.info("Relaunching app")
                 NSWorkspace.shared.open(URL(fileURLWithPath: currentAppPath))
                 try await Task.sleep(nanoseconds: 500_000_000)
@@ -187,11 +242,35 @@ final class UpdateChecker: ObservableObject {
         return String(data: outputData, encoding: .utf8) ?? ""
     }
 
+    private nonisolated static func signatureIsValid(_ path: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["--verify", "--deep", "--strict", path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+
+    /// "TeamIdentifier=ABCDE12345" from codesign; nil for ad-hoc or unsigned builds.
+    private nonisolated static func teamIdentifier(_ path: String) -> String? {
+        guard let out = try? runShellProcess("/usr/bin/codesign", args: ["-dv", "--verbose=2", path]) else { return nil }
+        for line in out.split(separator: "\n") where line.hasPrefix("TeamIdentifier=") {
+            let team = String(line.dropFirst("TeamIdentifier=".count))
+            return team == "not set" ? nil : team
+        }
+        return nil
+    }
+
     private enum UpdateError: LocalizedError {
         case appNotFoundInDMG
-
+        case untrustedSignature
         var errorDescription: String? {
-            "App not found in DMG"
+            switch self {
+            case .appNotFoundInDMG: return "App not found in DMG"
+            case .untrustedSignature: return "The update is not signed by the same developer"
+            }
         }
     }
 }

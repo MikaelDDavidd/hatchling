@@ -73,6 +73,9 @@ enum SettingsKey {
     // Animations
     static let animationsMode = "animationsMode"           // "on" | "system"
     static let hatchSpontaneous = "hatchSpontaneous"
+    static let autoUpdate = "autoUpdate"
+    /// The version the app was on before an automatic update restarted it.
+    static let updatedFrom = "updatedFrom"
     static let aiMomentSummary = "aiMomentSummary"         // summarise each card with Claude Haiku
     static let cardClickAction = "cardClickAction"         // "app" | "chat"
 
@@ -153,6 +156,7 @@ struct SettingsDefaults {
 
     static let animationsMode = "on"  // "on" = always animate, "system" = follow Reduce Motion
     static let hatchSpontaneous = true
+    static let autoUpdate = true
     static let aiMomentSummary = true  // only takes effect once an API key is saved
     static let cardClickAction = "app"  // a click opens the session's app or terminal; ⌘-click the chat
     static let autoAcceptPermissions = false  // OFF — opt-in YOLO mode
@@ -210,6 +214,7 @@ class SettingsManager {
             SettingsKey.maxToolHistory: SettingsDefaults.maxToolHistory,
             SettingsKey.animationsMode: SettingsDefaults.animationsMode,
             SettingsKey.hatchSpontaneous: SettingsDefaults.hatchSpontaneous,
+            SettingsKey.autoUpdate: SettingsDefaults.autoUpdate,
             SettingsKey.aiMomentSummary: SettingsDefaults.aiMomentSummary,
             SettingsKey.cardClickAction: SettingsDefaults.cardClickAction,
             SettingsKey.autoAcceptPermissions: SettingsDefaults.autoAcceptPermissions,

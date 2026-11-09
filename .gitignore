@@ -6,3 +6,6 @@ dev.sh
 .DS_Store
 .swiftpm/
 .claude/
+
+# Packaged builds to hand out
+dist/

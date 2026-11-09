@@ -19,7 +19,7 @@ struct NotesView: View {
     }
 
     private var carousel: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        SideScroller {
             HStack(spacing: 8) {
                 addCard
                 ForEach(store.notes) { note in
@@ -35,7 +35,6 @@ struct NotesView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         }
-        .frame(maxHeight: 110)
     }
 
     private var addCard: some View {

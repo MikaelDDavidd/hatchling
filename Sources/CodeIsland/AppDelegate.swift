@@ -102,6 +102,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     appState.surface = .sessionChat(sessionId: id)
                     return
                 }
+                // `--wheel-test x y` feeds mouse-wheel notches through AppKit at a point of the
+                // panel (top-left screen coordinates), to check the sideways rows scroll.
+                if let i = args.firstIndex(of: "--wheel-test"), i + 2 < args.count,
+                   let x = Double(args[i + 1]), let y = Double(args[i + 2]) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        for n in 0..<10 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + Double(n) * 0.05) {
+                                guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
+                                                       wheel1: -3, wheel2: 0, wheel3: 0) else { return }
+                                cg.location = CGPoint(x: x, y: y)
+                                let wins = NSApp.windows.filter { $0.isVisible }
+                                if let w = wins.first(where: { $0.level.rawValue > 0 }) {
+                                    cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(w.windowNumber))
+                                    cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(w.windowNumber))
+                                    if let ev = NSEvent(cgEvent: cg) { NSApp.postEvent(ev, atStart: false) }
+                                }
+                            }
+                        }
+                    }
+                }
                 // `--hello` plays the launch greeting instead of opening the list.
                 if args.contains("--hello") {
                     HatchCompanion.shared.greetForPreview()
@@ -117,11 +137,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
 
-        // Check for updates silently after a short delay
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            UpdateChecker.shared.checkForUpdates()
-        }
+        // Look for new releases now and every few hours; install them when nothing is going on.
+        UpdateChecker.shared.startAutomaticUpdates(appState: appState)
 
         SoundManager.shared.playBoot()
         setupGlobalShortcut()

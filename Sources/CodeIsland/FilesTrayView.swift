@@ -6,6 +6,9 @@ import CodeIslandCore
 struct FilesTrayView: View {
     @ObservedObject private var store = TrayStore.shared
     @State private var isTargeted = false
+    /// The row is an AppKit scroll view, which hides it from the drop target around it,
+    /// so it takes drops itself.
+    @State private var rowTargeted = false
     @State private var hoveredId: UUID?
 
     @ObservedObject private var stage = TrayStage.shared
@@ -52,7 +55,7 @@ struct FilesTrayView: View {
                 .foregroundStyle(.white.opacity(0.5))
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            ScrollView(.horizontal, showsIndicators: false) {
+            SideScroller {
                 HStack(spacing: 8) {
                     addTile
                     ForEach(store.items) { item in
@@ -71,8 +74,11 @@ struct FilesTrayView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .onDrop(of: [UTType.fileURL], isTargeted: $rowTargeted, perform: handleDrop)
+                .onChange(of: rowTargeted) { _, targeted in
+                    if targeted { stage.dragEntered("row") } else { stage.dragExited("row") }
+                }
             }
-            .frame(maxHeight: 88)
         }
     }
 

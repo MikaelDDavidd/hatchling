@@ -64,8 +64,18 @@ final class HatchCompanion {
                 if attempt < 8 { self.greet(attempt: attempt + 1, after: 5) }
                 return
             }
-            let (title, text) = self.greeting(for: appState)
-            self.present(title: title, text: text, reaction: .wave, duration: 6.5, key: nil)
+            var (title, text) = self.greeting(for: appState)
+            var reaction = HatchReaction.wave
+            if let from = UserDefaults.standard.string(forKey: SettingsKey.updatedFrom) {
+                UserDefaults.standard.removeObject(forKey: SettingsKey.updatedFrom)
+                let now = AppVersion.current
+                if from != now {
+                    title = self.pt ? "Atualizei pra versão \(now)!" : "Updated to version \(now)!"
+                    text = (self.pt ? "Estava na \(from). " : "I was on \(from). ") + text
+                    reaction = .cheer
+                }
+            }
+            self.present(title: title, text: text, reaction: reaction, duration: 6.5, key: nil)
             HatchDirector.shared.say(title, reaction: nil, hold: 8)
         }
     }
