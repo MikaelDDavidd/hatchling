@@ -11,6 +11,10 @@ struct SessionChatView: View {
     let session: SessionSnapshot
     var appState: AppState
 
+    /// What is left of the panel window once the notch strip, the status and usage bars, the
+    /// chat header and a four-line composer have taken their share.
+    static let transcriptMaxHeight: CGFloat = 380
+
     @State private var store = SessionChatStore.shared
     @State private var draft = ""
     @State private var sendError: String?
@@ -122,8 +126,16 @@ struct SessionChatView: View {
                     guard count > 0 else { return }
                     proxy.scrollTo(count - 1, anchor: .bottom)
                 }
+                .onAppear {
+                    let count = store.messages.count
+                    guard count > 0 else { return }
+                    proxy.scrollTo(count - 1, anchor: .bottom)
+                }
             }
-            .frame(maxHeight: .infinity)
+            // The panel sizes to its content, so an unbounded ScrollView reports the whole
+            // conversation as its height: the chat outgrew the window and had nothing left to
+            // scroll, with both ends cut off. A ceiling makes it scroll inside what fits.
+            .frame(maxHeight: Self.transcriptMaxHeight)
         }
     }
 
