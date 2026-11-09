@@ -192,6 +192,11 @@ struct NotchPanelView: View {
             .onDrop(of: [UTType.fileURL], isTargeted: $isFileDragTargeted, perform: handleNotchFileDrop)
             .onChange(of: isFileDragTargeted) { _, targeted in
                 if targeted {
+                    HatchDirector.shared.fileHovering()
+                } else {
+                    HatchReaction.catchEnd.post()
+                }
+                if targeted {
                     selectedPanelTab = PanelTab.files.rawValue
                     if !appState.surface.isExpanded {
                         withAnimation(NotchAnimation.open) {
@@ -411,6 +416,8 @@ struct NotchPanelView: View {
                 guard let fileURL = url else { return }
                 Task { @MainActor in
                     TrayStore.shared.add(fileURL: fileURL)
+                    HatchReaction.catchEnd.post()
+                    HatchDirector.shared.fileCaught(fileURL.lastPathComponent)
                 }
             }
             didAccept = true
@@ -436,9 +443,15 @@ private struct CompactLeftWing: View {
         return appState.sessions[sid]
     }
     private var displaySource: String { displaySession?.source ?? appState.primarySource }
+    @AppStorage(SettingsKey.selectedPanelTab) private var selectedPanelTab = SettingsDefaults.selectedPanelTab
+    /// Whether a big Hatch is on screen further down — the summary of a finished run, or
+    /// the stage at the head of the agents list — so the header one steps aside.
     private var isPresenting: Bool {
-        if case .completionCard = appState.surface { return true }
-        return false
+        switch appState.surface {
+        case .completionCard: return true
+        case .sessionList: return selectedPanelTab == PanelTab.agents.rawValue
+        default: return false
+        }
     }
     private var displayStatus: AgentStatus { displaySession?.status ?? .idle }
     private var liveTool: String? { displaySession?.currentTool }
