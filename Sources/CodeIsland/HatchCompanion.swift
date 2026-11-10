@@ -28,9 +28,15 @@ final class HatchCompanion {
     private var lastBusy: Date?
     /// The most recent activity seen on the previous tick, to notice a return after a pause.
     private var previousActivity: Date?
+    /// Sessions seen on earlier ticks (nil until the first tick), to notice a new one.
+    private var knownSessions: Set<String>?
+    /// Since when each session has been working without a break.
+    private var workingSince: [String: Date] = [:]
 
     private static let tick: TimeInterval = 60
-    private static let minimumGap: TimeInterval = 10 * 60
+    /// At most one remark this often. It was ten minutes, and with remarks this rare the
+    /// first one rarely came before the app was restarted.
+    private static let minimumGap: TimeInterval = 6 * 60
 
     private var pt: Bool { L10n.shared.effectiveLanguage == "pt" }
     private var enabled: Bool {
@@ -154,9 +160,20 @@ final class HatchCompanion {
         }()
         previousActivity = latest
 
+        // New sessions since the last tick, and how long each has been working.
+        let ids = Set(appState.sessions.keys)
+        let started = knownSessions.map { ids.subtracting($0) } ?? []
+        knownSessions = ids
+        for (id, s) in appState.sessions {
+            let busy = s.status == .processing || s.status == .running
+            if busy { workingSince[id] = workingSince[id] ?? now } else { workingSince[id] = nil }
+        }
+
         guard enabled, canSpeak(ignoringGap: false) else { return }
-        guard let remark = pickRemark(sessions: sessions, working: working, latest: latest, returning: returning, now: now)
+        guard let remark = pickRemark(sessions: sessions, working: working, latest: latest, returning: returning, now: now,
+                                      started: started.compactMap { appState.sessions[$0] })
         else { return }
+        AIText.log.notice("hatch says: \(remark.key, privacy: .public)")
         present(title: remark.title, text: remark.text, reaction: remark.reaction, duration: 6, key: remark.key)
     }
 
@@ -170,13 +187,14 @@ final class HatchCompanion {
 
     /// The most useful thing to say right now, or nothing. Earlier entries matter more.
     private func pickRemark(sessions: [SessionSnapshot], working: [(id: String, session: SessionSnapshot)], latest: Date?,
-                            returning: TimeInterval?, now: Date) -> Remark? {
+                            returning: TimeInterval?, now: Date, started: [SessionSnapshot]) -> Remark? {
         let cal = Calendar.current
         let hour = cal.component(.hour, from: now)
         let minute = cal.component(.minute, from: now)
         let weekday = cal.component(.weekday, from: now)
         let day = Self.dayKey(now)
         let recentlyActive = latest.map { now.timeIntervalSince($0) < 10 * 60 } ?? false
+        let activeThisHalfHour = latest.map { now.timeIntervalSince($0) < 30 * 60 } ?? false
         var candidates: [Remark] = []
 
         // The 5-hour Claude window is nearly used up.
@@ -249,7 +267,47 @@ final class HatchCompanion {
                 key: "many", cooldown: 60 * 60,
                 title: pt ? "\(working.count) agentes trabalhando ao mesmo tempo" : "\(working.count) agents working at once",
                 text: pt ? "Tô de olho em todos. Te chamo se algum travar." : "I'm watching all of them. I'll call you if one gets stuck.",
+                reaction: .dance))
+        }
+
+        // The weekly Claude limit getting close.
+        if let lim = ClaudeRateLimitReader.shared.limits, lim.isFresh, let week = lim.sevenDayPercent, week >= 80 {
+            let resets = lim.sevenDayResetAt.map { Self.duration($0.timeIntervalSince(now)) }
+            candidates.append(Remark(
+                key: "week-\(week >= 95 ? "hi" : "lo")", cooldown: 12 * 3600,
+                title: pt ? "\(week)% do limite semanal do Claude" : "\(week)% of Claude's weekly limit",
+                text: resets.map { pt ? "Renova em \($0). Vai com calma nas sessões pesadas." : "Resets in \($0). Go easy on the heavy sessions." }
+                    ?? (pt ? "Vai com calma nas sessões pesadas." : "Go easy on the heavy sessions."),
+                reaction: .surprised))
+        }
+
+        // A session that just started.
+        if let s = started.first {
+            candidates.append(Remark(
+                key: "start", cooldown: 30 * 60,
+                title: pt ? "Sessão nova em \(s.projectDisplayName)" : "New session in \(s.projectDisplayName)",
+                text: pt ? "Bora! Eu fico de olho nela." : "Here we go. I'll keep an eye on it.",
                 reaction: .clap))
+        }
+
+        // A session that has been working for a long time without stopping.
+        for (id, s) in working {
+            guard let since = workingSince[id], now.timeIntervalSince(since) >= 30 * 60 else { continue }
+            candidates.append(Remark(
+                key: "long-\(id)", cooldown: 60 * 60,
+                title: pt ? "\(s.projectDisplayName) tá trabalhando há \(Self.duration(now.timeIntervalSince(since)))"
+                          : "\(s.projectDisplayName) has been working for \(Self.duration(now.timeIntervalSince(since)))",
+                text: pt ? "Sem parar. Te aviso quando terminar." : "No break yet. I'll tell you when it's done.",
+                reaction: .typing))
+        }
+
+        // A session someone stopped halfway.
+        for s in sessions where s.status == .idle && s.interrupted && now.timeIntervalSince(s.lastActivity) < 5 * 60 {
+            candidates.append(Remark(
+                key: "stop-\(s.projectDisplayName)", cooldown: 60 * 60,
+                title: pt ? "\(s.projectDisplayName) foi interrompida" : "\(s.projectDisplayName) was interrupted",
+                text: pt ? "Ficou no meio do caminho. Quer retomar?" : "It stopped halfway. Pick it back up?",
+                reaction: .shrug))
         }
 
         // Friday afternoon.
@@ -266,7 +324,7 @@ final class HatchCompanion {
         }
 
         // Nothing in particular: once in a while, a line in the companion's own voice.
-        if recentlyActive, now.timeIntervalSince(lastSpoke) > 30 * 60, Double.random(in: 0...1) < 0.3 {
+        if activeThisHalfHour, now.timeIntervalSince(lastSpoke) > 14 * 60, Double.random(in: 0...1) < 0.4 {
             muse(sessions: sessions, now: now)
         }
         return nil
@@ -283,7 +341,8 @@ final class HatchCompanion {
             let written = await BuddyVoice.line(buddy: BuddyReader.shared.buddy, mood: .philosopher, situation: situation)
             guard let self, self.canSpeak(ignoringGap: false) else { return }
             let line = written ?? self.fallbackMusing(hour: hour)
-            self.present(title: line, text: "", reaction: [.think, .shrug, .wink].randomElement()!, duration: 5.5, key: "muse")
+            self.present(title: line, text: "", reaction: [.think, .shrug, .wink, .nod, .dance, .hiccup, .stretch].randomElement()!,
+                         duration: 5.5, key: "muse")
         }
     }
 

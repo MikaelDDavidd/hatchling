@@ -24,6 +24,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
+        // `--mascot-moves`: one big Hatch and a button per move, for trying each on its own.
+        if ProcessInfo.processInfo.arguments.contains("--mascot-moves") {
+            NSApp.setActivationPolicy(.regular)
+            MascotMoves.show()
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
         #endif
         ProcessInfo.processInfo.disableAutomaticTermination("CodeIsland must stay running")
         ProcessInfo.processInfo.disableSuddenTermination()
