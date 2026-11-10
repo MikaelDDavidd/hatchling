@@ -150,11 +150,12 @@ enum BuddyLines {
 
 /// Writes what the buddy says with Claude Haiku, in character: the name and personality
 /// Claude Code gave the companion (in `~/.claude.json`), plus a line on what the sessions
-/// are doing. Only those two things leave the Mac — never a CLAUDE.md or a transcript.
+/// are doing, and a line on who the developer is from Hatch's profile (club, series,
+/// technologies). Never a CLAUDE.md or a transcript.
 /// Returns nil without an API key or on any failure, and the caller falls back to the
 /// built-in lines.
 enum BuddyVoice {
-    static func line(buddy: BuddyInfo?, mood: BuddyMood, situation: String) async -> String? {
+    static func line(buddy: BuddyInfo?, mood: BuddyMood, situation: String, about: String? = nil) async -> String? {
         guard AIText.isAvailable else { return nil }
         let language = L10n.shared.effectiveLanguage == "pt" ? "Brazilian Portuguese" : "English"
         let name = buddy?.name ?? "Hatch"
@@ -174,6 +175,7 @@ enum BuddyVoice {
         Say one short, spontaneous line in character, in \(language): a complete sentence of 30 to 80 characters, \
         talking to the developer, about something in the situation below (a project by name, the time of day, \
         what a session is doing). No quotes, no emoji, no hashtags, never explain yourself.
+        \(about.map { "What you know about the developer (bring one of these up only now and then, naturally): \($0)\n" } ?? "")\
         Examples of the tone (do not copy them): Esse Dashboard tá ficando bonito, hein? | \
         Segunda à tarde e o relay ainda dormindo. | Cinco da tarde, hora do café?
         """

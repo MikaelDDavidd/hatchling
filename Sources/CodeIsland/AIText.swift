@@ -54,9 +54,11 @@ enum AIText {
 
     /// One short completion, or nil without a key or on any failure (callers fall back to
     /// their local rules).
-    /// `temperature` applies to NVIDIA models; Claude keeps its default.
+    /// `temperature` applies to NVIDIA models; Claude keeps its default. `careful` asks the
+    /// larger free NVIDIA model first (slower, but it misses less when picking facts out of
+    /// text) when the default one is chosen.
     static func complete(system: String, user: String, maxTokens: Int, timeout: TimeInterval,
-                         temperature: Double = 0.3) async -> String? {
+                         temperature: Double = 0.3, careful: Bool = false) async -> String? {
         guard let route else {
             log.notice("no key for the chosen provider; local rules instead")
             return nil
@@ -65,7 +67,8 @@ enum AIText {
         case .anthropic(let key):
             return await anthropic(key: key, system: system, user: user, maxTokens: maxTokens, timeout: timeout)
         case .nvidia(let key, let model):
-            for candidate in [model, fallbackNvidiaModel] where candidate == model || model == defaultNvidiaModel {
+            let order = careful && model == defaultNvidiaModel ? [fallbackNvidiaModel, model] : [model, fallbackNvidiaModel]
+            for candidate in order where candidate == model || model == defaultNvidiaModel {
                 if let text = await nvidia(key: key, model: candidate, system: system, user: user,
                                            maxTokens: maxTokens, timeout: timeout, temperature: temperature) {
                     return text
@@ -202,6 +205,11 @@ struct KeychainSecret {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+        #if DEBUG
+        // Preview builds aren't on the item's access list; reading it would put up a
+        // Keychain prompt on the screen. They can opt out of keys entirely.
+        if ProcessInfo.processInfo.environment["HATCHLING_NO_KEYCHAIN"] != nil { return nil }
+        #endif
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status != errSecSuccess && status != errSecItemNotFound {

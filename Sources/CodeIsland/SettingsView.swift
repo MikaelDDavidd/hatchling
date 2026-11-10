@@ -10,6 +10,7 @@ enum SettingsPage: String, Identifiable, Hashable {
     case appearance
     case mascots
     case buddy
+    case profile
     case sound
     case shortcuts
     case remote
@@ -26,6 +27,7 @@ enum SettingsPage: String, Identifiable, Hashable {
         case .appearance: return "paintbrush.fill"
         case .mascots: return "person.2.fill"
         case .buddy: return "pawprint.fill"
+        case .profile: return "person.crop.circle.fill"
         case .sound: return "speaker.wave.2.fill"
         case .shortcuts: return "command.circle.fill"
         case .remote: return "network"
@@ -42,6 +44,7 @@ enum SettingsPage: String, Identifiable, Hashable {
         case .appearance: return .blue
         case .mascots: return .pink
         case .buddy: return .yellow
+        case .profile: return .brown
         case .sound: return .green
         case .shortcuts: return .indigo
         case .remote: return .mint
@@ -58,7 +61,7 @@ private struct SidebarGroup: Hashable {
 }
 
 private let sidebarGroups: [SidebarGroup] = [
-    SidebarGroup(title: nil, pages: [.general, .behavior, .appearance, .mascots, .buddy, .sound, .shortcuts]),
+    SidebarGroup(title: nil, pages: [.general, .behavior, .appearance, .mascots, .buddy, .profile, .sound, .shortcuts]),
     SidebarGroup(title: "Hatchling", pages: [.remote, .phone, .hooks, .about]),
 ]
 
@@ -66,7 +69,18 @@ private let sidebarGroups: [SidebarGroup] = [
 
 struct SettingsView: View {
     @ObservedObject private var l10n = L10n.shared
-    @State private var selectedPage: SettingsPage = .general
+    @State private var selectedPage: SettingsPage = Self.initialPage
+
+    /// A debug build can open on a page with `--settings-page <name>`.
+    private static var initialPage: SettingsPage {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "--settings-page"), i + 1 < args.count, let page = SettingsPage(rawValue: args[i + 1]) {
+            return page
+        }
+        #endif
+        return .general
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -94,6 +108,7 @@ struct SettingsView: View {
                 case .appearance: AppearancePage()
                 case .mascots: MascotsPage()
                 case .buddy: BuddyPage()
+                case .profile: ProfilePage()
                 case .sound: SoundPage()
                 case .shortcuts: ShortcutsPage()
                 case .remote: RemoteHostsPage()
@@ -965,6 +980,187 @@ private struct AppearancePreview: View {
     }
 }
 
+// MARK: - About You Page
+
+private struct ProfilePage: View {
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var profile = HatchProfile.shared
+    @AppStorage(SettingsKey.hatchLearns) private var learns = SettingsDefaults.hatchLearns
+    @State private var newSlot: ProfileSlot = .club
+    @State private var newValue = ""
+    @State private var confirmForget = false
+
+    private var pt: Bool { l10n.effectiveLanguage == "pt" }
+
+    private var groups: [(key: String, slots: [ProfileSlot])] {[
+        ("profile_group_you", [.name, .city, .country, .birthday, .fact]),
+        ("profile_group_work", [.profession, .area, .technology]),
+        ("profile_group_sports", [.club, .nationalTeam, .sport]),
+        ("profile_group_likes", [.series, .film, .book, .game, .music, .hobby, .food]),
+    ]}
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle(isOn: $learns) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l10n["hatch_learns"])
+                        Text(l10n["hatch_learns_hint"])
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if learns && !AIText.isAvailable {
+                    Text(l10n["profile_no_ai"])
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ForEach(groups, id: \.key) { group in
+                Section(l10n[group.key]) {
+                    ForEach(group.slots) { slot in
+                        LabeledContent(slot.label(pt: pt)) {
+                            let facts = profile.facts.filter { $0.slot == slot }
+                                .sorted { ($0.source == .told ? 1 : 0, $0.seen) > ($1.source == .told ? 1 : 0, $1.seen) }
+                            if facts.isEmpty {
+                                Text(verbatim: "—").foregroundStyle(.tertiary)
+                            } else {
+                                ProfileFlow(spacing: 6) {
+                                    ForEach(facts) { fact in
+                                        ProfileChip(fact: fact, source: source(fact), removeLabel: l10n["profile_remove"]) {
+                                            profile.remove(fact)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Section(l10n["profile_tell"]) {
+                Picker(l10n["profile_kind"], selection: $newSlot) {
+                    ForEach(ProfileSlot.allCases) { Text($0.label(pt: pt)).tag($0) }
+                }
+                HStack {
+                    TextField(l10n["profile_value"], text: $newValue)
+                        .onSubmit(add)
+                    Button(l10n["profile_add"], action: add)
+                        .disabled(newValue.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+
+            Section {
+                HStack(spacing: 8) {
+                    Button(l10n["profile_reveal"]) { profile.revealFile() }
+                    Button(l10n["profile_read_now"]) { profile.readAgain() }
+                        .disabled(!learns || profile.learning)
+                    if profile.learning { ProgressView().controlSize(.small) }
+                    Spacer()
+                    Button(l10n["profile_forget"], role: .destructive) { confirmForget = true }
+                }
+                Text(l10n["profile_file_hint"])
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .confirmationDialog(l10n["profile_forget_confirm"], isPresented: $confirmForget) {
+            Button(l10n["profile_forget"], role: .destructive) { profile.forgetEverything() }
+        }
+    }
+
+    private func add() {
+        profile.tell(newSlot, newValue)
+        newValue = ""
+    }
+
+    private func source(_ fact: ProfileFact) -> String {
+        switch fact.source {
+        case .guessed: return l10n["profile_source_guessed"]
+        case .heard: return String(format: l10n["profile_source_heard"], fact.seen)
+        case .told: return l10n["profile_source_told"]
+        }
+    }
+}
+
+private struct ProfileChip: View {
+    let fact: ProfileFact
+    let source: String
+    let removeLabel: String
+    let onRemove: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if fact.source == .told {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(verbatim: fact.value)
+                .font(.system(size: 12))
+                .lineLimit(1)
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(hover ? .primary : .tertiary)
+            }
+            .buttonStyle(.plain)
+            .help(removeLabel)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.primary.opacity(hover ? 0.1 : 0.06)))
+        .opacity(fact.source == .guessed ? 0.8 : 1)
+        .onHover { hover = $0 }
+        .help(source)
+    }
+}
+
+/// Lays chips out in rows, right-aligned, wrapping when a row is full.
+private struct ProfileFlow: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(for: subviews, width: proposal.width ?? 320)
+        let height = rows.map { $0.height }.reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
+        let width = rows.map { $0.width }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(for: subviews, width: bounds.width) {
+            var x = bounds.maxX - row.width
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: .unspecified)
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private func rows(for subviews: Subviews, width: CGFloat) -> [(indices: [Int], width: CGFloat, height: CGFloat)] {
+        var rows: [(indices: [Int], width: CGFloat, height: CGFloat)] = []
+        var current: (indices: [Int], width: CGFloat, height: CGFloat) = ([], 0, 0)
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if needed > width, !current.indices.isEmpty {
+                rows.append(current)
+                current = ([index], size.width, size.height)
+            } else {
+                current = (current.indices + [index], needed, max(current.height, size.height))
+            }
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
+    }
+}
+
 // MARK: - Mascots Page
 
 private struct MascotsPage: View {
@@ -973,6 +1169,7 @@ private struct MascotsPage: View {
     @AppStorage(SettingsKey.animationsMode) private var animationsMode = SettingsDefaults.animationsMode
     @AppStorage(SettingsKey.hatchSpontaneous) private var hatchSpontaneous = SettingsDefaults.hatchSpontaneous
     @AppStorage(SettingsKey.autoUpdate) private var autoUpdate = SettingsDefaults.autoUpdate
+    @AppStorage(SettingsKey.hatchCuriosities) private var hatchCuriosities = SettingsDefaults.hatchCuriosities
 
     private let mascotList: [(name: String, source: String, desc: String, color: Color)] = [
         ("Clawd", "claude", "Claude Code", Color(red: 0.871, green: 0.533, blue: 0.427)),
@@ -1018,6 +1215,16 @@ private struct MascotsPage: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Toggle(isOn: $hatchCuriosities) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l10n["hatch_curiosities"])
+                        Text(l10n["hatch_curiosities_hint"])
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(!hatchSpontaneous)
 
                 Toggle(isOn: $autoUpdate) {
                     VStack(alignment: .leading, spacing: 2) {

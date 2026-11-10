@@ -79,7 +79,7 @@ final class HatchCompanion {
                 return
             }
             var (title, text) = self.greeting(for: appState)
-            var reaction = HatchReaction.wave
+            var reaction: HatchReaction = HatchProfile.shared.isBirthday() ? .dance : .wave
             if let from = UserDefaults.standard.string(forKey: SettingsKey.updatedFrom) {
                 UserDefaults.standard.removeObject(forKey: SettingsKey.updatedFrom)
                 let now = AppVersion.current
@@ -97,14 +97,18 @@ final class HatchCompanion {
     private func greeting(for appState: AppState) -> (String, String) {
         let now = Date()
         let hour = Calendar.current.component(.hour, from: now)
-        let name = NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
+        let name = HatchProfile.shared.callName ?? ""
         let hello: String
         switch hour {
         case 5..<12: hello = pt ? "Bom dia" : "Good morning"
         case 12..<18: hello = pt ? "Boa tarde" : "Good afternoon"
         default: hello = pt ? "Boa noite" : "Good evening"
         }
-        let title = name.isEmpty ? "\(hello)!" : "\(hello), \(name)!"
+        var title = name.isEmpty ? "\(hello)!" : "\(hello), \(name)!"
+        if HatchProfile.shared.isBirthday(now) {
+            title = pt ? (name.isEmpty ? "Feliz aniversário!" : "Feliz aniversário, \(name)!")
+                       : (name.isEmpty ? "Happy birthday!" : "Happy birthday, \(name)!")
+        }
 
         let sessions = Array(appState.sessions.values)
         let working = sessions.filter { $0.status == .processing || $0.status == .running }.count
@@ -169,6 +173,10 @@ final class HatchCompanion {
             if busy { workingSince[id] = workingSince[id] ?? now } else { workingSince[id] = nil }
         }
 
+        // Learn from what was said, and keep a curiosity ready for the next quiet moment.
+        HatchProfile.shared.tick(sessions: sessions)
+        if enabled { HatchCuriosities.shared.tick() }
+
         guard enabled, canSpeak(ignoringGap: false) else { return }
         guard let remark = pickRemark(sessions: sessions, working: working, latest: latest, returning: returning, now: now,
                                       started: started.compactMap { appState.sessions[$0] })
@@ -220,15 +228,42 @@ final class HatchCompanion {
                 reaction: .surprised))
         }
 
-        // Still at it in the small hours.
+        // Still at it in the small hours: a word at 23h, firmer after midnight, a proper
+        // lecture from 1h on, hands on hips. At most once an hour.
         if recentlyActive, hour >= 23 || hour < 5 {
+            let night = Self.dayKey(now.addingTimeInterval(-6 * 3600))
+            let level = hour >= 23 ? 0 : (hour == 0 ? 1 : 2)
+            let worked = busySince.map { Self.duration(now.timeIntervalSince($0)) }
+            let clock = hour >= 23 ? (pt ? "Já passou das 23h" : "It's past 11 pm")
+                : hour == 0 ? (pt ? "Meia-noite e você aí" : "Midnight, and you're still here")
+                : (pt ? "\(hour)h da manhã" : "\(hour) am")
+            let lines: [String]
+            switch level {
+            case 0:
+                lines = pt ? ["Bora fechar o dia? Eu fico de olho nas sessões.",
+                              "Que tal salvar tudo e dormir? Amanhã o código continua aqui."]
+                           : ["Wrap up the day? I'll watch the sessions.", "Save everything and sleep? The code will be here tomorrow."]
+            case 1:
+                let who = HatchProfile.shared.callName.map { "\($0), sério" } ?? "Sério"
+                lines = pt ? ["\(who): o bug espera até amanhã. Você não.",
+                              "Código de meia-noite é o bug de amanhã de manhã. Vai dormir.",
+                              worked.map { "Já são \($0) de trabalho. Fecha o notebook, vai." } ?? "Fecha o notebook, vai."]
+                           : ["Seriously: the bug can wait until tomorrow. You can't.", "Midnight code is tomorrow morning's bug. Go to sleep."]
+            default:
+                lines = pt ? ["Não acredito que vou ter que repetir: VAI DORMIR. Sono é feature, não bug.",
+                              "Isso aqui é hora de commit? Nem o deploy tá acordado. Cama.",
+                              "Eu sou um bloquinho e tô cansado por você. Desliga e descansa, por favor.",
+                              worked.map { "\($0) seguidas e ainda de madrugada? Isso não é produtividade, é teimosia. Cama!" }
+                                  ?? "Isso não é produtividade, é teimosia. Cama!"]
+                           : ["Do I have to say it again? GO TO SLEEP. Sleep is a feature, not a bug.",
+                              "Is this commit o'clock? Even the deploy is asleep. Bed.",
+                              "I'm a little block and I'm tired for you. Shut it down and rest, please."]
+            }
             candidates.append(Remark(
-                key: "late-\(Self.dayKey(now.addingTimeInterval(-6 * 3600)))", cooldown: 3 * 3600,
-                title: hour >= 23 ? (pt ? "Já passou das 23h" : "It's past 11 pm")
-                                  : (pt ? "Já são \(hour)h da manhã" : "It's \(hour) am"),
-                text: pt ? "Vai descansar. Eu fico de olho nas sessões e aviso se precisar."
-                         : "Get some rest. I'll watch the sessions and tell you if anything needs you.",
-                reaction: .scratch))
+                key: "late-\(night)-\(hour)", cooldown: 50 * 60,
+                title: clock,
+                text: lines.randomElement()!,
+                reaction: level == 0 ? .scratch : (level == 1 ? .shake : .annoyed)))
         }
 
         // Back after a long pause.
@@ -257,7 +292,9 @@ final class HatchCompanion {
             candidates.append(Remark(
                 key: "lunch-\(day)", cooldown: 20 * 3600,
                 title: pt ? "Hora do almoço" : "Lunch time",
-                text: pt ? "Pode ir comer. Eu cuido das sessões." : "Go eat. I'll look after the sessions.",
+                text: HatchProfile.shared.values(.food).randomElement().map {
+                    pt ? "Pode ir comer. \($0) hoje? Eu cuido das sessões." : "Go eat. \($0) today? I'll look after the sessions."
+                } ?? (pt ? "Pode ir comer. Eu cuido das sessões." : "Go eat. I'll look after the sessions."),
                 reaction: .wave))
         }
 
@@ -319,8 +356,36 @@ final class HatchCompanion {
                 reaction: .wink))
         }
 
+        // Something you like, at the right moment.
+        if recentlyActive, let fun = funRemark(hour: hour, weekday: weekday, day: day, now: now) {
+            candidates.append(fun)
+        }
+
         if let remark = candidates.first(where: { isReady($0.key, cooldown: $0.cooldown, now: now) }) {
             return remark
+        }
+
+        // Something Hatch just learned about you, said back so you can correct it.
+        if isReady("learned", cooldown: 40 * 60, now: now) {
+            if let found = HatchProfile.shared.takeDigest() {
+                let list = ListFormatter.localizedString(byJoining: found)
+                return Remark(key: "learned", cooldown: 40 * 60,
+                              title: pt ? "Andei lendo suas conversas" : "I read your recent conversations",
+                              text: pt ? "Anotei umas coisas sobre você: \(list). Se eu errei, corrige em Ajustes > Sobre você."
+                                       : "I noted a few things about you: \(list). If I got it wrong, fix it in Settings > About you.",
+                              reaction: .typing)
+            }
+            if let fact = HatchProfile.shared.takeNews() { return learnedRemark(fact) }
+        }
+
+        // A curiosity about something you care about, when one is ready.
+        if activeThisHalfHour, isReady("curio", cooldown: 30 * 60, now: now), Bool.random(),
+           let curio = HatchCuriosities.shared.take() {
+            return Remark(
+                key: "curio", cooldown: 30 * 60,
+                title: pt ? "Curiosidade: \(curio.topic)" : "Curiosity: \(curio.topic)",
+                text: curio.text,
+                reaction: [.point, .think, .wink].randomElement()!)
         }
 
         // Nothing in particular: once in a while, a line in the companion's own voice.
@@ -328,6 +393,69 @@ final class HatchCompanion {
             muse(sessions: sessions, now: now)
         }
         return nil
+    }
+
+    /// A line about your club, series, games or music, on days and hours that suit it.
+    private func funRemark(hour: Int, weekday: Int, day: String, now: Date) -> Remark? {
+        let profile = HatchProfile.shared
+        var options: [Remark] = []
+        // Sunday afternoon and Wednesday night are when Brazilian football plays most.
+        if let club = profile.value(.club), (weekday == 1 && (15...19).contains(hour)) || (weekday == 4 && (19...22).contains(hour)) {
+            options.append(Remark(key: "club-\(day)", cooldown: 20 * 3600,
+                title: pt ? "Dia de jogo?" : "Match day?",
+                text: pt ? "Se o \(club) jogar hoje, vai assistir. Eu cuido das sessões." : "If \(club) plays today, go watch. I'll look after the sessions.",
+                reaction: .cheer))
+        }
+        if let series = profile.values(.series).randomElement(), (weekday == 6 || weekday == 7), hour >= 20 {
+            options.append(Remark(key: "series-\(day)", cooldown: 20 * 3600,
+                title: pt ? "Noite de folga?" : "Night off?",
+                text: pt ? "Um episódio de \(series) cairia bem. O código espera." : "An episode of \(series) would be nice. The code can wait.",
+                reaction: .wink))
+        }
+        if let game = profile.values(.game).randomElement(), (weekday == 1 || weekday == 7), (14...22).contains(hour) {
+            options.append(Remark(key: "game-\(day)", cooldown: 20 * 3600,
+                title: pt ? "Fim de semana" : "Weekend",
+                text: pt ? "Uma partida de \(game) hoje? Eu fico de vigia." : "A round of \(game) today? I'll keep watch.",
+                reaction: .dance))
+        }
+        if let music = profile.values(.music).randomElement(), (2...6).contains(weekday), (14...17).contains(hour),
+           let busySince, now.timeIntervalSince(busySince) >= 40 * 60 {
+            options.append(Remark(key: "music-\(day)", cooldown: 20 * 3600,
+                title: pt ? "Trilha sonora" : "Soundtrack",
+                text: pt ? "Bota um \(music) pra render a tarde." : "Put on some \(music) for the afternoon.",
+                reaction: .nod))
+        }
+        if let book = profile.values(.book).randomElement(), hour == 22 {
+            options.append(Remark(key: "book-\(day)", cooldown: 20 * 3600,
+                title: pt ? "Antes de dormir" : "Before bed",
+                text: pt ? "Umas páginas de \(book) hoje? Melhor que mais um commit." : "A few pages of \(book) tonight? Better than one more commit.",
+                reaction: .think))
+        }
+        return options.randomElement()
+    }
+
+    private func learnedRemark(_ fact: ProfileFact) -> Remark {
+        let v = fact.value
+        let line: String
+        switch fact.slot {
+        case .club: line = pt ? "Você torce pro \(v)." : "You support \(v)."
+        case .nationalTeam: line = pt ? "Você torce pra \(v)." : "You support \(v)."
+        case .profession: line = pt ? "Você trabalha como \(v)." : "You work as \(v)."
+        case .city: line = pt ? "Você mora em \(v)." : "You live in \(v)."
+        case .series: line = pt ? "Você assiste \(v)." : "You watch \(v)."
+        case .film: line = pt ? "Você gosta do filme \(v)." : "You like the film \(v)."
+        case .book: line = pt ? "Você curte o livro \(v)." : "You like the book \(v)."
+        case .game: line = pt ? "Você joga \(v)." : "You play \(v)."
+        case .music: line = pt ? "Você ouve \(v)." : "You listen to \(v)."
+        case .sport, .hobby: line = pt ? "Você curte \(v)." : "You enjoy \(v)."
+        case .food: line = pt ? "Você gosta de \(v)." : "You like \(v)."
+        case .birthday: line = pt ? "Seu aniversário é dia \(v)." : "Your birthday is on \(v)."
+        default: line = v
+        }
+        return Remark(key: "learned", cooldown: 40 * 60,
+                      title: pt ? "Anotei uma coisa sobre você" : "I noted something about you",
+                      text: line + (pt ? " Se eu errei, corrige em Ajustes > Sobre você." : " If I got it wrong, fix it in Settings > About you."),
+                      reaction: .typing)
     }
 
     private func muse(sessions: [SessionSnapshot], now: Date) {
@@ -338,7 +466,8 @@ final class HatchCompanion {
         let situation = "It is \(f.string(from: now)). " + (doing.isEmpty ? "No sessions." : doing.joined(separator: "; "))
         let hour = Calendar.current.component(.hour, from: now)
         Task { @MainActor [weak self] in
-            let written = await BuddyVoice.line(buddy: BuddyReader.shared.buddy, mood: .philosopher, situation: situation)
+            let written = await BuddyVoice.line(buddy: BuddyReader.shared.buddy, mood: .philosopher, situation: situation,
+                                                about: HatchProfile.shared.summaryForAI)
             guard let self, self.canSpeak(ignoringGap: false) else { return }
             let line = written ?? self.fallbackMusing(hour: hour)
             self.present(title: line, text: "", reaction: [.think, .shrug, .wink, .nod, .dance, .hiccup, .stretch].randomElement()!,
