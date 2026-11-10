@@ -105,6 +105,12 @@ if [[ "$*" == *"--notarize"* ]] && [[ "$SIGN_ID" == *"Developer ID"* ]]; then
     echo "Creating DMG..."
     DMG_PATH="$BUILD_DIR/$APP_NAME.dmg"
     rm -f "$DMG_PATH"
+    # A create-dmg run that was cut short leaves its scratch volume mounted and its
+    # rw.*.dmg behind, and the next run fails without making the DMG. Clear both.
+    for vol in /Volumes/dmg.*; do
+        [ -d "$vol/$APP_NAME.app" ] && hdiutil detach "$vol" -quiet || true
+    done
+    rm -f "$BUILD_DIR"/rw.*."$APP_NAME".dmg
     create-dmg \
         --volname "$APP_NAME" \
         --window-pos 200 120 \
