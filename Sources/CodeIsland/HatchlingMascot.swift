@@ -1918,13 +1918,34 @@ final class HatchlingMascotLayerView: NSView {
     /// Tickled: squeezes its eyes into a smile, shakes with laughter, hands to its sides.
     private func giggle() {
         let s = builtSize.width / 100
+        let total = 1.7
+        // Both hands come up in front of the mouth, the smiling eyes squeezed shut above
+        // them, and it shakes with little bounces: a giggle behind its hands.
+        handsRig.zPosition = 1
+        let overMouth = [CGPoint(x: 42 * s, y: 80 * s), CGPoint(x: 58 * s, y: 80 * s)]
+        moveHands(to: overMouth, hold: total * 0.62, duration: total)
+        for (i, hand) in [leftHand, rightHand].enumerated() {
+            let tilt = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            let side: CGFloat = i == 0 ? 1 : -1
+            tilt.values = [0, side * 0.35, side * 0.35, 0]
+            tilt.keyTimes = [0, 0.2, 0.8, 1]
+            tilt.duration = total
+            tilt.isAdditive = true
+            hand.add(tilt, forKey: "hatch.giggleTilt")
+        }
         let shake = CAKeyframeAnimation(keyPath: "transform.translation.x")
-        shake.values = [0, 1.6 * s, -1.6 * s, 1.6 * s, -1.6 * s, 1.2 * s, -1.2 * s, 0]
-        shake.duration = 1.0
+        shake.values = [0, 0, 1.4 * s, -1.4 * s, 1.4 * s, -1.4 * s, 1.2 * s, -1.2 * s, 0.8 * s, 0, 0]
+        shake.duration = total
         shake.isAdditive = true
         addBodyMotion(shake, forKey: "hatch.giggle")
-        flashHappyEyes(duration: 1.3)
-        showMouth(.open, for: 1.2)
-        moveHands(to: [CGPoint(x: -2 * s, y: 78 * s), CGPoint(x: 102 * s, y: 78 * s)], hold: 0.8, duration: 1.3)
+        let bounce = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        bounce.values = [0, 0, -0.04, 0.02, -0.04, 0.02, -0.04, 0.02, 0, 0]
+        bounce.duration = total
+        bounce.isAdditive = true
+        figure.add(bounce, forKey: "hatch.giggleBounce")
+        flashHappyEyes(duration: total)
+        // The smile peeks out from behind the hands.
+        showMouth(.smile, for: total)
+        DispatchQueue.main.asyncAfter(deadline: .now() + total + 0.05) { [weak self] in self?.handsRig.zPosition = 0 }
     }
 }
