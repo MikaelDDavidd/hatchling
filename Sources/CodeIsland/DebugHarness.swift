@@ -704,6 +704,23 @@ private struct MascotMovesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+        .onAppear {
+            // `--moves-cycle` plays every move in order, three seconds each, for recording.
+            guard ProcessInfo.processInfo.arguments.contains("--moves-cycle") else { return }
+            // `--moves-only a,b`: just those moves, by their Portuguese names.
+            let args = ProcessInfo.processInfo.arguments
+            let only = args.firstIndex(of: "--moves-only").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+                .map { Set($0.split(separator: ",").map(String.init)) }
+            let list = MascotMoves.moves.filter { only?.contains($0.1) ?? true }
+            var i = 0
+            Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    guard i < list.count else { return }
+                    play(list[i].0)
+                    i += 1
+                }
+            }
+        }
     }
 
     private func play(_ move: HatchReaction) {
