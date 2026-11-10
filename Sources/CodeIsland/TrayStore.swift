@@ -30,6 +30,18 @@ enum HatchlingData {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
+
+    /// Bookkeeping that goes with the data (what was already read, and so on). A preview
+    /// with its own data folder keeps its own, away from the real app's.
+    nonisolated(unsafe) static let defaults: UserDefaults = {
+        #if DEBUG
+        if let custom = ProcessInfo.processInfo.environment["HATCHLING_DATA_DIR"], !custom.isEmpty,
+           let suite = UserDefaults(suiteName: "dev.mikaeldavid.hatchling.preview") {
+            return suite
+        }
+        #endif
+        return .standard
+    }()
 }
 
 @MainActor

@@ -129,6 +129,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         }
                     }
                 }
+                if args.contains("--settings-page") { SettingsWindowController.shared.show() }
+                // `--learn-now` reads the sessions (and, the first time, past conversations)
+                // right away and prints what the profile holds.
+                if args.contains("--learn-now") {
+                    HatchProfile.shared.tick(sessions: Array(appState.sessions.values), force: true)
+                    Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
+                        MainActor.assumeIsolated {
+                            let lines = HatchProfile.shared.facts.map { "\($0.slot.rawValue)=\($0.value) [\($0.source.rawValue) x\($0.seen)]" }
+                            FileHandle.standardError.write("profile: \(lines.joined(separator: " | "))\n".data(using: .utf8)!)
+                        }
+                    }
+                }
+                // `--curio-now` prepares a curiosity right away and shows it when it's ready.
+                if args.contains("--curio-now") {
+                    HatchCuriosities.shared.tick(force: true)
+                    let state = appState
+                    Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
+                        MainActor.assumeIsolated {
+                            guard let c = HatchCuriosities.shared.take() else { return }
+                            timer.invalidate()
+                            FileHandle.standardError.write("curio [\(c.topic)] \(c.text)\n".data(using: .utf8)!)
+                            state.showBuddySpeech(text: c.text, mood: .idle, title: "Curiosidade: \(c.topic)",
+                                                     reaction: .point, duration: 8)
+                        }
+                    }
+                    return
+                }
                 // `--hello` plays the launch greeting instead of opening the list.
                 if args.contains("--hello") {
                     HatchCompanion.shared.greetForPreview()

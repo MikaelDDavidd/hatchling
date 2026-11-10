@@ -74,6 +74,8 @@ enum SettingsKey {
     static let animationsMode = "animationsMode"           // "on" | "system"
     static let hatchSpontaneous = "hatchSpontaneous"
     static let autoUpdate = "autoUpdate"
+    static let hatchCuriosities = "hatchCuriosities"
+    static let hatchLearns = "hatchLearns"
     static let aiProvider = "aiProvider"          // "auto" | "anthropic" | "nvidia"
     static let nvidiaModel = "nvidiaModel"
     /// The version the app was on before an automatic update restarted it.
@@ -159,6 +161,8 @@ struct SettingsDefaults {
     static let animationsMode = "on"  // "on" = always animate, "system" = follow Reduce Motion
     static let hatchSpontaneous = true
     static let autoUpdate = true
+    static let hatchCuriosities = true
+    static let hatchLearns = true
     static let aiMomentSummary = true  // only takes effect once an API key is saved
     static let cardClickAction = "app"  // a click opens the session's app or terminal; ⌘-click the chat
     static let autoAcceptPermissions = false  // OFF — opt-in YOLO mode
@@ -217,6 +221,8 @@ class SettingsManager {
             SettingsKey.animationsMode: SettingsDefaults.animationsMode,
             SettingsKey.hatchSpontaneous: SettingsDefaults.hatchSpontaneous,
             SettingsKey.autoUpdate: SettingsDefaults.autoUpdate,
+            SettingsKey.hatchCuriosities: SettingsDefaults.hatchCuriosities,
+            SettingsKey.hatchLearns: SettingsDefaults.hatchLearns,
             SettingsKey.aiMomentSummary: SettingsDefaults.aiMomentSummary,
             SettingsKey.cardClickAction: SettingsDefaults.cardClickAction,
             SettingsKey.autoAcceptPermissions: SettingsDefaults.autoAcceptPermissions,
