@@ -106,7 +106,7 @@ final class HatchDirector: ObservableObject {
             self.turn += 1
             // Now and then it acts the line out, but not every time.
             if self.turn % 3 == 0 {
-                [HatchReaction.think, .point, .scratch, .wink].randomElement()!.post()
+                [HatchReaction.think, .point, .scratch, .wink, .nod, .shake, .hiccup, .typing].randomElement()!.post()
             }
         }
     }

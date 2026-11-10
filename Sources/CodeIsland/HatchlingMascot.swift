@@ -42,6 +42,9 @@ enum MascotMood: Equatable {
 enum HatchReaction: String, CaseIterable {
     case wave, cheer, surprised, annoyed, wink, think, write, poke
     case clap, shrug, scratch, point
+    /// More moves: a little dance, yes and no with the head, a yawning stretch, peekaboo,
+    /// a spin, a hiccup, typing along, and a giggle when tickled.
+    case dance, nod, shake, stretch, peekaboo, spin, hiccup, typing, giggle
     /// A file drops into the slot on its head and gets gulped down.
     case swallow
     /// Hands up to catch a file being dragged over the notch, until `catchEnd`.
@@ -195,8 +198,12 @@ final class HatchlingMascotLayerView: NSView {
     var celebratesOnAppear = false
 
     @objc private func runFinished() {
-        celebrate()
-        raiseHands(duration: 0.9)
+        if Int.random(in: 0..<3) == 0 {
+            dance()
+        } else {
+            celebrate()
+            raiseHands(duration: 0.9)
+        }
     }
 
     @objc private func reactionPosted(_ note: Notification) {
@@ -259,8 +266,10 @@ final class HatchlingMascotLayerView: NSView {
         guard window != nil else {
             idleTimer?.invalidate()
             idleTimer = nil
+            stopFollowingCursor()
             return
         }
+        startFollowingCursor()
         if let scale = window?.backingScaleFactor {
             for sub in allLayers { sub.contentsScale = scale }
         }
@@ -275,7 +284,7 @@ final class HatchlingMascotLayerView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
     }
 
@@ -284,18 +293,132 @@ final class HatchlingMascotLayerView: NSView {
         guard reactsToEveryRun else { return super.mouseDown(with: event) }
         let now = Date()
         pokes = pokes.filter { now.timeIntervalSince($0) < 2.5 } + [now]
-        perform(pokes.count >= 4 ? .annoyed : .poke)
+        if event.clickCount == 2 {
+            perform(.spin)
+        } else {
+            perform(pokes.count >= 4 ? .annoyed : .poke)
+        }
         onPoke?(pokes.count)
     }
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        pointerInside = true
         if sleepy {
             sleepy = false
             restingSince = Date()
             animate()
+            perform(.stretch)   // woken up: a big yawning stretch
+        } else {
+            notice()
         }
-        notice()
+        scheduleLinger()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        pointerInside = false
+        lingerTimer?.invalidate()
+        lingerTimer = nil
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        trackTickle(event)
+    }
+
+    // MARK: Play
+
+    private var pointerInside = false
+    private var lingerTimer: Timer?
+    private var lastPlay = Date.distantPast
+    private var tickleTurns: [Date] = []
+    private var lastTickleDX: CGFloat = 0
+
+    /// The cursor resting on Hatch for a while: peekaboo.
+    private func scheduleLinger() {
+        lingerTimer?.invalidate()
+        guard reactsToEveryRun else { return }
+        lingerTimer = Timer.scheduledTimer(withTimeInterval: 2.6, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.pointerInside, Date().timeIntervalSince(self.lastPlay) > 12 else { return }
+                self.lastPlay = Date()
+                self.perform(.peekaboo)
+            }
+        }
+    }
+
+    /// Rubbing the cursor back and forth over Hatch tickles it: four quick turns and it giggles.
+    private func trackTickle(_ event: NSEvent) {
+        guard reactsToEveryRun, pointerInside, abs(event.deltaX) > 1.5 else { return }
+        let dx = event.deltaX
+        if lastTickleDX != 0, (dx > 0) != (lastTickleDX > 0) {
+            let now = Date()
+            tickleTurns = tickleTurns.filter { now.timeIntervalSince($0) < 1.2 } + [now]
+            if tickleTurns.count >= 4, now.timeIntervalSince(lastPlay) > 3 {
+                tickleTurns = []
+                lastPlay = now
+                lingerTimer?.invalidate()
+                perform(.giggle)
+            }
+        }
+        lastTickleDX = dx
+    }
+
+    // MARK: Eyes follow the cursor
+
+    private var cursorMonitors: [Any] = []
+    private var lastCursorUpdate = Date.distantPast
+    private var cursorOffset = CGSize.zero
+
+    /// The global Hatch keeps an eye on the pointer when it comes near: the pupils turn
+    /// toward it, a few times a second at most, and only while Hatch is on screen.
+    private func startFollowingCursor() {
+        guard cursorMonitors.isEmpty, reactsToEveryRun, !Motion.isReduced else { return }
+        let handler: (NSEvent) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.followCursor() }
+        }
+        if let g = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: handler) {
+            cursorMonitors.append(g)
+        }
+        if let l = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { e in handler(e); return e }) {
+            cursorMonitors.append(l)
+        }
+    }
+
+    private func stopFollowingCursor() {
+        cursorMonitors.forEach(NSEvent.removeMonitor)
+        cursorMonitors = []
+    }
+
+    private func followCursor() {
+        let now = Date()
+        guard now.timeIntervalSince(lastCursorUpdate) > 0.08 else { return }
+        lastCursorUpdate = now
+        guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor, !sleepy, builtSize != .zero else { return }
+        let s = builtSize.width / 100
+        let frame = window.convertToScreen(convert(bounds, to: nil))
+        let mouse = NSEvent.mouseLocation
+        let dx = mouse.x - frame.midX, dy = mouse.y - frame.midY
+        let dist = hypot(dx, dy)
+        var target = CGSize.zero
+        if dist < 380, dist > 1 {
+            let reach = 3.2 * s * min(1, dist / 140)
+            // Screen y grows upward; Hatch is drawn with y growing downward.
+            target = CGSize(width: dx / dist * reach, height: -dy / dist * reach)
+        }
+        guard abs(target.width - cursorOffset.width) > 0.15 * s || abs(target.height - cursorOffset.height) > 0.15 * s else { return }
+        cursorOffset = target
+        let t = CATransform3DMakeTranslation(target.width, target.height, 0)
+        for eye in eyes {
+            let a = CABasicAnimation(keyPath: "sublayerTransform")
+            a.fromValue = NSValue(caTransform3D: eye.pupilGroup.presentation()?.sublayerTransform ?? eye.pupilGroup.sublayerTransform)
+            a.toValue = NSValue(caTransform3D: t)
+            a.duration = 0.18
+            a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            eye.pupilGroup.sublayerTransform = t
+            eye.pupilGroup.add(a, forKey: "hatch.follow")
+        }
     }
 
     // MARK: Build
@@ -903,6 +1026,11 @@ final class HatchlingMascotLayerView: NSView {
     }
 
     private func idleBehaviour() {
+        // At work it sometimes types along.
+        if mood == .working, showsHands, builtSize != .zero, Int.random(in: 0..<3) == 0 {
+            perform(.typing)
+            return
+        }
         guard mood == .resting, builtSize != .zero else { return }
         if !sleepy, Date().timeIntervalSince(restingSince) > Self.dozeAfter {
             sleepy = true
@@ -911,8 +1039,9 @@ final class HatchlingMascotLayerView: NSView {
         }
         guard !sleepy else { return }
         let s = builtSize.width / 100
-        if showsHands, Int.random(in: 0..<3) == 0 {
-            perform([.wave, .think, .scratch, .shrug, .clap, .point, .wink].randomElement()!)
+        if showsHands, Int.random(in: 0..<2) == 0 {
+            perform([.wave, .think, .scratch, .shrug, .clap, .point, .wink,
+                     .dance, .nod, .stretch, .peekaboo, .hiccup, .spin].randomElement()!)
             return
         }
         switch Int.random(in: 0..<5) {
@@ -1092,6 +1221,15 @@ final class HatchlingMascotLayerView: NSView {
         case .shrug: shrug()
         case .scratch: scratchHead()
         case .point: point()
+        case .dance: dance()
+        case .nod: nod()
+        case .shake: shakeHead()
+        case .stretch: stretchYawn()
+        case .peekaboo: peekaboo()
+        case .spin: spin()
+        case .hiccup: hiccup()
+        case .typing: typing()
+        case .giggle: giggle()
         case .catchStart: setCatching(true)
         case .catchEnd: setCatching(false)
         case .swallow: swallow()
@@ -1229,7 +1367,7 @@ final class HatchlingMascotLayerView: NSView {
         squash.isAdditive = true
         addBodyMotion(squash, forKey: "hatch.poke")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            [self?.wink, self?.surprised, self?.wave].randomElement()??()
+            [self?.wink, self?.surprised, self?.wave, self?.giggle, self?.nod, self?.hiccup].randomElement()??()
         }
     }
 
@@ -1524,5 +1662,170 @@ final class HatchlingMascotLayerView: NSView {
         root.add(hop, forKey: Key.hop)
         dragHands(height: 14 * s, duration: 0.75)
         flashHappyEyes(duration: 1.8)
+    }
+
+    // MARK: Play moves
+
+    /// Sways side to side on little hops, hands taking turns in the air.
+    private func dance() {
+        guard let root = layer else { return }
+        let s = builtSize.width / 100
+        let sway = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        sway.values = [0, 0.13, -0.13, 0.13, -0.13, 0]
+        sway.duration = 1.7
+        sway.isAdditive = true
+        addBodyMotion(sway, forKey: "hatch.dance")
+        let hop = CAKeyframeAnimation(keyPath: "sublayerTransform.translation.y")
+        hop.values = [0, -5 * s, 0, -5 * s, 0, -5 * s, 0, -5 * s, 0]
+        hop.duration = 1.7
+        root.add(hop, forKey: "hatch.danceHop")
+        if showsHands {
+            for (i, hand) in [leftHand, rightHand].enumerated() {
+                let rest = handRest[i]
+                let up = CGPoint(x: rest.x + (i == 0 ? -4 : 4) * s, y: 30 * s)
+                let move = CAKeyframeAnimation(keyPath: "position")
+                move.values = (i == 0 ? [rest, up, rest, up, rest] : [rest, rest, up, rest, up, rest])
+                    .map { NSValue(point: $0) }
+                move.calculationMode = .cubic
+                move.duration = 1.7
+                hand.add(move, forKey: "hatch.dance")
+            }
+        }
+        flashHappyEyes(duration: 1.7)
+        showMouth(.smile, for: 1.7)
+    }
+
+    /// Two nods: yes.
+    private func nod() {
+        let s = builtSize.width / 100
+        let down = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        down.values = [0, 3.5 * s, -0.8 * s, 3.5 * s, 0]
+        down.duration = 0.8
+        down.isAdditive = true
+        addBodyMotion(down, forKey: "hatch.nod")
+        let look = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        look.values = [0, 2 * s, 0, 2 * s, 0]
+        look.duration = 0.8
+        look.isAdditive = true
+        for eye in eyes { eye.pupilGroup.add(look, forKey: "hatch.nod") }
+        showMouth(.smile, for: 0.9)
+    }
+
+    /// A quick shake of the head and a flat mouth: no.
+    private func shakeHead() {
+        let s = builtSize.width / 100
+        let turn = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        turn.values = [0, 0.09, -0.09, 0.08, -0.06, 0]
+        turn.duration = 0.8
+        turn.isAdditive = true
+        addBodyMotion(turn, forKey: "hatch.shake")
+        let look = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        look.values = [0, -3 * s, 3 * s, -3 * s, 2 * s, 0]
+        look.duration = 0.8
+        look.isAdditive = true
+        for eye in eyes { eye.pupilGroup.add(look, forKey: "hatch.shake") }
+        showMouth(.flat, for: 0.9)
+    }
+
+    /// Arms up, tall and thin, eyes squeezed, mouth wide: a big yawning stretch.
+    private func stretchYawn() {
+        let s = builtSize.width / 100
+        let tall = CAKeyframeAnimation(keyPath: "sublayerTransform")
+        tall.values = [CATransform3DIdentity, CATransform3DMakeScale(0.93, 1.14, 1), CATransform3DMakeScale(0.93, 1.14, 1),
+                       CATransform3DMakeScale(1.05, 0.95, 1), CATransform3DIdentity].map { NSValue(caTransform3D: $0) }
+        tall.keyTimes = [0, 0.3, 0.7, 0.85, 1]
+        tall.duration = 1.9
+        figure.add(tall, forKey: "hatch.stretch")
+        moveHands(to: [CGPoint(x: -6 * s, y: 6 * s), CGPoint(x: 106 * s, y: 6 * s)], hold: 1.0, duration: 1.9)
+        for lid in lids {
+            let shut = CAKeyframeAnimation(keyPath: "transform")
+            let half = CATransform3DMakeScale(1, 0.7, 1)
+            shut.values = [CATransform3DMakeScale(1, 0, 1), half, half, CATransform3DMakeScale(1, 0, 1)]
+                .map { NSValue(caTransform3D: $0) }
+            shut.keyTimes = [0, 0.25, 0.75, 1]
+            shut.duration = 1.9
+            lid.add(shut, forKey: "hatch.face")
+        }
+        showMouth(.open, for: 1.6)
+    }
+
+    /// Hands over the eyes... and out again, with a smile.
+    private func peekaboo() {
+        guard showsHands else { return }
+        let s = builtSize.width / 100
+        moveHands(to: [CGPoint(x: 33 * s, y: 55 * s), CGPoint(x: 67 * s, y: 55 * s)], hold: 0.9, duration: 1.6)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.25) { [weak self] in
+            self?.flashHappyEyes(duration: 1.0)
+            self?.showMouth(.smile, for: 1.0)
+            self?.notice()
+        }
+    }
+
+    /// A hop and a full turn in the air.
+    private func spin() {
+        guard let root = layer else { return }
+        let s = builtSize.width / 100
+        let turn = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        turn.values = [0, -Double.pi, -2 * Double.pi]
+        turn.duration = 0.75
+        turn.isAdditive = true
+        turn.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        addBodyMotion(turn, forKey: "hatch.spin")
+        let hop = CAKeyframeAnimation(keyPath: "sublayerTransform.translation.y")
+        hop.values = [0, -12 * s, 0, -2 * s, 0]
+        hop.keyTimes = [0, 0.4, 0.75, 0.88, 1]
+        hop.duration = 0.85
+        root.add(hop, forKey: "hatch.spinHop")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.flashHappyEyes(duration: 0.9) }
+    }
+
+    /// Two small jolts, eyes popping a little each time.
+    private func hiccup() {
+        guard let root = layer else { return }
+        let s = builtSize.width / 100
+        for i in 0..<2 {
+            let jolt = CAKeyframeAnimation(keyPath: "sublayerTransform.translation.y")
+            jolt.values = [0, -5 * s, 0]
+            jolt.duration = 0.2
+            jolt.beginTime = CACurrentMediaTime() + Double(i) * 0.75
+            root.add(jolt, forKey: "hatch.hiccup\(i)")
+            let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+            pop.values = [1, 1.18, 1]
+            pop.duration = 0.25
+            pop.beginTime = jolt.beginTime
+            for eye in eyes { eye.container.add(pop, forKey: "hatch.hiccup\(i)") }
+        }
+        showMouth(.open, for: 0.3)
+    }
+
+    /// Hands tapping in front of it, eyes down on the keys.
+    private func typing() {
+        guard showsHands else { return }
+        let s = builtSize.width / 100
+        for (i, hand) in [leftHand, rightHand].enumerated() {
+            let key = CGPoint(x: (i == 0 ? 38 : 62) * s, y: 104 * s)
+            var points = [handRest[i], key]
+            for k in 0..<6 { points.append(CGPoint(x: key.x + CGFloat((k + i) % 3 - 1) * 2 * s, y: key.y + ((k + i).isMultiple(of: 2) ? -2 : 1) * s)) }
+            points += [key, handRest[i]]
+            let move = CAKeyframeAnimation(keyPath: "position")
+            move.values = points.map { NSValue(point: $0) }
+            move.calculationMode = .cubic
+            move.duration = 1.6
+            move.beginTime = CACurrentMediaTime() + (i == 0 ? 0 : 0.08)
+            hand.add(move, forKey: "hatch.typing")
+        }
+    }
+
+    /// Tickled: squeezes its eyes into a smile, shakes with laughter, hands to its sides.
+    private func giggle() {
+        let s = builtSize.width / 100
+        let shake = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        shake.values = [0, 1.6 * s, -1.6 * s, 1.6 * s, -1.6 * s, 1.2 * s, -1.2 * s, 0]
+        shake.duration = 1.0
+        shake.isAdditive = true
+        addBodyMotion(shake, forKey: "hatch.giggle")
+        flashHappyEyes(duration: 1.3)
+        showMouth(.open, for: 1.2)
+        moveHands(to: [CGPoint(x: -2 * s, y: 78 * s), CGPoint(x: 102 * s, y: 78 * s)], hold: 0.8, duration: 1.3)
     }
 }

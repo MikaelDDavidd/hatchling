@@ -597,7 +597,15 @@ enum MascotSheet {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.black)
         // `--sheet-drop` rehearses a file drop on a loop: slot opens, the file falls in.
-        if ProcessInfo.processInfo.arguments.contains("--sheet-drop") {
+        // `--sheet-moves` plays every play move in turn, for reviewing the new gestures.
+        if ProcessInfo.processInfo.arguments.contains("--sheet-moves") {
+            let moves: [HatchReaction] = [.dance, .nod, .shake, .stretch, .peekaboo, .spin, .hiccup, .typing, .giggle]
+            var i = 0
+            Timer.scheduledTimer(withTimeInterval: 2.4, repeats: true) { _ in
+                moves[i % moves.count].post()
+                i += 1
+            }
+        } else if ProcessInfo.processInfo.arguments.contains("--sheet-drop") {
             Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { _ in
                 HatchReaction.catchStart.post()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
@@ -620,6 +628,100 @@ enum MascotSheet {
         w.setContentSize(NSSize(width: max(760, host.fittingSize.width), height: max(620, host.fittingSize.height)))
         w.orderFrontRegardless()
         window = w
+    }
+}
+#endif
+
+// MARK: - Every move, one at a time
+
+#if DEBUG
+/// A review window: Hatch at full size and a button per move. Click one and Hatch does
+/// just that; "Repetir" keeps playing the chosen move. The cursor games work here too.
+enum MascotMoves {
+    private static var window: NSWindow?
+
+    static let moves: [(HatchReaction, String)] = [
+        (.wave, "acenar"), (.cheer, "comemorar"), (.dance, "dançar"), (.spin, "pirueta"),
+        (.nod, "sim"), (.shake, "não"), (.wink, "piscadinha"), (.surprised, "surpreso"),
+        (.annoyed, "bravo"), (.think, "pensar"), (.scratch, "coçar a cabeça"), (.shrug, "sei lá"),
+        (.point, "apontar"), (.clap, "bater palmas"), (.write, "escrever"), (.typing, "digitar"),
+        (.stretch, "espreguiçar"), (.peekaboo, "esconde-esconde"), (.hiccup, "soluço"), (.giggle, "risada"),
+        (.poke, "cutucada"),
+    ]
+
+    static func show() {
+        let host = NSHostingView(rootView: MascotMovesView())
+        let w = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 720, height: 560),
+                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.title = "Hatch: gestos"
+        w.contentView = host
+        w.isReleasedWhenClosed = false
+        w.makeKeyAndOrderFront(nil)
+        window = w
+    }
+}
+
+private struct MascotMovesView: View {
+    @State private var current: HatchReaction?
+    @State private var loop = false
+    @State private var timer: Timer?
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+
+    var body: some View {
+        VStack(spacing: 22) {
+            HatchlingMascotView(source: "claude", status: .idle, size: 180, global: true)
+                .frame(width: 180, height: 180)
+                .padding(.top, 36)
+            Text(current.flatMap { r in MascotMoves.moves.first { $0.0 == r }?.1 } ?? "escolha um gesto")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(MascotMoves.moves, id: \.0) { move, name in
+                    Button { play(move) } label: {
+                        Text(name)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(current == move ? .black : .white.opacity(0.85))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 30)
+                            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(current == move ? Color.white.opacity(0.92) : Color.white.opacity(0.08)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 24)
+            HStack(spacing: 16) {
+                Toggle("Repetir", isOn: $loop)
+                    .toggleStyle(.switch)
+                    .onChange(of: loop) { _, on in on ? startLoop() : stopLoop() }
+                Text("Passe o mouse perto: os olhos seguem. Balance em cima: cócegas. Pare em cima: esconde-esconde. Clique duplo: pirueta.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.45))
+            }
+            .padding(.horizontal, 24)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+    }
+
+    private func play(_ move: HatchReaction) {
+        current = move
+        move.post()
+        if loop { startLoop() }
+    }
+
+    private func startLoop() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 2.6, repeats: true) { _ in
+            MainActor.assumeIsolated { current?.post() }
+        }
+    }
+
+    private func stopLoop() {
+        timer?.invalidate()
+        timer = nil
     }
 }
 #endif
