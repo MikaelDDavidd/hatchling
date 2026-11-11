@@ -447,12 +447,13 @@ private struct CompactLeftWing: View {
     }
     private var displaySource: String { displaySession?.source ?? appState.primarySource }
     @AppStorage(SettingsKey.selectedPanelTab) private var selectedPanelTab = SettingsDefaults.selectedPanelTab
+    @ObservedObject private var phonePanel = PhonePanel.shared
     /// Whether a big Hatch is on screen further down — the summary of a finished run, or
     /// the stage at the head of the agents list — so the header one steps aside.
     private var isPresenting: Bool {
         switch appState.surface {
         case .completionCard, .buddySpeech: return true
-        case .sessionList: return selectedPanelTab != PanelTab.notes.rawValue
+        case .sessionList: return phonePanel.open || selectedPanelTab != PanelTab.notes.rawValue
         default: return false
         }
     }
@@ -568,6 +569,7 @@ private struct CompactRightWing: View {
     var body: some View {
         HStack(spacing: expanded ? 2 : 6) {
             if expanded {
+                PhoneHeaderButton()
                 NotchIconButton(icon: "chevron.up", tooltip: l10n["collapse"]) {
                     appState.collapsePanel()
                 }

@@ -1293,6 +1293,7 @@ final class AppState {
     /// Collapse the expanded panel without answering any pending question/permission.
     /// The pending item stays queued; the next hover (or a new event) reopens it.
     func collapsePanel() {
+        PhonePanel.shared.close()
         if hasPendingInteraction {
             userCollapsedPendingSurface = true
         }

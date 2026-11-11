@@ -37,6 +37,7 @@ struct PanelTabSelector: View {
             ForEach(PanelTab.allCases, id: \.rawValue) { tab in
                 let isSelected = selected == tab.rawValue
                 Button {
+                    PhonePanel.shared.close()
                     withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) { selected = tab.rawValue }
                 } label: {
                     HStack(spacing: 5) {
@@ -83,12 +84,17 @@ struct PanelTabContent: View {
     @AppStorage(SettingsKey.selectedPanelTab) private var selected: String = SettingsDefaults.selectedPanelTab
     @State private var previousOrder = 0
 
+    @ObservedObject private var phonePanel = PhonePanel.shared
     private var tab: PanelTab { PanelTab(rawValue: selected) ?? .agents }
 
     var body: some View {
         // Slide the way the pill went: right for a tab further along, left for one before.
         let forward = tab.order >= previousOrder
         ZStack(alignment: .top) {
+            if phonePanel.open {
+                PhonePairingView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topTrailing)))
+            } else {
             switch tab {
             case .files:
                 FilesTrayView().transition(slide(forward))
@@ -100,6 +106,7 @@ struct PanelTabContent: View {
                     SessionListView(appState: appState, onlySessionId: nil)
                 }
                 .transition(slide(forward))
+            }
             }
         }
         .clipped()

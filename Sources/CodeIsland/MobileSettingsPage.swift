@@ -1,21 +1,20 @@
 import SwiftUI
-import CoreImage.CIFilterBuiltins
 import AppKit
+import Combine
 
 /// Settings for the phone app: where the relay is, and which devices may drive this Mac.
 ///
 /// The QR is drawn here rather than fetched. It encodes a string the app already knows how to
 /// read, so generating it locally keeps the pairing code from taking any detour it does not
-/// need to take.
+/// need to take. The same QR is also one click away in the panel, from the phone button.
 struct MobileSettingsPage: View {
     @AppStorage(SettingsKey.mobileBridgeEnabled) private var enabled = SettingsDefaults.mobileBridgeEnabled
     @AppStorage(SettingsKey.mobileRelayURL) private var relayURL = SettingsDefaults.mobileRelayURL
     @AppStorage(SettingsKey.mobileRelayToken) private var relayToken = SettingsDefaults.mobileRelayToken
     @AppStorage(SettingsKey.mobileAllowKeystrokeInjection) private var allowKeystrokes = SettingsDefaults.mobileAllowKeystrokeInjection
 
-    @State private var bridgeState: MobileBridge.State = .off
-    @State private var pairingCode: MobileBridge.PairingCode?
-    @State private var devices: [MobileBridge.PairedDevice] = []
+    @ObservedObject private var bridge = MobileBridge.shared
+    @ObservedObject private var l10n = L10n.shared
     @State private var now = Date()
     @State private var revealToken = false
 
@@ -26,23 +25,17 @@ struct MobileSettingsPage: View {
             connectionSection
             if enabled {
                 pairingSection
-                if !devices.isEmpty { devicesSection }
+                if !bridge.pairedDevices.isEmpty { devicesSection }
                 promptSection
             }
         }
         .formStyle(.grouped)
         .onAppear {
-            bridgeState = MobileBridge.shared.state
-            pairingCode = MobileBridge.shared.pairingCode
-            devices = MobileBridge.shared.pairedDevices
-            MobileBridge.shared.onStateChange = { bridgeState = $0 }
-            MobileBridge.shared.onPairingCodeChange = { pairingCode = $0 }
-            MobileBridge.shared.onDevicesChange = { devices = $0 }
-            if case .online = bridgeState { MobileBridge.shared.refreshPairedDevices() }
+            if case .online = bridge.state { bridge.refreshPairedDevices() }
         }
         .onReceive(tick) { now = $0 }
         .onChange(of: enabled) { _, isOn in
-            isOn ? MobileBridge.shared.start() : MobileBridge.shared.stop()
+            isOn ? bridge.start() : bridge.stop()
         }
     }
 
@@ -50,18 +43,18 @@ struct MobileSettingsPage: View {
 
     private var connectionSection: some View {
         Section {
-            Toggle("Connect to a relay", isOn: $enabled)
+            Toggle(l10n["phone_connect_toggle"], isOn: $enabled)
 
             if enabled {
-                TextField("Relay", text: $relayURL, prompt: Text("wss://hatch.odd-now.com/ws"))
+                TextField(l10n["phone_server"], text: $relayURL, prompt: Text("wss://hatch.odd-now.com/ws"))
                     .font(.system(size: 11, design: .monospaced))
 
                 HStack {
                     if revealToken {
-                        TextField("Token", text: $relayToken, prompt: Text("the relay's HATCHLING_MAC_TOKEN"))
+                        TextField(l10n["phone_token"], text: $relayToken, prompt: Text("HATCHLING_MAC_TOKEN"))
                             .font(.system(size: 11, design: .monospaced))
                     } else {
-                        SecureField("Token", text: $relayToken, prompt: Text("the relay's HATCHLING_MAC_TOKEN"))
+                        SecureField(l10n["phone_token"], text: $relayToken, prompt: Text("HATCHLING_MAC_TOKEN"))
                             .font(.system(size: 11, design: .monospaced))
                     }
                     Button {
@@ -73,27 +66,28 @@ struct MobileSettingsPage: View {
                 }
 
                 HStack(spacing: 8) {
+                    Text(l10n["phone_state"])
+                    Spacer()
                     Circle().fill(statusColor).frame(width: 7, height: 7)
                     Text(statusText)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Reconnect") { MobileBridge.shared.restart() }
+                    Button(l10n["phone_reconnect"]) { bridge.restart() }
                         .controlSize(.small)
                         .disabled(relayURL.isEmpty || relayToken.isEmpty)
                 }
             }
         } header: {
-            Text("Phone")
+            Text(l10n["phone_section_connection"])
         } footer: {
-            Text("Hatchling opens an outbound connection carrying session state. Nothing listens for incoming connections on this Mac.")
+            Text(l10n["phone_connection_footer"])
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
     }
 
     private var statusColor: Color {
-        switch bridgeState {
+        switch bridge.state {
         case .online: return .green
         case .connecting, .retrying: return .orange
         case .failed: return .red
@@ -102,18 +96,22 @@ struct MobileSettingsPage: View {
     }
 
     private var statusText: String {
-        switch bridgeState {
-        case .off: return "off"
-        case .connecting: return "connecting…"
+        switch bridge.state {
+        case .off: return l10n["phone_status_off"]
+        case .connecting: return l10n["phone_status_connecting"]
         case .online(let peers):
-            return peers == 0 ? "connected, no phone" : "connected, \(peers) phone\(peers == 1 ? "" : "s")"
-        case .retrying(let attempt): return "reconnecting (attempt \(attempt))"
+            switch peers {
+            case 0: return l10n["phone_status_no_phone"]
+            case 1: return l10n["phone_status_one"]
+            default: return String(format: l10n["phone_status_many"], peers)
+            }
+        case .retrying(let attempt): return String(format: l10n["phone_status_retrying"], attempt)
         case .failed(let message): return message
         }
     }
 
     private var isOnline: Bool {
-        if case .online = bridgeState { return true }
+        if case .online = bridge.state { return true }
         return false
     }
 
@@ -121,108 +119,104 @@ struct MobileSettingsPage: View {
 
     @ViewBuilder
     private var pairingSection: some View {
-        Section("Pair a phone") {
-            if let code = pairingCode, !code.isExpired {
+        Section {
+            if let code = bridge.pairingCode, code.expiresAt > now {
                 HStack(alignment: .top, spacing: 18) {
-                    if let qr = qrImage(for: code.code) {
+                    if let qr = PairingQR.image(relay: relayURL, code: code.code) {
                         Image(nsImage: qr)
                             .interpolation(.none)  // a QR has to stay crisp
                             .resizable()
-                            .frame(width: 124, height: 124)
-                            .padding(6)
+                            .frame(width: 136, height: 136)
+                            .padding(7)
                             .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(code.code)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(PairingQR.spaced(code.code))
                             .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                            .tracking(1)
                             .textSelection(.enabled)
 
-                        Text("Expires in \(code.secondsRemaining)s")
+                        let remaining = max(0, Int(code.expiresAt.timeIntervalSince(now)))
+                        Text(String(format: l10n["phone_valid_for"], PairingQR.clock(remaining)))
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(code.secondsRemaining < 60 ? .orange : .secondary)
+                            .monospacedDigit()
+                            .foregroundStyle(remaining < 60 ? .orange : .secondary)
 
-                        Text("Type it into the app, or scan. Single use.")
-                            .font(.system(size: 11))
+                        Text(l10n["phone_pair_hint"])
+                            .font(.system(size: 12))
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 4)
 
-                        Button("Cancel") { MobileBridge.shared.clearPairingCode() }
+                        Button(l10n["phone_cancel"]) { bridge.clearPairingCode() }
                             .controlSize(.small)
+                            .padding(.top, 6)
                     }
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 6)
             } else {
                 HStack {
-                    Button("Generate pairing code") { MobileBridge.shared.requestPairingCode() }
+                    Button(l10n["phone_generate"]) { bridge.requestPairingCode() }
                         .disabled(!isOnline)
                     if !isOnline {
-                        Text("Connect to the relay first")
+                        Text(l10n["phone_connect_first"])
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
                 }
             }
+        } header: {
+            Text(l10n["phone_pair_section"])
+        } footer: {
+            Text(l10n["phone_pair_footer"])
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
-        // Redraw on the tick so an expired code stops being offered.
-        .id(pairingCode.map { "\($0.code)-\(Int(now.timeIntervalSince1970))" } ?? "none")
     }
 
     // MARK: - Devices
 
     private var devicesSection: some View {
-        Section("Paired phones") {
-            ForEach(devices) { device in
+        Section(l10n["phone_paired_list"]) {
+            ForEach(bridge.pairedDevices) { device in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(device.name)
-                        Text(device.lastSeen.map { "Last seen \(relative($0))" } ?? "Never connected")
-                            .font(.system(size: 10))
+                        Text(seen(device))
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Revoke") { MobileBridge.shared.revoke(deviceId: device.id) }
+                    Button(l10n["phone_revoke"]) { bridge.revoke(deviceId: device.id) }
                         .controlSize(.small)
                 }
             }
         }
     }
 
-    private func relative(_ date: Date) -> String {
+    private func seen(_ device: MobileBridge.PairedDevice) -> String {
+        guard let date = device.lastSeen else { return l10n["phone_never"] }
+        if now.timeIntervalSince(date) < 120 { return l10n["phone_connected_now"] }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        formatter.locale = Locale(identifier: l10n.effectiveLanguage == "pt" ? "pt_BR" : "en_US")
+        return String(format: l10n["phone_last_seen"], formatter.localizedString(for: date, relativeTo: now))
     }
 
     // MARK: - Prompt injection
 
     private var promptSection: some View {
         Section {
-            Toggle("Allow prompts outside tmux", isOn: $allowKeystrokes)
+            Toggle(l10n["phone_prompts_toggle"], isOn: $allowKeystrokes)
+        } header: {
+            Text(l10n["phone_prompts"])
         } footer: {
-            Text("Sending a prompt to a session running in tmux is exact and needs no permission. Outside tmux there is no supported way to type into another program's terminal, so Hatchling synthesises keystrokes: it needs Accessibility permission, it raises the terminal window, and the text lands wherever focus ends up. Leave this off unless you need it.")
+            Text(l10n["phone_prompts_footer"])
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
         }
-    }
-
-    // MARK: - QR
-
-    /// Encodes what the app needs to connect: the relay and the code, as JSON.
-    private func qrImage(for code: String) -> NSImage? {
-        let payload: [String: String] = ["relay": relayURL, "pair": code]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
-
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = data
-        filter.correctionLevel = "M"
-        guard let output = filter.outputImage else { return nil }
-
-        // Integer scale so module edges land on pixel boundaries.
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-        return NSImage(cgImage: cgImage, size: NSSize(width: scaled.extent.width, height: scaled.extent.height))
     }
 }
