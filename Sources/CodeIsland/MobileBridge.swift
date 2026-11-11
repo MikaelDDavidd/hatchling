@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import CodeIslandCore
 import os
+import Combine
 
 /// Talks to the relay so the phone app can watch and drive sessions.
 ///
@@ -9,7 +10,7 @@ import os
 /// hands over a `commandHandler` to run what the phone asks. The bridge knows nothing about the
 /// panel, and the panel knows nothing about sockets.
 @MainActor
-final class MobileBridge {
+final class MobileBridge: ObservableObject {
     static let shared = MobileBridge()
 
     private static let log = Logger(subsystem: "com.mikaeldavid.CodeIsland", category: "MobileBridge")
@@ -22,20 +23,20 @@ final class MobileBridge {
         case failed(String)
     }
 
-    private(set) var state: State = .off {
+    @Published private(set) var state: State = .off {
         didSet { if state != oldValue { onStateChange?(state) } }
     }
 
     var onStateChange: ((State) -> Void)?
 
     /// A live pairing code, when one has been asked for. Cleared once it expires or is used.
-    private(set) var pairingCode: PairingCode? {
+    @Published private(set) var pairingCode: PairingCode? {
         didSet { onPairingCodeChange?(pairingCode) }
     }
     var onPairingCodeChange: ((PairingCode?) -> Void)?
 
     /// Phones that have been paired. The relay owns this list; the Mac shows it.
-    private(set) var pairedDevices: [PairedDevice] = [] {
+    @Published private(set) var pairedDevices: [PairedDevice] = [] {
         didSet { onDevicesChange?(pairedDevices) }
     }
     var onDevicesChange: (([PairedDevice]) -> Void)?
