@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import os.log
 
@@ -65,6 +66,39 @@ private class NotchHostingView<Content: View>: NSHostingView<Content> {
         applyingDeferred = true
         super.needsLayout = value
         applyingDeferred = false
+    }
+}
+
+/// A key pressed while an approval or question card is on screen.
+enum CardKey {
+    case confirm
+    case cancel
+    /// 1-based option number, as printed on the option rows.
+    case option(Int)
+}
+
+/// Keyboard for the approval and question cards.
+///
+/// The panel is a non-activating `NSPanel`: it only receives keys while it is the key window,
+/// which happens when the user clicks it (`NotchHostingView.mouseDown`). It is deliberately
+/// never made key on its own when a card appears: the user is usually typing in the terminal
+/// at that moment, and a stray Return would approve a tool call they never read. So the keys
+/// work once the card has been clicked, and the hints on the buttons say so by showing only
+/// while the panel is key; otherwise they show the global shortcut, when one is enabled.
+@MainActor
+final class CardKeys: ObservableObject {
+    static let shared = CardKeys()
+
+    @Published fileprivate(set) var panelIsKey = false
+    /// The visible card listens to this; whichever card is on screen acts on the key.
+    let pressed = PassthroughSubject<CardKey, Never>()
+
+    /// The hint to print on a card button: the plain key while the panel has the keyboard,
+    /// else the global shortcut for the same action if the user enabled one.
+    func hint(local: String?, global action: ShortcutAction?) -> String? {
+        if panelIsKey { return local }
+        guard let action, action.isEnabled else { return nil }
+        return action.binding.displayString
     }
 }
 
@@ -150,6 +184,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     private var dragStartPanelX: CGFloat?
     private var isDraggingPanel = false
     private var localDragMonitor: Any?
+    private var cardKeyMonitor: Any?
     private var lastDisplayChoice = ""
     private var lastNotchHeightMode = SettingsDefaults.notchHeightMode
     private var lastCustomNotchHeight = SettingsDefaults.customNotchHeight
@@ -188,6 +223,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         self.lastChosenScreenSignature = ScreenDetector.signature(for: screen)
 
         setupHorizontalDragMonitor()
+        setupCardKeyMonitor()
         updatePosition()
         panel.orderFrontRegardless()
 
@@ -527,6 +563,46 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Return, Esc and the option digits for the card on screen. A local monitor, because SwiftUI focus
+    /// inside a borderless non-activating panel is unreliable, while the monitor sees every
+    /// key the panel gets once it is key. Keys typed into a text field (a free-form answer)
+    /// are left alone so the field still gets its digits, Return and Esc.
+    private func setupCardKeyMonitor() {
+        cardKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, let panel = self.panel, event.window === panel else { return event }
+            let isApproval: Bool
+            switch self.appState.surface {
+            case .approvalCard: isApproval = true
+            case .questionCard: isApproval = false
+            default: return event
+            }
+            let mods = event.modifierFlags.intersection([.command, .control, .option])
+            guard mods.isEmpty else { return event }
+            if panel.firstResponder is NSTextView { return event }
+
+            let key: CardKey
+            switch event.keyCode {
+            case 36, 76: key = .confirm // Return, keypad Enter
+            case 53: key = .cancel      // Esc
+            default:
+                guard !isApproval,
+                      let chars = event.charactersIgnoringModifiers,
+                      let n = Int(chars), (1...9).contains(n) else { return event }
+                key = .option(n)
+            }
+            CardKeys.shared.pressed.send(key)
+            return nil
+        }
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        CardKeys.shared.panelIsKey = true
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        CardKeys.shared.panelIsKey = false
+    }
+
     /// Choose which screen to display on based on displayChoice setting
     private func chosenScreen() -> NSScreen {
         let choice = SettingsManager.shared.displayChoice
@@ -639,6 +715,9 @@ class PanelWindowController: NSObject, NSWindowDelegate {
             NSEvent.removeMonitor(monitor)
         }
         if let monitor = localDragMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = cardKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }

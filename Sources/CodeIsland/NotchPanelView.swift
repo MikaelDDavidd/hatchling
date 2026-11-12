@@ -951,13 +951,24 @@ private struct FormButton: View {
     enum Kind { case primary, secondary, destructive }
     let label: String
     var kind: Kind = .secondary
+    /// The key that does the same thing ("↩", "esc", a global shortcut), shown small after
+    /// the label so the keyboard path is discoverable without a help page.
+    var keyHint: String? = nil
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(size: 11.5, weight: kind == .primary ? .semibold : .medium))
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 11.5, weight: kind == .primary ? .semibold : .medium))
+                if let keyHint {
+                    Text(keyHint)
+                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                        .opacity(0.5)
+                        .accessibilityHidden(true)
+                }
+            }
                 .foregroundStyle(foreground)
                 .padding(.horizontal, 14)
                 .frame(height: 28)
@@ -1024,6 +1035,7 @@ private struct ApprovalBar: View {
     let onDeny: () -> Void
 
     private var l10n: L10n { L10n.shared }
+    @ObservedObject private var keys = CardKeys.shared
 
     private var filePath: String? { toolInput?["file_path"] as? String }
     private var fileName: String? { filePath.map { ($0 as NSString).lastPathComponent } }
@@ -1068,14 +1080,24 @@ private struct ApprovalBar: View {
             }
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
-                FormButton(label: l10n["form_deny"], kind: .destructive, action: onDeny)
-                FormButton(label: l10n["form_always"], action: onAlwaysAllow)
-                FormButton(label: l10n["form_allow"], kind: .primary, action: onAllow)
+                FormButton(label: l10n["form_deny"], kind: .destructive,
+                           keyHint: keys.hint(local: "esc", global: .deny), action: onDeny)
+                FormButton(label: l10n["form_always"],
+                           keyHint: keys.hint(local: nil, global: .approveAlways), action: onAlwaysAllow)
+                FormButton(label: l10n["form_allow"], kind: .primary,
+                           keyHint: keys.hint(local: "↩", global: .approve), action: onAllow)
             }
             .padding(.top, 2)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+        .onReceive(keys.pressed) { key in
+            switch key {
+            case .confirm: onAllow()
+            case .cancel: onDeny()
+            case .option: break
+            }
+        }
     }
 
     private func path(_ p: String) -> some View {
@@ -1204,6 +1226,7 @@ private struct QuestionBar: View {
     @FocusState private var otherFocused: Bool
 
     private var l10n: L10n { L10n.shared }
+    @ObservedObject private var keys = CardKeys.shared
 
     private var currentItem: AskUserQuestionItem? {
         guard !allQuestions.isEmpty, currentQuestionIndex < allQuestions.count else { return nil }
@@ -1228,6 +1251,49 @@ private struct QuestionBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .onAppear { isFocused = true }
+        .onReceive(keys.pressed, perform: handleKey)
+    }
+
+    /// Digits pick the numbered option (or tick it, in a multi-select), Return confirms what
+    /// needs confirming, Esc skips — the same as the buttons. Typing in a text field never
+    /// gets here: the panel's key monitor leaves keys meant for the field alone.
+    private func handleKey(_ key: CardKey) {
+        if let item = currentItem {
+            let opts = item.payload.options ?? []
+            switch key {
+            case .option(let n):
+                let idx = n - 1
+                guard opts.indices.contains(idx) else { return }
+                if item.multiSelect {
+                    if selectedIndices.contains(idx) { selectedIndices.remove(idx) } else { selectedIndices.insert(idx) }
+                } else {
+                    selectedIndex = idx
+                    showOtherInput = false
+                    advanceWithAnswer(opts[idx])
+                }
+            case .confirm:
+                if item.multiSelect {
+                    confirmMultiSelect()
+                } else if showOtherInput, !otherText.isEmpty {
+                    advanceWithAnswer(otherText)
+                } else if opts.isEmpty, !textInput.isEmpty {
+                    advanceWithAnswer(textInput)
+                }
+            case .cancel:
+                onSkip()
+            }
+        } else {
+            switch key {
+            case .option(let n):
+                guard let options, options.indices.contains(n - 1) else { return }
+                selectedIndex = n - 1
+                onAnswer(options[n - 1])
+            case .confirm:
+                if (options ?? []).isEmpty, !textInput.isEmpty { onAnswer(textInput) }
+            case .cancel:
+                onSkip()
+            }
+        }
     }
 
     /// Dots and "2 de 3" for a run of questions.
@@ -1317,15 +1383,15 @@ private struct QuestionBar: View {
                 .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
-            FormButton(label: l10n["form_skip"], action: onSkip)
+            FormButton(label: l10n["form_skip"], keyHint: keys.hint(local: "esc", global: .skipQuestion), action: onSkip)
             if item.multiSelect {
-                FormButton(label: l10n["form_confirm"], kind: .primary, action: confirmMultiSelect)
+                FormButton(label: l10n["form_confirm"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil), action: confirmMultiSelect)
             } else if item.payload.options == nil || item.payload.options?.isEmpty == true {
-                FormButton(label: l10n["form_send"], kind: .primary) {
+                FormButton(label: l10n["form_send"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil)) {
                     if !textInput.isEmpty { advanceWithAnswer(textInput) }
                 }
             } else if showOtherInput {
-                FormButton(label: l10n["form_send"], kind: .primary) {
+                FormButton(label: l10n["form_send"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil)) {
                     if !otherText.isEmpty { advanceWithAnswer(otherText) }
                 }
             }
@@ -1418,9 +1484,9 @@ private struct QuestionBar: View {
 
         HStack(spacing: 6) {
             Spacer(minLength: 0)
-            FormButton(label: l10n["form_skip"], action: onSkip)
+            FormButton(label: l10n["form_skip"], keyHint: keys.hint(local: "esc", global: .skipQuestion), action: onSkip)
             if options == nil || options?.isEmpty == true {
-                FormButton(label: l10n["form_send"], kind: .primary) {
+                FormButton(label: l10n["form_send"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil)) {
                     if !textInput.isEmpty { onAnswer(textInput) }
                 }
             }
