@@ -445,8 +445,18 @@ private struct BehaviorPage: View {
                     Text("Anthropic (Claude Haiku)").tag(AIProvider.anthropic.rawValue)
                     Text("NVIDIA").tag(AIProvider.nvidia.rawValue)
                 }
-                keyRow(title: "Anthropic", placeholder: "sk-ant-…", draft: $apiKeyDraft, saved: $hasApiKey, secret: .anthropic)
-                keyRow(title: "NVIDIA", placeholder: "nvapi-…", draft: $nvidiaKeyDraft, saved: $hasNvidiaKey, secret: .nvidia)
+                // Keys are for people who want AI-written lines; the defaults work without
+                // them, so they wait behind Advanced instead of greeting everyone.
+                DisclosureGroup(l10n["advanced"]) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        keyRow(title: "Anthropic", placeholder: "sk-ant-…", draft: $apiKeyDraft, saved: $hasApiKey, secret: .anthropic)
+                        FieldHelp(l10n["adv_help_anthropic_key"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        keyRow(title: "NVIDIA", placeholder: "nvapi-…", draft: $nvidiaKeyDraft, saved: $hasNvidiaKey, secret: .nvidia)
+                        FieldHelp(l10n["adv_help_nvidia_key"])
+                    }
+                }
                 Text(l10n["ai_summary_hint"])
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -673,40 +683,59 @@ private struct HooksPage: View {
                     }
                 }
 
-                TextField(l10n["custom_cli_name"], text: $customName)
-                TextField(l10n["custom_cli_source"], text: $customSource)
-                TextField(l10n["custom_cli_config_path"], text: $customConfigPath)
-                TextField(l10n["custom_cli_config_key"], text: $customConfigKey)
-                Picker(l10n["custom_cli_template"], selection: $customFormat) {
-                    Text("Claude").tag(HookFormat.claude)
-                    Text("Codex/Gemini").tag(HookFormat.nested)
-                    Text("Cursor").tag(HookFormat.flat)
-                    Text("Copilot").tag(HookFormat.copilot)
-                }
+                // Adding a CLI by hand needs to know how its config file is laid out; most
+                // people never do it, so the form waits behind Advanced, each field explained.
+                DisclosureGroup(l10n["advanced"]) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_name"], text: $customName)
+                        FieldHelp(l10n["adv_help_cli_name"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_source"], text: $customSource)
+                        FieldHelp(l10n["adv_help_cli_source"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_config_path"], text: $customConfigPath)
+                        FieldHelp(l10n["adv_help_cli_path"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_config_key"], text: $customConfigKey)
+                        FieldHelp(l10n["adv_help_cli_key"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker(l10n["custom_cli_template"], selection: $customFormat) {
+                            Text("Claude").tag(HookFormat.claude)
+                            Text("Codex/Gemini").tag(HookFormat.nested)
+                            Text("Cursor").tag(HookFormat.flat)
+                            Text("Copilot").tag(HookFormat.copilot)
+                        }
+                        FieldHelp(l10n["adv_help_cli_template"])
+                    }
 
-                Button(l10n["custom_cli_add"]) {
-                    let result = ConfigInstaller.addCustomCLI(
-                        name: customName,
-                        source: customSource,
-                        configPath: customConfigPath,
-                        format: customFormat,
-                        configKey: customConfigKey
-                    )
-                    statusMessage = result.message
-                    statusIsError = !result.ok
-                    guard result.ok else { return }
+                    Button(l10n["custom_cli_add"]) {
+                        let result = ConfigInstaller.addCustomCLI(
+                            name: customName,
+                            source: customSource,
+                            configPath: customConfigPath,
+                            format: customFormat,
+                            configKey: customConfigKey
+                        )
+                        statusMessage = result.message
+                        statusIsError = !result.ok
+                        guard result.ok else { return }
 
-                    let normalizedSource = customSource
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .lowercased()
-                    _ = ConfigInstaller.setEnabled(source: normalizedSource, enabled: true)
-                    customName = ""
-                    customSource = ""
-                    customConfigPath = ""
-                    customConfigKey = "hooks"
-                    customFormat = .claude
-                    refreshCLIStatuses()
-                    refreshKey += 1
+                        let normalizedSource = customSource
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .lowercased()
+                        _ = ConfigInstaller.setEnabled(source: normalizedSource, enabled: true)
+                        customName = ""
+                        customSource = ""
+                        customConfigPath = ""
+                        customConfigKey = "hooks"
+                        customFormat = .claude
+                        refreshCLIStatuses()
+                        refreshKey += 1
+                    }
                 }
             }
 
@@ -1644,16 +1673,6 @@ private struct UpdateStatusCard: View {
 private struct AboutPage: View {
     @ObservedObject private var l10n = L10n.shared
 
-    private let features: [(icon: String, label: String)] = [
-        ("pawprint.fill",         "Buddy ASCII (18 species, rarity, stats)"),
-        ("bubble.left.fill",      "Buddy speech bubbles (occasional musings)"),
-        ("chart.bar.fill",        "Per-session context window % (model + tokens)"),
-        ("circle.dotted",         "Anthropic status panel (live)"),
-        ("text.alignleft",        "Whimsical gerund verbs while working"),
-        ("rectangle.3.group.fill", "1 mascot per CLI source, side-by-side"),
-        ("link.circle.fill",      "Hooks for 17 CLIs (Claude, Codex, Gemini, Cursor…)"),
-    ]
-
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -1676,24 +1695,20 @@ private struct AboutPage: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
 
-                // Feature highlights
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("WHAT'S NEW IN HATCHLING")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .padding(.bottom, 4)
-                    ForEach(features, id: \.label) { f in
-                        HStack(spacing: 10) {
-                            Image(systemName: f.icon)
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color(red: 1.0, green: 0.65, blue: 0.25))
-                                .frame(width: 18)
-                            Text(f.label)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
+                // What changed: a fixed list here went stale with every release and still
+                // described the app this one was forked from. The release notes on GitHub are
+                // written per version, so the page points there instead.
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(l10n["about_whats_new"])
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(l10n["about_whats_new_hint"])
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    Spacer(minLength: 8)
+                    aboutLink(l10n["about_release_notes"], icon: "doc.text", url: "https://github.com/MikaelDDavidd/hatchling/releases")
                 }
                 .padding(16)
                 .frame(maxWidth: 440)
@@ -1778,6 +1793,22 @@ private struct AboutPage: View {
         aboutButton(title, icon: icon) {
             if let u = URL(string: url) { NSWorkspace.shared.open(u) }
         }
+    }
+}
+
+// MARK: - Field help
+
+/// One sentence under a settings field saying what goes in it, for the fields behind
+/// Advanced that most people never need to touch.
+struct FieldHelp: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
