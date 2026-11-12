@@ -324,11 +324,11 @@ final class L10n: ObservableObject {
 
         // Update
         "update_available_title": "Update Available",
-        "update_available_body": "CodeIsland %@ is available (current: %@). Would you like to download it?",
+        "update_available_body": "Hatchling %@ is available (current: %@). Would you like to download it?",
         "download_update": "Download",
         "later": "Later",
         "no_update_title": "Up to Date",
-        "no_update_body": "CodeIsland %@ is the latest version.",
+        "no_update_body": "Hatchling %@ is the latest version.",
         "ok": "OK",
         "update_now": "Update Now",
         "update_downloading": "Downloading update...",
@@ -338,9 +338,14 @@ final class L10n: ObservableObject {
         "update_installing": "Installing update...",
         "update_retry": "Retry",
         "update_homebrew_title": "Update Available",
-        "update_homebrew_body": "CodeIsland %@ is available. Since you installed via Homebrew, please run:",
-        "update_homebrew_command": "brew upgrade codeisland",
+        "update_homebrew_body": "Hatchling %@ is available. Since you installed via Homebrew, please run:",
+        "update_homebrew_command": "brew upgrade hatchling",
         "update_copy_command": "Copy Command",
+        "update_current_version": "Version %@",
+        "update_checking": "Checking for updates…",
+        "update_check_now": "Check for updates",
+        "update_available_body_short": "Hatchling %@ is available (current: %@).",
+        "update_copied": "Copied",
 
         // NotchPanel
         "mute": "Mute",
@@ -679,11 +684,11 @@ final class L10n: ObservableObject {
 
         // Update
         "update_available_title": "发现新版本",
-        "update_available_body": "CodeIsland %@ 已发布（当前版本：%@），是否前往下载？",
+        "update_available_body": "Hatchling %@ 已发布（当前版本：%@），是否前往下载？",
         "download_update": "前往下载",
         "later": "稍后",
         "no_update_title": "已是最新版本",
-        "no_update_body": "CodeIsland %@ 已是最新版本。",
+        "no_update_body": "Hatchling %@ 已是最新版本。",
         "ok": "好",
         "update_now": "立即更新",
         "update_downloading": "正在下载更新...",
@@ -693,9 +698,14 @@ final class L10n: ObservableObject {
         "update_installing": "正在安装更新...",
         "update_retry": "重试",
         "update_homebrew_title": "发现新版本",
-        "update_homebrew_body": "CodeIsland %@ 已发布。由于您通过 Homebrew 安装，请运行：",
-        "update_homebrew_command": "brew upgrade codeisland",
+        "update_homebrew_body": "Hatchling %@ 已发布。由于您通过 Homebrew 安装，请运行：",
+        "update_homebrew_command": "brew upgrade hatchling",
         "update_copy_command": "复制命令",
+        "update_current_version": "版本 %@",
+        "update_checking": "正在检查更新…",
+        "update_check_now": "检查更新",
+        "update_available_body_short": "Hatchling %@ 已发布（当前版本：%@）。",
+        "update_copied": "已复制",
 
         // NotchPanel
         "mute": "静音",
@@ -992,11 +1002,11 @@ final class L10n: ObservableObject {
 
         // Update
         "update_available_title": "Güncelleme Mevcut",
-        "update_available_body": "CodeIsland %@ mevcut (şimdiki: %@). İndirmek ister misiniz?",
+        "update_available_body": "Hatchling %@ mevcut (şimdiki: %@). İndirmek ister misiniz?",
         "download_update": "İndir",
         "later": "Sonra",
         "no_update_title": "Güncel",
-        "no_update_body": "CodeIsland %@ en son sürüm.",
+        "no_update_body": "Hatchling %@ en son sürüm.",
         "ok": "Tamam",
         "update_now": "Şimdi Güncelle",
         "update_downloading": "Güncelleme indiriliyor...",
@@ -1006,9 +1016,14 @@ final class L10n: ObservableObject {
         "update_installing": "Güncelleme yükleniyor...",
         "update_retry": "Tekrar Dene",
         "update_homebrew_title": "Güncelleme Mevcut",
-        "update_homebrew_body": "CodeIsland %@ mevcut. Homebrew ile yüklediğiniz için, lütfen şunu çalıştırın:",
-        "update_homebrew_command": "brew upgrade codeisland",
+        "update_homebrew_body": "Hatchling %@ mevcut. Homebrew ile yüklediğiniz için, lütfen şunu çalıştırın:",
+        "update_homebrew_command": "brew upgrade hatchling",
         "update_copy_command": "Komutu Kopyala",
+        "update_current_version": "Sürüm %@",
+        "update_checking": "Güncellemeler denetleniyor…",
+        "update_check_now": "Güncellemeleri denetle",
+        "update_available_body_short": "Hatchling %@ mevcut (şimdiki: %@).",
+        "update_copied": "Kopyalandı",
 
         // NotchPanel
         "mute": "Sessiz",
@@ -1343,6 +1358,11 @@ final class L10n: ObservableObject {
         "update_homebrew_body": "Hatchling %@ disponível. Como você instalou via Homebrew, roda:",
         "update_homebrew_command": "brew upgrade hatchling",
         "update_copy_command": "Copiar comando",
+        "update_current_version": "Versão %@",
+        "update_checking": "Verificando atualizações…",
+        "update_check_now": "Verificar atualizações",
+        "update_available_body_short": "Hatchling %@ disponível (atual: %@).",
+        "update_copied": "Copiado",
 
         // NotchPanel
         "mute": "Mudo",

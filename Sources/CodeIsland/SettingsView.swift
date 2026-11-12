@@ -1445,6 +1445,146 @@ private struct SoundEventRow: View {
     }
 }
 
+// MARK: - Update status
+
+/// Where the updater stands, on the About page. UpdateChecker checks every six hours and
+/// installs on its own, but nothing showed its state: a failed download or a Homebrew copy
+/// that can't replace itself went unnoticed. This only reads the state and calls the
+/// checker's public entry points; the download and install logic stays in UpdateChecker.
+private struct UpdateStatusCard: View {
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var updater = UpdateChecker.shared
+    @State private var copied = false
+
+    private static let releasesURL = "https://github.com/MikaelDDavidd/hatchling/releases/latest"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                statusLine
+                Spacer(minLength: 8)
+                actions
+            }
+            if case .available(let version, _, _) = updater.state, updater.isHomebrewInstall {
+                homebrewCommand(version: version)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: 440)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        )
+        .animation(.easeInOut(duration: 0.2), value: updater.state)
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        switch updater.state {
+        case .idle:
+            label(String(format: l10n["update_current_version"], AppVersion.current))
+        case .checking:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                label(l10n["update_checking"])
+            }
+        case .upToDate:
+            label(String(format: l10n["no_update_body"], AppVersion.current))
+        case .available(let version, _, _):
+            label(String(format: l10n["update_available_body_short"], version, AppVersion.current))
+        case .downloading(let progress):
+            VStack(alignment: .leading, spacing: 6) {
+                label("\(l10n["update_downloading"]) \(Int(progress * 100))%")
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: 200)
+            }
+        case .installing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                label(l10n["update_installing"])
+            }
+        case .failed(let detail):
+            // The raw error is for a bug report, not for reading: it goes in the tooltip.
+            label(l10n["update_failed_title"], color: Color(red: 1.0, green: 0.45, blue: 0.4))
+                .help(detail)
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        switch updater.state {
+        case .idle, .upToDate:
+            cardButton(l10n["update_check_now"], primary: false) { updater.checkForUpdates() }
+        case .checking, .downloading, .installing:
+            EmptyView()
+        case .available:
+            if !updater.isHomebrewInstall {
+                cardButton(l10n["update_now"], primary: true) { updater.performUpdate() }
+            }
+        case .failed:
+            HStack(spacing: 8) {
+                cardButton(l10n["update_manual_download"], primary: false) {
+                    if let url = URL(string: Self.releasesURL) { NSWorkspace.shared.open(url) }
+                }
+                cardButton(l10n["update_retry"], primary: true) { updater.checkForUpdates() }
+            }
+        }
+    }
+
+    /// A Homebrew copy lives in the Caskroom and must not overwrite itself, so it gets the
+    /// command to run instead of an install button.
+    private func homebrewCommand(version: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(format: l10n["update_homebrew_body"], version))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(l10n["update_homebrew_command"])
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.black.opacity(0.25))
+                    )
+                cardButton(copied ? l10n["update_copied"] : l10n["update_copy_command"], primary: true) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(l10n["update_homebrew_command"], forType: .string)
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                }
+            }
+        }
+    }
+
+    private func label(_ text: String, color: Color? = nil) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(color ?? Color.primary.opacity(0.85))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Primary is the white button with black text, secondary the grey one, as in the panel.
+    private func cardButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: primary ? .semibold : .medium))
+                .foregroundStyle(primary ? Color.black : Color.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(primary ? Color(red: 0.925, green: 0.925, blue: 0.925) : Color(nsColor: .controlBackgroundColor))
+                )
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - About Page
 
 private struct AboutPage: View {
@@ -1474,6 +1614,7 @@ private struct AboutPage: View {
                     }
                 }
                 .padding(.top, 18)
+                UpdateStatusCard()
 
                 Text("Your AI coding agents, hatched into a tiny notch.\nPet-companions, live tool status, context-window meters, and Anthropic uptime — without leaving your menu bar.")
                     .font(.system(size: 12))
