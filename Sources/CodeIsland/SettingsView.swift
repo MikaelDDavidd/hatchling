@@ -430,10 +430,10 @@ private struct BehaviorPage: View {
                             .frame(width: 22)
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
-                                Text("YOLO mode — auto-accept permissions")
+                                Text(l10n["yolo_title"])
                                     .font(.system(size: 13, weight: .semibold))
                                 if autoAcceptPermissions {
-                                    Text("ACTIVE")
+                                    Text(l10n["yolo_active"])
                                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 5)
@@ -443,7 +443,7 @@ private struct BehaviorPage: View {
                                         )
                                 }
                             }
-                            Text("Skip every approval card and immediately allow whatever the agent wants to run. Useful for trusted projects, dangerous everywhere else.")
+                            Text(l10n["yolo_desc"])
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -451,7 +451,7 @@ private struct BehaviorPage: View {
                     }
                 }
             } header: {
-                Text("Permissions")
+                Text(l10n["permissions_section"])
             }
 
             Section(l10n["display_section"]) {
@@ -588,10 +588,10 @@ private struct HooksPage: View {
                 .id("opencode-\(refreshKey)")
             }
 
-            Section("Custom CLIs") {
+            Section(l10n["custom_cli_section"]) {
                 let customItems = ConfigInstaller.customCLIConfigs()
                 if customItems.isEmpty {
-                    Text("No custom CLI configured")
+                    Text(l10n["custom_cli_empty"])
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(customItems) { item in
@@ -616,18 +616,18 @@ private struct HooksPage: View {
                     }
                 }
 
-                TextField("Name (e.g. MyTool)", text: $customName)
-                TextField("Source (e.g. mytool)", text: $customSource)
-                TextField("Config path (e.g. .mytool/settings.json)", text: $customConfigPath)
-                TextField("Config key", text: $customConfigKey)
-                Picker("Template", selection: $customFormat) {
+                TextField(l10n["custom_cli_name"], text: $customName)
+                TextField(l10n["custom_cli_source"], text: $customSource)
+                TextField(l10n["custom_cli_config_path"], text: $customConfigPath)
+                TextField(l10n["custom_cli_config_key"], text: $customConfigKey)
+                Picker(l10n["custom_cli_template"], selection: $customFormat) {
                     Text("Claude").tag(HookFormat.claude)
                     Text("Codex/Gemini").tag(HookFormat.nested)
                     Text("Cursor").tag(HookFormat.flat)
                     Text("Copilot").tag(HookFormat.copilot)
                 }
 
-                Button("Add Custom CLI") {
+                Button(l10n["custom_cli_add"]) {
                     let result = ConfigInstaller.addCustomCLI(
                         name: customName,
                         source: customSource,
@@ -1468,14 +1468,14 @@ private struct AboutPage: View {
                     VStack(spacing: 4) {
                         Text("Hatchling")
                             .font(.system(size: 26, weight: .bold))
-                        Text("v\(AppVersion.current) · early hatch")
+                        Text("v\(AppVersion.current) · \(l10n["about_version_tag"])")
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 18)
 
-                Text("Your AI coding agents, hatched into a tiny notch.\nPet-companions, live tool status, context-window meters, and Anthropic uptime — without leaving your menu bar.")
+                Text(l10n["about_tagline"])
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
@@ -1510,8 +1510,8 @@ private struct AboutPage: View {
                 // Quick links
                 VStack(spacing: 8) {
                     HStack(spacing: 10) {
-                        aboutLink("Anthropic Status", icon: "circle.dotted", url: "https://status.claude.com")
-                        aboutLink("Plan Usage", icon: "chart.pie", url: "https://claude.ai/settings/usage")
+                        aboutLink(l10n["about_link_status"], icon: "circle.dotted", url: "https://status.claude.com")
+                        aboutLink(l10n["about_link_usage"], icon: "chart.pie", url: "https://claude.ai/settings/usage")
                     }
                     HStack(spacing: 10) {
                         aboutLink("Claude Code", icon: "ant", url: "https://github.com/anthropics/claude-code")
@@ -1541,10 +1541,10 @@ private struct AboutPage: View {
 
                 // Credits
                 VStack(spacing: 4) {
-                    Text("CREDITS")
+                    Text(l10n["about_credits"])
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(.tertiary)
-                    Text("Forked from Code Island by xiang wang (wxtsky/CodeIsland), originally inspired by Claude Island by farouqaldori. Buddy ASCII pet, WyHash and species table adapted from MioIsland by MioMioOS (xmqywx/CodeIsland), CC BY-NC 4.0.")
+                    Text(l10n["about_credits_body"])
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)

@@ -86,7 +86,7 @@ final class UpdateChecker: ObservableObject {
 
         let urlString = "https://api.github.com/repos/\(repo)/releases/latest"
         guard let url = URL(string: urlString) else {
-            state = .failed("Invalid URL")
+            state = .failed(L10n.shared["update_err_invalid_url"])
             isChecking = false
             return
         }
@@ -100,13 +100,13 @@ final class UpdateChecker: ObservableObject {
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-                    state = .failed("GitHub answered \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                    state = .failed(String(format: L10n.shared["update_err_github_status"], (response as? HTTPURLResponse)?.statusCode ?? 0))
                     return
                 }
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let tagName = json["tag_name"] as? String,
                       let htmlURL = json["html_url"] as? String else {
-                    state = .failed("Invalid response")
+                    state = .failed(L10n.shared["update_err_invalid_response"])
                     return
                 }
 
@@ -312,10 +312,10 @@ final class UpdateChecker: ObservableObject {
         case downloadFailed(Int)
         var errorDescription: String? {
             switch self {
-            case .appNotFoundInDMG: return "App not found in DMG"
-            case .notNewer(let version): return "The downloaded build (\(version)) is not newer than this one"
-            case .downloadFailed(let status): return "The download failed (HTTP \(status))"
-            case .untrustedSignature: return "The update is not signed by the same developer"
+            case .appNotFoundInDMG: return L10n.shared["update_err_no_app"]
+            case .notNewer(let version): return String(format: L10n.shared["update_err_not_newer"], version)
+            case .downloadFailed(let status): return String(format: L10n.shared["update_err_download_failed"], status)
+            case .untrustedSignature: return L10n.shared["update_err_signature"]
             }
         }
     }

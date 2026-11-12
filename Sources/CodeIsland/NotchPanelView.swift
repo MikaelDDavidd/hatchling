@@ -604,7 +604,7 @@ private struct CompactRightWing: View {
                     Text("YOLO")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.20))
-                        .help("YOLO mode active — permissions auto-accepted")
+                        .help(l10n["yolo_active_help"])
                 }
 
                 if let alert = alerts.pending {
