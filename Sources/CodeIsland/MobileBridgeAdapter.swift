@@ -13,6 +13,11 @@ extension AppState {
     func setupMobileBridge() {
         MobileBridge.shared.commandHandler = { [weak self] command in
             guard let self else { return "Hatchling is shutting down" }
+            // Prompts run their tmux calls off the main actor; everything else is state.
+            if case .prompt(let sessionId, let text) = command {
+                guard let session = await MainActor.run(body: { self.sessions[sessionId] }) else { return "Unknown session" }
+                return await PromptInjector.inject(text: text, into: session)
+            }
             return await MainActor.run { self.handleMobileCommand(command) }
         }
         MobileBridge.shared.onStateChange = { [weak self] state in
@@ -285,9 +290,10 @@ extension AppState {
             }
             return nil
 
-        case .prompt(let sessionId, let text):
-            guard let session = sessions[sessionId] else { return "Unknown session" }
-            return PromptInjector.inject(text: text, into: session)
+        case .prompt:
+            // Handled before reaching here, in the command handler, so it can run off the
+            // main actor.
+            return "Prompts are not handled on this path"
 
         case .refresh:
             publishMobileState()

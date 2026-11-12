@@ -333,10 +333,13 @@ struct SessionChatView: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        sendError = PromptInjector.inject(text: text, into: session)
-        if sendError == nil {
-            draft = ""
-            SoundManager.shared.handleEvent("PromptSent")
+        let session = session
+        Task { @MainActor in
+            sendError = await PromptInjector.inject(text: text, into: session)
+            if sendError == nil {
+                draft = ""
+                SoundManager.shared.handleEvent("PromptSent")
+            }
         }
     }
 }
