@@ -1045,6 +1045,8 @@ private struct ApprovalBar: View {
         case "Read": return String(format: l10n["ap_read"], file)
         case "Grep": return l10n["ap_grep"]
         case "Glob": return l10n["ap_glob"]
+        case "ExitPlanMode": return l10n["ap_plan"]
+        case "EnterPlanMode": return l10n["ap_plan_enter"]
         default:
             if let mcp = mcpParts { return String(format: l10n["ap_mcp"], mcp.tool, mcp.server) }
             if let server = toolInput?["server_name"] as? String { return String(format: l10n["ap_mcp"], tool, server) }
@@ -1110,6 +1112,16 @@ private struct ApprovalBar: View {
             if let cmd = toolInput?["command"] as? String {
                 (Text("$ ").foregroundColor(.white.opacity(0.35)) + Text(cmd))
                     .lineLimit(4)
+            }
+        case "ExitPlanMode":
+            // The plan is what is being approved, so it is shown in full, scrolling.
+            if let plan = toolInput?["plan"] as? String {
+                ScrollView {
+                    Text(plan)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 220)
             }
         case "Edit", "MultiEdit":
             if let fp = filePath { path(fp) }

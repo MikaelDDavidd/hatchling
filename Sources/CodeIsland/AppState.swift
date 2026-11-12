@@ -925,23 +925,43 @@ final class AppState {
         refreshDerivedState()
     }
 
+    /// The rule "always allow" adds, scoped to this session. It used to be the whole tool
+    /// (`ruleContent: "*"`), so always allowing one `ls` allowed every shell command. Prefer
+    /// the rule the CLI itself suggests for this request (the same one its own "don't ask
+    /// again" would add); otherwise narrow it to the command's leading words or the file.
+    static func alwaysAllowRules(for event: HookEvent) -> [[String: Any]] {
+        if let suggestions = event.rawJSON["permission_suggestions"] as? [[String: Any]] {
+            let scoped = suggestions.compactMap { suggestion -> [String: Any]? in
+                guard suggestion["type"] as? String == "addRules", suggestion["rules"] is [[String: Any]] else { return nil }
+                var rule = suggestion
+                rule["destination"] = "session"
+                rule["behavior"] = "allow"
+                return rule
+            }
+            if !scoped.isEmpty { return scoped }
+        }
+        let tool = event.toolName ?? ""
+        var rule: [String: Any] = ["toolName": tool]
+        if tool == "Bash", let command = event.toolInput?["command"] as? String {
+            let words = command.split(whereSeparator: \.isWhitespace).prefix(2).joined(separator: " ")
+            if !words.isEmpty { rule["ruleContent"] = "\(words):*" }
+        } else if let path = (event.toolInput?["file_path"] ?? event.toolInput?["path"]) as? String, !path.isEmpty {
+            rule["ruleContent"] = path
+        }
+        return [["type": "addRules", "rules": [rule], "behavior": "allow", "destination": "session"]]
+    }
+
     func approvePermission(always: Bool = false) {
         guard !permissionQueue.isEmpty else { return }
         let pending = permissionQueue.removeFirst()
         let responseData: Data
         if always {
-            let toolName = pending.event.toolName ?? ""
             let obj: [String: Any] = [
                 "hookSpecificOutput": [
                     "hookEventName": "PermissionRequest",
                     "decision": [
                         "behavior": "allow",
-                        "updatedPermissions": [[
-                            "type": "addRules",
-                            "rules": [["toolName": toolName, "ruleContent": "*"]],
-                            "behavior": "allow",
-                            "destination": "session"
-                        ]]
+                        "updatedPermissions": Self.alwaysAllowRules(for: pending.event)
                     ] as [String: Any]
                 ] as [String: Any]
             ]
