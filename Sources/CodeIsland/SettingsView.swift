@@ -2162,12 +2162,17 @@ private struct ShortcutRow: View {
                     .background(RoundedRectangle(cornerRadius: 6).stroke(.orange, lineWidth: 1))
             } else if action.isEnabled {
                 HStack(spacing: 6) {
-                    Text(action.binding.displayString)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
-                        .onTapGesture { onStartRecording() }
+                    // Buttons rather than tap gestures, so a shortcut can be re-recorded
+                    // without a mouse.
+                    Button(action: onStartRecording) {
+                        Text(action.binding.displayString)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(l10n["a11y_record_shortcut"])
 
                     Button(action: onClear) {
                         Image(systemName: "xmark.circle.fill")
@@ -2175,15 +2180,20 @@ private struct ShortcutRow: View {
                             .font(.system(size: 14))
                     }
                     .buttonStyle(.plain)
+                    .help(l10n["a11y_clear_shortcut"])
+                    .accessibilityLabel(l10n["a11y_clear_shortcut"])
                 }
             } else {
-                Text(l10n["shortcut_none"])
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
-                    .onTapGesture { onStartRecording() }
+                Button(action: onStartRecording) {
+                    Text(l10n["shortcut_none"])
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(l10n["a11y_record_shortcut"])
             }
         }
         .contentShape(Rectangle())
