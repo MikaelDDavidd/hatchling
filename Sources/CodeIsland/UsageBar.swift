@@ -63,6 +63,12 @@ struct UsageBar: View {
         }
         .frame(height: 14)
         .padding(.horizontal, 16)
+        // The usage is on screen: make sure what it shows is current. The reader only asks
+        // Claude Code when its last reading is old, so opening the panel often costs nothing.
+        .onAppear {
+            claude.refresh()
+            claude.probeIfNeeded()
+        }
     }
 
     @ViewBuilder
