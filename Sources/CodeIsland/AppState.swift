@@ -70,6 +70,13 @@ final class AppState {
     private var lastFSScanTime: Date = .distantPast
     private var discoveryScanTask: Task<Void, Never>?
     private var pendingDiscoveryRescan = false
+    /// Minimum gap between file-event discovery scans. Doubles each time a scan turns up
+    /// nothing new and drops back to the base when one does, or when a hook starts a session.
+    @ObservationIgnored private var fsScanInterval = AppState.fsScanBaseInterval
+    /// A file event arrived inside the gap; one scan is already queued for when it ends.
+    @ObservationIgnored private var fsScanDeferred = false
+    private static let fsScanBaseInterval: TimeInterval = 3
+    private static let fsScanMaxInterval: TimeInterval = 60
     private var isShowingCompletion: Bool {
         if case .completionCard = surface { return true }
         return false
@@ -828,6 +835,12 @@ final class AppState {
             && sessions[sessionId] == nil
             && event.rawJSON["transcript_path"] is NSNull {
             return
+        }
+
+        // A session just started, so another may be about to: file-event scans go back to
+        // their quickest pace instead of whatever an idle stretch backed them off to.
+        if EventNormalizer.normalize(event.eventName) == "SessionStart" {
+            fsScanInterval = Self.fsScanBaseInterval
         }
 
         if sessions[sessionId] == nil {
@@ -1922,7 +1935,12 @@ final class AppState {
                     self.discoveryScanTask = nil
                     return
                 }
-                self.integrateDiscovered(discovered)
+                let foundSomething = self.integrateDiscovered(discovered)
+                // Back off while scans keep coming back empty: a busy CLI keeps touching its
+                // session store, and each scan walks the whole process table.
+                self.fsScanInterval = foundSomething
+                    ? Self.fsScanBaseInterval
+                    : min(self.fsScanInterval * 2, Self.fsScanMaxInterval)
                 self.discoveryScanTask = nil
                 if self.pendingDiscoveryRescan {
                     self.pendingDiscoveryRescan = false
@@ -2054,8 +2072,21 @@ final class AppState {
 
         let stream = FSEventStreamCreate(
             nil,
-            { (_, info, _, _, _, _) in
+            { (_, info, numEvents, _, eventFlags, _) in
                 guard let info = info else { return }
+                // A transcript being appended to is not a new session. Only something being
+                // created or moved into place (a new session file or folder), or the kernel
+                // saying events were lost, is worth walking the process table for.
+                let structural = FSEventStreamEventFlags(
+                    kFSEventStreamEventFlagItemCreated
+                        | kFSEventStreamEventFlagItemRenamed
+                        | kFSEventStreamEventFlagMustScanSubDirs
+                        | kFSEventStreamEventFlagUserDropped
+                        | kFSEventStreamEventFlagKernelDropped
+                        | kFSEventStreamEventFlagRootChanged
+                )
+                let flags = UnsafeBufferPointer(start: eventFlags, count: numEvents)
+                guard flags.contains(where: { $0 & structural != 0 }) else { return }
                 let appState = Unmanaged<AppState>.fromOpaque(info).takeUnretainedValue()
                 appState.handleProjectsDirChange()
             },
@@ -2063,7 +2094,8 @@ final class AppState {
             watchRoots as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             2.0,  // 2-second latency (coalesces rapid writes)
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)
+            // File-level events carry per-item flags, so creations can be told apart from writes.
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
         )
 
         guard let stream = stream else { return }
@@ -2076,16 +2108,35 @@ final class AppState {
     /// Called by FSEventStream when a known session-store directory changes.
     nonisolated private func handleProjectsDirChange() {
         Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            // Debounce: skip if scanned within the last 3 seconds
-            guard Date().timeIntervalSince(self.lastFSScanTime) > 3 else { return }
-            self.lastFSScanTime = Date()
-            self.requestDiscoveryScan()
+            self?.scanForFileEvent()
         }
     }
 
-    /// Merge discovered sessions into current state (skip already-known ones)
-    private func integrateDiscovered(_ discovered: [DiscoveredSession]) {
+    /// Debounced by `fsScanInterval`. An event inside the gap isn't dropped: since writes no
+    /// longer trigger anything, a missed creation might not be followed by another event, so
+    /// one scan is queued for when the gap ends.
+    private func scanForFileEvent() {
+        let wait = fsScanInterval - Date().timeIntervalSince(lastFSScanTime)
+        guard wait > 0 else {
+            lastFSScanTime = Date()
+            requestDiscoveryScan()
+            return
+        }
+        guard !fsScanDeferred else { return }
+        fsScanDeferred = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard let self else { return }
+            self.fsScanDeferred = false
+            guard self.fsEventStream != nil else { return }
+            self.scanForFileEvent()
+        }
+    }
+
+    /// Merge discovered sessions into current state (skip already-known ones).
+    /// Returns whether the scan added a session or reattached a process.
+    @discardableResult
+    private func integrateDiscovered(_ discovered: [DiscoveredSession]) -> Bool {
         var didMutate = false
         for info in discovered {
             // Session already known — try to update PID and attach monitor.
@@ -2188,6 +2239,7 @@ final class AppState {
             scheduleSave()
         }
         refreshDerivedState()
+        return didMutate
     }
 
     func stopSessionDiscovery() {
