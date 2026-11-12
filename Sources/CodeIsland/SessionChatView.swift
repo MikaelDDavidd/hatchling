@@ -311,9 +311,11 @@ struct SessionChatView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(draft.isEmpty ? .white.opacity(0.2) : Color.black)
                         .frame(width: 28, height: 28)
+                        // The panel's primary button is white with black text everywhere else;
+                        // green here read as a status colour, not as "send".
                         .background(
                             RoundedRectangle(cornerRadius: 7)
-                                .fill(draft.isEmpty ? Color.white.opacity(0.06) : Color(red: 0.3, green: 0.85, blue: 0.4))
+                                .fill(draft.isEmpty ? Color.white.opacity(0.06) : Color.white.opacity(0.92))
                         )
                 }
                 .buttonStyle(.plain)

@@ -261,12 +261,16 @@ struct PhonePairingView: View {
 
     @ViewBuilder
     private var offlineBody: some View {
+        // One main action, white and on the right: retrying after a failure, otherwise
+        // going to Settings to turn the connection on.
         HStack {
             Spacer()
             if enabled, case .failed = bridge.state {
-                PanelButton(title: l10n["phone_retry"]) { bridge.restart() }
+                PanelButton(title: l10n["phone_open_settings"]) { SettingsWindowController.shared.show() }
+                PanelButton(title: l10n["phone_retry"], primary: true) { bridge.restart() }
+            } else {
+                PanelButton(title: l10n["phone_open_settings"], primary: true) { SettingsWindowController.shared.show() }
             }
-            PanelButton(title: l10n["phone_open_settings"]) { SettingsWindowController.shared.show() }
         }
     }
 
