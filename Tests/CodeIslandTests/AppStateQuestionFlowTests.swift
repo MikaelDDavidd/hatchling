@@ -104,12 +104,12 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseTask = Task<Data, Never> {
             await withCheckedContinuation { continuation in
-                appState.handleAskUserQuestion(event, continuation: continuation)
+                appState.handleAskUserQuestion(event, continuation: continuation, connectionToken: "conn-1")
             }
         }
 
         await Task.yield()
-        appState.handlePeerDisconnect(sessionId: sessionId)
+        appState.handlePeerDisconnect(sessionId: sessionId, connectionToken: "conn-1")
 
         let responseData = await responseTask.value
         let behavior = try extractPermissionBehavior(from: responseData)
