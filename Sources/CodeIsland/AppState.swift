@@ -804,17 +804,25 @@ final class AppState {
             maybeBackfillModel(for: sessionId)
         }
 
-        // If session was waiting but received an activity event, the question/permission
-        // was answered externally (e.g. user replied in terminal). Clear pending items.
+        // A pending request was answered somewhere else (in the terminal, say) only when the
+        // same agent visibly moved past it. Any activity used to count — a subagent starting,
+        // another subagent's tool call — and the request was answered "deny" on the user's
+        // behalf without them ever seeing the card.
         if wasWaiting {
             let en = EventNormalizer.normalize(event.eventName)
-            // Events that should NOT clear waiting state
-            let keepWaiting: Set<String> = ["Notification", "SessionStart", "SessionEnd", "PreCompact"]
-            if !keepWaiting.contains(en) {
-                drainPermissions(forSession: sessionId)
-                drainQuestions(forSession: sessionId)
-                if sessions[sessionId]?.status == .waitingApproval
-                    || sessions[sessionId]?.status == .waitingQuestion {
+            let resolvedPermissions = permissionQueue.filter {
+                $0.event.sessionId == sessionId && Self.movedPast($0.event, incoming: event, normalized: en)
+            }.map(\.id)
+            let resolvedQuestions = questionQueue.filter {
+                $0.event.sessionId == sessionId && Self.movedPast($0.event, incoming: event, normalized: en)
+            }.map(\.id)
+            if !resolvedPermissions.isEmpty || !resolvedQuestions.isEmpty {
+                drainPermissions(ids: Set(resolvedPermissions))
+                drainQuestions(ids: Set(resolvedQuestions))
+                let stillWaiting = permissionQueue.contains { $0.event.sessionId == sessionId }
+                    || questionQueue.contains { $0.event.sessionId == sessionId }
+                if !stillWaiting,
+                   sessions[sessionId]?.status == .waitingApproval || sessions[sessionId]?.status == .waitingQuestion {
                     sessions[sessionId]?.status = (en == "Stop") ? .idle : .processing
                     sessions[sessionId]?.currentTool = nil
                     sessions[sessionId]?.toolDescription = nil
@@ -895,7 +903,7 @@ final class AppState {
         }
     }
 
-    func handlePermissionRequest(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
+    func handlePermissionRequest(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>, connectionToken: String? = nil) {
         let sessionId = event.sessionId ?? "default"
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
@@ -912,7 +920,8 @@ final class AppState {
         sessions[sessionId]?.toolDescription = event.toolDescription
         sessions[sessionId]?.lastActivity = Date()
 
-        let request = PermissionRequest(event: event, continuation: continuation)
+        var request = PermissionRequest(event: event, continuation: continuation)
+        request.connectionToken = connectionToken
         permissionQueue.append(request)
 
         // Show UI only if this is the first (or only) queued item
@@ -976,7 +985,7 @@ final class AppState {
         refreshDerivedState()
     }
 
-    func handleQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
+    func handleQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>, connectionToken: String? = nil) {
         let sessionId = event.sessionId ?? "default"
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
@@ -993,7 +1002,8 @@ final class AppState {
         sessions[sessionId]?.status = .waitingQuestion
         sessions[sessionId]?.lastActivity = Date()
 
-        let request = QuestionRequest(event: event, question: question, continuation: continuation)
+        var request = QuestionRequest(event: event, question: question, continuation: continuation)
+        request.connectionToken = connectionToken
         questionQueue.append(request)
 
         if questionQueue.count == 1 {
@@ -1023,7 +1033,7 @@ final class AppState {
         return input
     }
 
-    func handleAskUserQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
+    func handleAskUserQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>, connectionToken: String? = nil) {
         let sessionId = event.sessionId ?? "default"
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
@@ -1110,13 +1120,14 @@ final class AppState {
         sessions[sessionId]?.lastActivity = Date()
 
         let askState = AskUserQuestionState(items: askItems, answers: [:])
-        let request = QuestionRequest(
+        var request = QuestionRequest(
             event: event,
             question: askItems[0].payload,
             continuation: continuation,
             isFromPermission: true,
             askUserQuestionState: askState
         )
+        request.connectionToken = connectionToken
         questionQueue.append(request)
 
         if questionQueue.count == 1 {
@@ -1241,6 +1252,53 @@ final class AppState {
         refreshDerivedState()
     }
 
+    /// Whether `incoming` shows that the agent which raised `pending` has moved past it, so
+    /// the request was settled outside Hatchling. Only the same agent counts (the main agent
+    /// has no agentId), and only events that come after a decision: the tool finishing, the
+    /// agent or subagent stopping, or the user typing a new prompt.
+    static func movedPast(_ pending: HookEvent, incoming: HookEvent, normalized en: String) -> Bool {
+        switch en {
+        case "UserPromptSubmit":
+            return true
+        case "Stop":
+            return incoming.agentId == nil
+        case "SubagentStop":
+            return pending.agentId != nil && pending.agentId == incoming.agentId
+        case "PostToolUse", "PostToolUseFailure":
+            guard incoming.agentId == pending.agentId else { return false }
+            if let a = pending.rawJSON["tool_use_id"] as? String,
+               let b = incoming.rawJSON["tool_use_id"] as? String {
+                return a == b
+            }
+            return pending.toolName == nil || pending.toolName == incoming.toolName
+        default:
+            return false
+        }
+    }
+
+    private static let externalDeny = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+
+    /// Settle specific permissions that were decided elsewhere. The agent has already moved on,
+    /// so the answer is only there to release the waiting bridge process.
+    private func drainPermissions(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        permissionQueue.removeAll { item in
+            guard ids.contains(item.id) else { return false }
+            item.continuation.resume(returning: Self.externalDeny)
+            return true
+        }
+    }
+
+    /// Same as `drainPermissions(ids:)` for questions.
+    private func drainQuestions(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        questionQueue.removeAll { item in
+            guard ids.contains(item.id) else { return false }
+            item.continuation.resume(returning: item.isFromPermission ? Self.externalDeny : Data("{}".utf8))
+            return true
+        }
+    }
+
     /// Drain all queued permissions for a specific session, resuming their continuations with deny
     private func drainPermissions(forSession sessionId: String) {
         let denyResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
@@ -1251,16 +1309,20 @@ final class AppState {
         }
     }
 
-    /// Called when the bridge socket disconnects — the question/permission was answered externally (e.g. user replied in terminal)
-    func handlePeerDisconnect(sessionId: String) {
-        let hadPending = questionQueue.contains(where: { $0.event.sessionId == sessionId })
-            || permissionQueue.contains(where: { $0.event.sessionId == sessionId })
-        guard hadPending else { return }
+    /// Called when a bridge socket closes before we answered: that request was settled
+    /// externally (the user replied in the terminal, or the agent was stopped). Only the
+    /// request carried by that connection goes; others pending in the same session stay.
+    func handlePeerDisconnect(sessionId: String, connectionToken: String) {
+        let permissions = Set(permissionQueue.filter { $0.connectionToken == connectionToken }.map(\.id))
+        let questions = Set(questionQueue.filter { $0.connectionToken == connectionToken }.map(\.id))
+        guard !permissions.isEmpty || !questions.isEmpty else { return }
 
-        drainQuestions(forSession: sessionId)
-        drainPermissions(forSession: sessionId)
+        drainQuestions(ids: questions)
+        drainPermissions(ids: permissions)
+        let stillWaiting = permissionQueue.contains { $0.event.sessionId == sessionId }
+            || questionQueue.contains { $0.event.sessionId == sessionId }
         let currentStatus = sessions[sessionId]?.status
-        if currentStatus == .waitingApproval || currentStatus == .waitingQuestion {
+        if !stillWaiting, currentStatus == .waitingApproval || currentStatus == .waitingQuestion {
             sessions[sessionId]?.status = .processing
             sessions[sessionId]?.currentTool = nil
             sessions[sessionId]?.toolDescription = nil
