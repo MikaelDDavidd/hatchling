@@ -5,24 +5,28 @@ import Security
 /// process of the user can read and that ends up in backups; whoever holds it can pose as
 /// this Mac on the relay and receive the phone's commands.
 enum RelayTokenStore {
-    private static let service = "dev.mikaeldavid.hatchling.relay"
+    /// Tests point this at their own item so they never touch the real token.
+    static var service = "dev.mikaeldavid.hatchling.relay"
     private static let account = "mac-token"
 
     static var token: String {
         get {
-            migrateFromDefaultsIfNeeded()
+            // A value still in UserDefaults is newer than anything in the Keychain: only an
+            // older build writes there. If the Keychain refuses it, keep using it from there.
+            if let legacy = migrateFromDefaults() { return legacy }
             return read() ?? ""
         }
         set { write(newValue) }
     }
 
     /// One-time move out of UserDefaults. The old value is removed only after the Keychain
-    /// accepted it, so a failure never loses the token.
-    private static func migrateFromDefaultsIfNeeded() {
+    /// accepted it, so a failure never loses the token. Returns the value when it could not move.
+    private static func migrateFromDefaults() -> String? {
         let defaults = UserDefaults.standard
-        guard let legacy = defaults.string(forKey: SettingsKey.mobileRelayToken), !legacy.isEmpty else { return }
-        if read() == nil, !write(legacy) { return }
+        guard let legacy = defaults.string(forKey: SettingsKey.mobileRelayToken), !legacy.isEmpty else { return nil }
+        guard write(legacy) else { return legacy }
         defaults.removeObject(forKey: SettingsKey.mobileRelayToken)
+        return nil
     }
 
     private static func baseQuery() -> [String: Any] {
