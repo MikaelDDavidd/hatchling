@@ -933,6 +933,10 @@ final class AppState {
             surface = .approvalCard(sessionId: sessionId)
             SoundManager.shared.handleEvent("PermissionRequest")
             publishMobileAttention(permission: request)
+        } else if surface == .collapsed {
+            // Another card is pending behind a collapsed panel; without a sound this one
+            // would arrive in silence.
+            SoundManager.shared.handleEvent("PermissionRequest")
         }
         refreshDerivedState()
     }
@@ -1029,13 +1033,17 @@ final class AppState {
         request.connectionToken = connectionToken
         questionQueue.append(request)
 
-        if questionQueue.count == 1 {
+        // An approval outranks a question: a question from another session waits behind it
+        // instead of covering the approval card.
+        if questionQueue.count == 1 && permissionQueue.isEmpty {
             activeSessionId = sessionId
             withAnimation(NotchAnimation.open) {
                 surface = .questionCard(sessionId: sessionId)
             }
             SoundManager.shared.handleEvent("PermissionRequest")
             publishMobileAttention(question: request)
+        } else {
+            SoundManager.shared.handleEvent("PermissionRequest")
         }
         refreshDerivedState()
     }
@@ -1949,6 +1957,9 @@ final class AppState {
     /// of an explicit action (e.g. creating a checkpoint) in the notch itself.
     func showBuddySpeech(text: String, mood: BuddyMood = .idle, title: String? = nil,
                          reaction: HatchReaction? = nil, duration: TimeInterval = 5.5) {
+        // Hatch never talks over a card waiting for the user: the bubble would replace it and
+        // then collapse the panel, leaving the agent blocked on something nobody can see.
+        guard !hasPendingInteraction else { return }
         let speech = BuddySpeech(text: text, mood: mood, title: title, reaction: reaction)
         pendingBuddySpeech = speech
         lastBuddySpeechAt = Date()
