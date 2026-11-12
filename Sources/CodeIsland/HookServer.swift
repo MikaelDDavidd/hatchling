@@ -110,10 +110,12 @@ class HookServer {
     }
 
     /// Internal tools that are safe to auto-approve without user confirmation.
+    /// EnterPlanMode and ExitPlanMode are deliberately not here: approving ExitPlanMode is
+    /// the moment the user accepts the plan, and answering it for them let the agent start
+    /// editing before anyone had read the plan.
     private static let autoApproveTools: Set<String> = [
         "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
         "TodoRead", "TodoWrite",
-        "EnterPlanMode", "ExitPlanMode",
     ]
 
     private func processRequest(data: Data, connection: NWConnection) {
