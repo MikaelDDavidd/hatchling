@@ -68,6 +68,8 @@ struct MobileSettingsPage: View {
                         Image(systemName: revealToken ? "eye.slash" : "eye")
                     }
                     .buttonStyle(.borderless)
+                    .help(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
+                    .accessibilityLabel(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
                 }
 
                 HStack(spacing: 8) {

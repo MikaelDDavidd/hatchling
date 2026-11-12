@@ -14,24 +14,23 @@ struct BuddyPage: View {
             if let buddy = reader.buddy {
                 Section {
                     HStack(alignment: .top, spacing: 24) {
-                        // Sprite card (dark backdrop, like MioIsland)
-                        VStack {
-                            MascotView(source: "claude", status: .idle, size: 72, global: true)
-                                .padding(.vertical, 22)
-                                .padding(.horizontal, 34)
-                        }
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color.black.opacity(0.85))
-                        )
-                        .frame(minWidth: 160)
-                        .onTapGesture {
-                            HatchReaction.wave.post()
-                            withAnimation(.easeInOut(duration: 0.2)) { isPetting = true }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                                withAnimation(.easeInOut(duration: 0.2)) { isPetting = false }
+                        // Sprite card (dark backdrop, like MioIsland). Petting Hatch is a
+                        // control, so it is a Button and works from the keyboard too.
+                        Button(action: petHatch) {
+                            VStack {
+                                MascotView(source: "claude", status: .idle, size: 72, global: true)
+                                    .padding(.vertical, 22)
+                                    .padding(.horizontal, 34)
                             }
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(Color.black.opacity(0.85))
+                            )
+                            .frame(minWidth: 160)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Hatch")
+                        .accessibilityHint(L10n.shared["a11y_pet_hatch"])
 
                         // Identity column
                         VStack(alignment: .leading, spacing: 10) {
@@ -110,6 +109,14 @@ struct BuddyPage: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func petHatch() {
+        HatchReaction.wave.post()
+        withAnimation(.easeInOut(duration: 0.2)) { isPetting = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            withAnimation(.easeInOut(duration: 0.2)) { isPetting = false }
+        }
     }
 }
 
