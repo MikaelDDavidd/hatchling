@@ -285,6 +285,12 @@ extension AppState {
             guard let pid = session.cliPid, pid > 0 else {
                 return "This session has no live process to interrupt"
             }
+            // Signal only the process this session recorded: same PID and same start time.
+            // A PID on its own may already belong to something else.
+            guard let started = session.cliStartTime,
+                  Self.isLiveProcess(ProcessIdentity(pid: pid, startTime: started)) else {
+                return "Could not confirm this session's process is still the same one"
+            }
             guard kill(pid, SIGINT) == 0 else {
                 return "Could not interrupt: \(String(cString: strerror(errno)))"
             }
