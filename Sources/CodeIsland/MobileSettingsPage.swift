@@ -76,6 +76,7 @@ struct MobileSettingsPage: View {
                     Text(statusText)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .help(rawFailure ?? "")
                     Button(l10n["phone_reconnect"]) { bridge.restart() }
                         .controlSize(.small)
                         .disabled(relayURL.isEmpty || relayToken.isEmpty)
@@ -110,13 +111,19 @@ struct MobileSettingsPage: View {
             default: return String(format: l10n["phone_status_many"], peers)
             }
         case .retrying(let attempt): return String(format: l10n["phone_status_retrying"], attempt)
-        case .failed(let message): return message
+        case .failed(let message): return RelayErrorText.friendly(message)
         }
     }
 
     private var isOnline: Bool {
         if case .online = bridge.state { return true }
         return false
+    }
+
+    /// The relay's own words for a failure, kept for the tooltip under the plain sentence.
+    private var rawFailure: String? {
+        if case .failed(let message) = bridge.state { return message }
+        return nil
     }
 
     // MARK: - Pairing
