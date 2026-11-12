@@ -486,7 +486,8 @@ struct ConfigInstaller {
     static func uninstall() {
         let fm = FileManager.default
         try? fm.removeItem(atPath: hookScriptPath)
-        try? fm.removeItem(atPath: bridgePath)
+        // Through the install queue, so a copy still pending can't put the bridge back afterwards.
+        bridgeInstallQueue.sync { _ = try? FileManager.default.removeItem(atPath: bridgePath) }
         // Also clean up legacy paths (#32)
         try? fm.removeItem(atPath: legacyBridgePath)
         try? fm.removeItem(atPath: legacyHookScriptPath)
@@ -654,6 +655,56 @@ struct ConfigInstaller {
         return result
     }
 
+    /// What reading a CLI's settings file found. Missing and unreadable are kept apart on
+    /// purpose: a missing file can be created, but one that exists and does not parse (caught
+    /// mid-write by the CLI, or hand-edited with a stray comma) must never be replaced by a file
+    /// that only holds our hooks — that wiped people's permissions and env before.
+    private enum SettingsFile {
+        case missing
+        case unreadable
+        case parsed([String: Any])
+    }
+
+    private static func readSettingsFile(at path: String, fm: FileManager) -> SettingsFile {
+        guard fm.fileExists(atPath: path) else { return .missing }
+        guard let json = parseJSONFile(at: path, fm: fm) else { return .unreadable }
+        return .parsed(json)
+    }
+
+    /// Writes a CLI settings file atomically, keeping a one-time backup of the original so a
+    /// bad write can always be undone by hand.
+    private static func writeSettingsFile(_ object: [String: Any], to path: String, fm: FileManager) -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else {
+            return false
+        }
+        let backup = path + ".hatchling-backup"
+        if fm.fileExists(atPath: path), !fm.fileExists(atPath: backup) {
+            try? fm.copyItem(atPath: path, toPath: backup)
+        }
+        do {
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+            return true
+        } catch {
+            NSLog("[ConfigInstaller] could not write \(path): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Same as `writeSettingsFile`, for the TOML config Codex reads.
+    private static func writeTextFile(_ text: String, to path: String, fm: FileManager) -> Bool {
+        let backup = path + ".hatchling-backup"
+        if fm.fileExists(atPath: path), !fm.fileExists(atPath: backup) {
+            try? fm.copyItem(atPath: path, toPath: backup)
+        }
+        do {
+            try Data(text.utf8).write(to: URL(fileURLWithPath: path), options: .atomic)
+            return true
+        } catch {
+            NSLog("[ConfigInstaller] could not write \(path): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Parse a JSON file, stripping JSONC comments first
     private static func parseJSONFile(at path: String, fm: FileManager) -> [String: Any]? {
         guard fm.fileExists(atPath: path),
@@ -736,9 +787,13 @@ struct ConfigInstaller {
             try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         }
 
-        var settings: [String: Any] = [:]
-        if let json = parseJSONFile(at: cli.fullPath, fm: fm) {
-            settings = json
+        var settings: [String: Any]
+        switch readSettingsFile(at: cli.fullPath, fm: fm) {
+        case .missing: settings = [:]
+        case .parsed(let json): settings = json
+        case .unreadable:
+            NSLog("[ConfigInstaller] \(cli.fullPath) exists but does not parse; leaving it untouched")
+            return false
         }
 
         var hooks = settings[cli.configKey] as? [String: Any] ?? [:]
@@ -767,10 +822,7 @@ struct ConfigInstaller {
         }
         settings[cli.configKey] = hooks
 
-        guard let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else {
-            return false
-        }
-        return fm.createFile(atPath: cli.fullPath, contents: data)
+        return writeSettingsFile(settings, to: cli.fullPath, fm: fm)
     }
 
     // MARK: - External CLIs (use bridge binary directly)
@@ -788,9 +840,13 @@ struct ConfigInstaller {
             guard fm.fileExists(atPath: cli.dirPath) else { return true } // CLI not installed, skip OK
         }
 
-        var root: [String: Any] = [:]
-        if let json = parseJSONFile(at: cli.fullPath, fm: fm) {
-            root = json
+        var root: [String: Any]
+        switch readSettingsFile(at: cli.fullPath, fm: fm) {
+        case .missing: root = [:]
+        case .parsed(let json): root = json
+        case .unreadable:
+            NSLog("[ConfigInstaller] \(cli.fullPath) exists but does not parse; leaving it untouched")
+            return false
         }
 
         var hooks = root[cli.configKey] as? [String: Any] ?? [:]
@@ -825,10 +881,7 @@ struct ConfigInstaller {
         if cli.format == .copilot {
             root["version"] = 1
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
-            return false
-        }
-        return fm.createFile(atPath: cli.fullPath, contents: data)
+        return writeSettingsFile(root, to: cli.fullPath, fm: fm)
     }
 
     // MARK: - Codex config.toml
@@ -840,7 +893,9 @@ struct ConfigInstaller {
         let configPath = NSHomeDirectory() + "/.codex/config.toml"
         var contents = ""
         if fm.fileExists(atPath: configPath) {
-            contents = (try? String(contentsOfFile: configPath, encoding: .utf8)) ?? ""
+            // An unreadable config must not be replaced by one holding only our flag.
+            guard let existing = try? String(contentsOfFile: configPath, encoding: .utf8) else { return false }
+            contents = existing
         }
 
         // Already set to true (non-commented) — don't touch
@@ -855,7 +910,7 @@ struct ConfigInstaller {
                 with: "codex_hooks = true",
                 options: .regularExpression
             )
-            return fm.createFile(atPath: configPath, contents: contents.data(using: .utf8))
+            return writeTextFile(contents, to: configPath, fm: fm)
         }
 
         // Not present — insert into [features] section or create it
@@ -870,7 +925,7 @@ struct ConfigInstaller {
             lines.append("codex_hooks = true")
         }
         let result = lines.joined(separator: "\n")
-        return fm.createFile(atPath: configPath, contents: result.data(using: .utf8))
+        return writeTextFile(result, to: configPath, fm: fm)
     }
 
     // MARK: - Uninstall (generic)
@@ -882,9 +937,7 @@ struct ConfigInstaller {
         hooks = removeManagedHookEntries(from: hooks)
 
         root[cli.configKey] = hooks.isEmpty ? nil : hooks
-        if let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) {
-            fm.createFile(atPath: cli.fullPath, contents: data)
-        }
+        _ = writeSettingsFile(root, to: cli.fullPath, fm: fm)
     }
 
     // MARK: - Detection helpers
@@ -968,6 +1021,10 @@ struct ConfigInstaller {
         }
     }
 
+    /// Copies of the bridge run here, one at a time and off the main thread: this is called
+    /// from the periodic hook check and on every app activation, and the binary is several MB.
+    private static let bridgeInstallQueue = DispatchQueue(label: "codeisland.bridge-install", qos: .utility)
+
     private static func installBridgeBinary(fm: FileManager) {
         guard let execPath = Bundle.main.executablePath else { return }
         let execDir = (execPath as NSString).deletingLastPathComponent
@@ -976,6 +1033,33 @@ struct ConfigInstaller {
         if !fm.fileExists(atPath: srcPath) { srcPath = execDir + "/codeisland-bridge" }
         guard fm.fileExists(atPath: srcPath) else { return }
 
+        // Nearly every call finds the installed copy already current; two stats settle that
+        // without copying and swapping the executable again.
+        if bridgeBinaryIsCurrent(srcPath: srcPath, fm: fm) { return }
+
+        let source = srcPath
+        bridgeInstallQueue.async {
+            let fm = FileManager.default
+            // Another call may have installed it while this one waited in the queue.
+            if bridgeBinaryIsCurrent(srcPath: source, fm: fm) { return }
+            copyBridgeBinary(from: source, fm: fm)
+        }
+    }
+
+    /// The installed bridge matches the bundled one when size and modification date agree.
+    /// The copy is stamped with the source's date below, so an app update (a new bundled
+    /// binary) always shows up as a mismatch.
+    private static func bridgeBinaryIsCurrent(srcPath: String, fm: FileManager) -> Bool {
+        guard fm.isExecutableFile(atPath: bridgePath),
+              let src = try? fm.attributesOfItem(atPath: srcPath),
+              let dst = try? fm.attributesOfItem(atPath: bridgePath),
+              let srcSize = src[.size] as? NSNumber, let dstSize = dst[.size] as? NSNumber,
+              let srcDate = src[.modificationDate] as? Date, let dstDate = dst[.modificationDate] as? Date
+        else { return false }
+        return srcSize == dstSize && srcDate == dstDate
+    }
+
+    private static func copyBridgeBinary(from srcPath: String, fm: FileManager) {
         // Atomic replace: copy to temp file first, then rename (overwrites atomically)
         let tmpPath = bridgePath + ".tmp.\(ProcessInfo.processInfo.processIdentifier)"
         do {
@@ -984,6 +1068,10 @@ struct ConfigInstaller {
             chmod(tmpPath, 0o755)
             // Strip quarantine xattr so Gatekeeper won't block the binary
             stripQuarantine(tmpPath)
+            // Stamp the copy with the source's date so the next check can recognise it.
+            if let srcDate = (try? fm.attributesOfItem(atPath: srcPath))?[.modificationDate] as? Date {
+                try? fm.setAttributes([.modificationDate: srcDate], ofItemAtPath: tmpPath)
+            }
             _ = try fm.replaceItemAt(URL(fileURLWithPath: bridgePath), withItemAt: URL(fileURLWithPath: tmpPath))
         } catch {
             // replaceItemAt fails if destination doesn't exist yet — fall back to rename
@@ -1030,10 +1118,13 @@ struct ConfigInstaller {
 
         // Register in opencode.json only (v1.4+ reads this; config.json causes double-load)
         let pluginRef = "file://\(opencodePluginPath)"
-        var config: [String: Any] = [:]
-        if let data = fm.contents(atPath: opencodeConfigPathNew),
-           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            config = parsed
+        var config: [String: Any]
+        switch readSettingsFile(at: opencodeConfigPathNew, fm: fm) {
+        case .missing: config = [:]
+        case .parsed(let json): config = json
+        case .unreadable:
+            NSLog("[ConfigInstaller] \(opencodeConfigPathNew) exists but does not parse; leaving it untouched")
+            return false
         }
         var plugins = config["plugin"] as? [String] ?? []
         plugins.removeAll { $0.contains("vibe-island") || $0.contains(HookId.current) }
@@ -1042,9 +1133,7 @@ struct ConfigInstaller {
         if config["$schema"] == nil {
             config["$schema"] = "https://opencode.ai/config.json"
         }
-        if let data = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]) {
-            fm.createFile(atPath: opencodeConfigPathNew, contents: data)
-        }
+        _ = writeSettingsFile(config, to: opencodeConfigPathNew, fm: fm)
 
         // Clean up legacy config.json registration to prevent double-load
         if let legacyData = fm.contents(atPath: opencodeConfigPath),
@@ -1053,9 +1142,7 @@ struct ConfigInstaller {
            legacyPlugins.contains(where: { $0.contains(HookId.current) }) {
             legacyPlugins.removeAll { $0.contains("vibe-island") || $0.contains(HookId.current) }
             legacyConfig["plugin"] = legacyPlugins.isEmpty ? nil : legacyPlugins
-            if let data = try? JSONSerialization.data(withJSONObject: legacyConfig, options: [.prettyPrinted, .sortedKeys]) {
-                fm.createFile(atPath: opencodeConfigPath, contents: data)
-            }
+            _ = writeSettingsFile(legacyConfig, to: opencodeConfigPath, fm: fm)
         }
         return true
     }

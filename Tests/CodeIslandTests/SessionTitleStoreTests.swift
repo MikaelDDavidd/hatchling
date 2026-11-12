@@ -29,4 +29,18 @@ final class SessionTitleStoreTests: XCTestCase {
 
         XCTAssertNil(title)
     }
+
+    func testClaudeTitlesSurviveWindowCutInsideMultibyteCharacter() {
+        // A read window that starts in the middle of "ã" (0xC3 0xA3) must not lose the
+        // complete title lines after it.
+        let cutLine = Data([0xA3]) + Data(#"o parcial"}"#.utf8)
+        let titleLine = Data(#"{"type":"custom-title","customTitle":"Revisão do painel"}"#.utf8)
+        let aiLine = Data(#"{"type":"ai-title","aiTitle":"Ajustar notch"}"#.utf8)
+        let window = cutLine + Data("\n".utf8) + titleLine + Data("\n".utf8) + aiLine
+
+        let titles = SessionTitleStore.latestClaudeTitles(in: window)
+
+        XCTAssertEqual(titles.custom, "Revisão do painel")
+        XCTAssertEqual(titles.ai, "Ajustar notch")
+    }
 }

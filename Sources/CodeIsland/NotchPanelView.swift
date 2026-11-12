@@ -32,16 +32,21 @@ struct NotchPanelView: View {
 
     private var isActive: Bool { !appState.sessions.isEmpty }
     /// First launch / no-session state should still render a visible marker so the app
-    /// doesn't disappear completely behind the physical notch.
+    /// doesn't disappear completely behind the physical notch. Once the panel is opened
+    /// the marker gives way to the regular header, so it only shows while collapsed.
     private var showIdleIndicator: Bool {
-        !isActive && !hideWhenNoSession
+        !isActive && !hideWhenNoSession && !shouldShowExpanded
     }
     /// Whether the bar content should be visible (respects hideWhenNoSession)
     private var showBar: Bool {
         isActive && !(hideWhenNoSession && appState.activeSessionCount == 0)
     }
+    /// Files, Notes and the phone page don't need a session, so the panel opens without one
+    /// too: otherwise they are unreachable until an agent starts. Only the tabbed panel opens
+    /// this way; Hatch's remarks keep their old rule and stay quiet while nothing runs.
     private var shouldShowExpanded: Bool {
-        showBar && appState.surface.isExpanded
+        guard appState.surface.isExpanded else { return false }
+        return showBar || (!isActive && appState.surface == .sessionList)
     }
 
     /// Mascot size — fits within the menu bar height
@@ -75,9 +80,9 @@ struct NotchPanelView: View {
     private var panelWidth: CGFloat {
         let nw = effectiveNotchW
         let maxWidth = min(620, screenWidth - 40)
-        if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 80 : nw + compactWingWidth * 2 }
-        if !isActive { return hasNotch ? notchW - 20 : nw }
         if shouldShowExpanded { return min(max(nw + 200, 580), maxWidth) }
+        if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 160 : nw + compactWingWidth * 2 }
+        if !isActive { return hasNotch ? notchW - 20 : nw }
         let extra: CGFloat = appState.status == .idle ? 0 : 8
         // Reserve space for tool status — proportional to screen width
         let toolExtra: CGFloat = displayedToolStatus ? (hasNotch ? screenWidth * 0.03 : screenWidth * 0.04) : 0
@@ -87,7 +92,7 @@ struct NotchPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
-                if showBar {
+                if showBar || shouldShowExpanded {
                     // Active: compact bar — wider version when expanded
                     HStack(spacing: 0) {
                         CompactLeftWing(appState: appState, expanded: shouldShowExpanded, mascotSize: mascotSize, hasNotch: hasNotch, showToolStatus: showToolStatus)
@@ -109,7 +114,8 @@ struct NotchPanelView: View {
                         notchW: notchW,
                         notchHeight: notchHeight,
                         hasNotch: hasNotch,
-                        hovered: idleHovered
+                        hovered: idleHovered,
+                        onOpen: openWithoutSession
                     )
                 } else {
                     // Idle: just the notch shell
@@ -213,6 +219,9 @@ struct NotchPanelView: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 if DebugFlags.pinOpen { return }
+                // Leaving a panel that was opened from the idle marker: drop the marker's
+                // hover look too, or it comes back widened once the panel collapses.
+                if !hovering && !showIdleIndicator { idleHovered = false }
                 // Idle indicator hover — delay un-hover to prevent oscillation when
                 // the animated width change crosses the mouse position (#52).
                 if showIdleIndicator {
@@ -320,7 +329,8 @@ struct NotchPanelView: View {
                     hoverTimer?.invalidate()
                     hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
                         Task { @MainActor in
-                            guard !isHovered else { return }
+                            // A card may have arrived during the delay; it stays up.
+                            guard !isHovered, !appState.hasPendingInteraction else { return }
                             withAnimation(NotchAnimation.close) {
                                 appState.surface = .collapsed
                             }
@@ -420,6 +430,18 @@ struct NotchPanelView: View {
             }
         case .collapsed:
             EmptyView()
+        }
+    }
+
+    /// Opens the panel from the idle marker. With no session there is nothing to hover-preview,
+    /// so this is a click: the panel holds Files, Notes and the phone page, which work without
+    /// an agent. `isHovered` is set so leaving the panel collapses it the usual way.
+    private func openWithoutSession() {
+        hoverTimer?.invalidate()
+        hoverTimer = nil
+        isHovered = true
+        withAnimation(NotchAnimation.open) {
+            appState.surface = .sessionList
         }
     }
 
@@ -603,7 +625,7 @@ private struct CompactRightWing: View {
                     Text("YOLO")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.20))
-                        .help("YOLO mode active — permissions auto-accepted")
+                        .help(l10n["yolo_active_help"])
                 }
 
                 if let alert = alerts.pending {
@@ -797,6 +819,8 @@ private struct NotchIconButton: View {
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
         .help(tooltip ?? "")
+        // Icon only: VoiceOver reads the tooltip's words instead of the symbol name.
+        .accessibilityLabel(tooltip ?? "")
     }
 }
 
@@ -809,16 +833,21 @@ private struct IdleIndicatorBar: View {
     let notchHeight: CGFloat
     let hasNotch: Bool
     let hovered: Bool
+    let onOpen: () -> Void
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.soundEnabled) private var soundEnabled = SettingsDefaults.soundEnabled
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left: mascot
-            HStack(spacing: 6) {
+            // Left: mascot. Clicking it opens the panel, the same as the chevron on the right.
+            Button(action: onOpen) {
                 MascotView(source: "claude", status: .idle, size: mascotSize)
                     .opacity(hovered ? 0.9 : 0.5)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help(l10n["open_panel"])
+            .accessibilityLabel(l10n["open_panel"])
             .padding(.leading, 6)
 
             Spacer(minLength: hasNotch ? notchW : 0)
@@ -826,11 +855,15 @@ private struct IdleIndicatorBar: View {
             // Right: expanded shows text + buttons, collapsed shows nothing
             if hovered {
                 HStack(spacing: 8) {
-                    Text("0")
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.4))
+                    // Says why the marker is quiet instead of a bare session count of "0".
+                    Text(l10n["idle_no_agents"])
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                        .fixedSize()
 
                     HStack(spacing: 4) {
+                        NotchIconButton(icon: "chevron.down", tooltip: l10n["open_panel"], action: onOpen)
                         NotchIconButton(icon: soundEnabled ? "speaker.wave.2" : "speaker.slash", tooltip: soundEnabled ? l10n["mute"] : l10n["enable_sound_tooltip"]) {
                             soundEnabled.toggle()
                         }
@@ -950,13 +983,24 @@ private struct FormButton: View {
     enum Kind { case primary, secondary, destructive }
     let label: String
     var kind: Kind = .secondary
+    /// The key that does the same thing ("↩", "esc", a global shortcut), shown small after
+    /// the label so the keyboard path is discoverable without a help page.
+    var keyHint: String? = nil
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(size: 11.5, weight: kind == .primary ? .semibold : .medium))
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.system(size: 11.5, weight: kind == .primary ? .semibold : .medium))
+                if let keyHint {
+                    Text(keyHint)
+                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                        .opacity(0.5)
+                        .accessibilityHidden(true)
+                }
+            }
                 .foregroundStyle(foreground)
                 .padding(.horizontal, 14)
                 .frame(height: 28)
@@ -1023,6 +1067,7 @@ private struct ApprovalBar: View {
     let onDeny: () -> Void
 
     private var l10n: L10n { L10n.shared }
+    @ObservedObject private var keys = CardKeys.shared
 
     private var filePath: String? { toolInput?["file_path"] as? String }
     private var fileName: String? { filePath.map { ($0 as NSString).lastPathComponent } }
@@ -1045,6 +1090,8 @@ private struct ApprovalBar: View {
         case "Read": return String(format: l10n["ap_read"], file)
         case "Grep": return l10n["ap_grep"]
         case "Glob": return l10n["ap_glob"]
+        case "ExitPlanMode": return l10n["ap_plan"]
+        case "EnterPlanMode": return l10n["ap_plan_enter"]
         default:
             if let mcp = mcpParts { return String(format: l10n["ap_mcp"], mcp.tool, mcp.server) }
             if let server = toolInput?["server_name"] as? String { return String(format: l10n["ap_mcp"], tool, server) }
@@ -1065,14 +1112,24 @@ private struct ApprovalBar: View {
             }
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
-                FormButton(label: l10n["form_deny"], kind: .destructive, action: onDeny)
-                FormButton(label: l10n["form_always"], action: onAlwaysAllow)
-                FormButton(label: l10n["form_allow"], kind: .primary, action: onAllow)
+                FormButton(label: l10n["form_deny"], kind: .destructive,
+                           keyHint: keys.hint(local: "esc", global: .deny), action: onDeny)
+                FormButton(label: l10n["form_always"],
+                           keyHint: keys.hint(local: nil, global: .approveAlways), action: onAlwaysAllow)
+                FormButton(label: l10n["form_allow"], kind: .primary,
+                           keyHint: keys.hint(local: "↩", global: .approve), action: onAllow)
             }
             .padding(.top, 2)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+        .onReceive(keys.pressed) { key in
+            switch key {
+            case .confirm: onAllow()
+            case .cancel: onDeny()
+            case .option: break
+            }
+        }
     }
 
     private func path(_ p: String) -> some View {
@@ -1110,6 +1167,16 @@ private struct ApprovalBar: View {
             if let cmd = toolInput?["command"] as? String {
                 (Text("$ ").foregroundColor(.white.opacity(0.35)) + Text(cmd))
                     .lineLimit(4)
+            }
+        case "ExitPlanMode":
+            // The plan is what is being approved, so it is shown in full, scrolling.
+            if let plan = toolInput?["plan"] as? String {
+                ScrollView {
+                    Text(plan)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 220)
             }
         case "Edit", "MultiEdit":
             if let fp = filePath { path(fp) }
@@ -1191,6 +1258,7 @@ private struct QuestionBar: View {
     @FocusState private var otherFocused: Bool
 
     private var l10n: L10n { L10n.shared }
+    @ObservedObject private var keys = CardKeys.shared
 
     private var currentItem: AskUserQuestionItem? {
         guard !allQuestions.isEmpty, currentQuestionIndex < allQuestions.count else { return nil }
@@ -1215,6 +1283,49 @@ private struct QuestionBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .onAppear { isFocused = true }
+        .onReceive(keys.pressed, perform: handleKey)
+    }
+
+    /// Digits pick the numbered option (or tick it, in a multi-select), Return confirms what
+    /// needs confirming, Esc skips — the same as the buttons. Typing in a text field never
+    /// gets here: the panel's key monitor leaves keys meant for the field alone.
+    private func handleKey(_ key: CardKey) {
+        if let item = currentItem {
+            let opts = item.payload.options ?? []
+            switch key {
+            case .option(let n):
+                let idx = n - 1
+                guard opts.indices.contains(idx) else { return }
+                if item.multiSelect {
+                    if selectedIndices.contains(idx) { selectedIndices.remove(idx) } else { selectedIndices.insert(idx) }
+                } else {
+                    selectedIndex = idx
+                    showOtherInput = false
+                    advanceWithAnswer(opts[idx])
+                }
+            case .confirm:
+                if item.multiSelect {
+                    confirmMultiSelect()
+                } else if showOtherInput, !otherText.isEmpty {
+                    advanceWithAnswer(otherText)
+                } else if opts.isEmpty, !textInput.isEmpty {
+                    advanceWithAnswer(textInput)
+                }
+            case .cancel:
+                onSkip()
+            }
+        } else {
+            switch key {
+            case .option(let n):
+                guard let options, options.indices.contains(n - 1) else { return }
+                selectedIndex = n - 1
+                onAnswer(options[n - 1])
+            case .confirm:
+                if (options ?? []).isEmpty, !textInput.isEmpty { onAnswer(textInput) }
+            case .cancel:
+                onSkip()
+            }
+        }
     }
 
     /// Dots and "2 de 3" for a run of questions.
@@ -1304,15 +1415,15 @@ private struct QuestionBar: View {
                 .buttonStyle(.plain)
             }
             Spacer(minLength: 0)
-            FormButton(label: l10n["form_skip"], action: onSkip)
+            FormButton(label: l10n["form_skip"], keyHint: keys.hint(local: "esc", global: .skipQuestion), action: onSkip)
             if item.multiSelect {
-                FormButton(label: l10n["form_confirm"], kind: .primary, action: confirmMultiSelect)
+                FormButton(label: l10n["form_confirm"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil), action: confirmMultiSelect)
             } else if item.payload.options == nil || item.payload.options?.isEmpty == true {
-                FormButton(label: l10n["form_send"], kind: .primary) {
+                FormButton(label: l10n["form_send"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil)) {
                     if !textInput.isEmpty { advanceWithAnswer(textInput) }
                 }
             } else if showOtherInput {
-                FormButton(label: l10n["form_send"], kind: .primary) {
+                FormButton(label: l10n["form_send"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil)) {
                     if !otherText.isEmpty { advanceWithAnswer(otherText) }
                 }
             }
@@ -1405,9 +1516,9 @@ private struct QuestionBar: View {
 
         HStack(spacing: 6) {
             Spacer(minLength: 0)
-            FormButton(label: l10n["form_skip"], action: onSkip)
+            FormButton(label: l10n["form_skip"], keyHint: keys.hint(local: "esc", global: .skipQuestion), action: onSkip)
             if options == nil || options?.isEmpty == true {
-                FormButton(label: l10n["form_send"], kind: .primary) {
+                FormButton(label: l10n["form_send"], kind: .primary, keyHint: keys.hint(local: "↩", global: nil)) {
                     if !textInput.isEmpty { onAnswer(textInput) }
                 }
             }
@@ -1838,25 +1949,37 @@ private struct ProjectNameLink: View {
     let color: Color
 
     var body: some View {
+        // A Button when it opens the folder, so it is reachable without a mouse; plain text
+        // otherwise, so VoiceOver doesn't announce a control that does nothing.
+        if isInteractive, let cwd {
+            Button {
+                NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+            } label: {
+                label
+            }
+            .buttonStyle(.plain)
+            .help("\(L10n.shared["open_path"]) \(cwd)")
+        } else {
+            label
+        }
+    }
+
+    private var label: some View {
         Text(name)
             .font(.system(size: fontSize, weight: .semibold))
             .foregroundStyle(color)
             .lineLimit(1)
             .truncationMode(.tail)
-            .onTapGesture {
-                if isInteractive, let cwd = cwd {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-                }
-            }
-            .help(isInteractive && cwd != nil ? "\(L10n.shared["open_path"]) \(cwd ?? "")" : "")
     }
 }
 
+/// Shows the sessions hidden below the fold. It used to expand by itself after 0.6 s under
+/// the mouse, so passing over it on the way to a card changed the list under the pointer;
+/// now it takes a click, like every other control in the panel.
 private struct SessionsExpandLink: View {
     let count: Int
     let action: () -> Void
     @State private var hovering = false
-    @State private var hoverTimer: Timer?
 
     var body: some View {
         Button(action: action) {
@@ -1875,16 +1998,7 @@ private struct SessionsExpandLink: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { h in
-            withAnimation(NotchAnimation.micro) { hovering = h }
-            hoverTimer?.invalidate()
-            hoverTimer = nil
-            if h {
-                hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { _ in
-                    Task { @MainActor in action() }
-                }
-            }
-        }
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
     }
 }
 
@@ -1960,6 +2074,15 @@ private struct SessionCard: View {
         .buttonStyle(CardPressStyle())
         .contentShape(Rectangle())
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
+        // The small button for the other way in lives inside this Button and appears only
+        // under the mouse, out of reach of the keyboard and VoiceOver. Both ways are offered
+        // here as well: as named accessibility actions and in the context menu.
+        .accessibilityAction(named: Text(L10n.shared["card_open_chat"]), openChat)
+        .accessibilityAction(named: Text(L10n.shared["card_open_app"]), openApp)
+        .contextMenu {
+            Button(L10n.shared["card_open_chat"], action: openChat)
+            Button(L10n.shared["card_open_app"], action: openApp)
+        }
     }
 
     @ViewBuilder
@@ -2146,6 +2269,7 @@ private struct SessionCard: View {
             .opacity(hovering ? 1 : 0)
             .allowsHitTesting(hovering)
             .help(L10n.shared[alternateIsChat ? "card_open_chat" : "card_open_app"])
+            .accessibilityLabel(L10n.shared[alternateIsChat ? "card_open_chat" : "card_open_app"])
             Text(timeAgo(session.startTime))
                 .font(.system(size: fontSize - 1.5, weight: .medium).monospacedDigit())
                 .tracking(0.2)
