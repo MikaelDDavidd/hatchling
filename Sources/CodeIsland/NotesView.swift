@@ -16,6 +16,45 @@ struct NotesView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.85), value: expandedId)
+        .overlay(alignment: .bottom) {
+            if store.recentlyDeleted != nil && expandedId == nil {
+                undoBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: store.recentlyDeleted?.id)
+    }
+
+    /// "Note deleted · Undo", for a few seconds after a delete.
+    private var undoBar: some View {
+        HStack(spacing: 10) {
+            Text(L10n.shared["note_deleted"])
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { store.undoDelete() }
+            } label: {
+                Text(L10n.shared["note_undo"])
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 10)
+                    .frame(height: 22)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(red: 0.925, green: 0.925, blue: 0.925)))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(white: 0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
+        .padding(.bottom, 6)
     }
 
     private var carousel: some View {
