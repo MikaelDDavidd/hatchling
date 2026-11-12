@@ -4,6 +4,9 @@ import CodeIslandCore
 struct PermissionRequest {
     let event: HookEvent
     let continuation: CheckedContinuation<Data, Never>
+    /// The hook connection this request arrived on, so a dropped connection settles only
+    /// its own request and not every other one pending in the session.
+    var connectionToken: String? = nil
     /// Stable identity for this request. The queue reorders and drains, so "the current
     /// pending one" is not something a remote client can safely name — a phone answering a
     /// prompt that was already resolved on the Mac would otherwise land on whatever took its
@@ -35,6 +38,8 @@ struct QuestionRequest {
     let event: HookEvent
     let question: QuestionPayload
     let continuation: CheckedContinuation<Data, Never>
+    /// See `PermissionRequest.connectionToken`.
+    var connectionToken: String? = nil
     /// true when converted from AskUserQuestion PermissionRequest
     let isFromPermission: Bool
     var askUserQuestionState: AskUserQuestionState?
