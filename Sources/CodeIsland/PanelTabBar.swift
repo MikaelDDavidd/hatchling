@@ -79,6 +79,35 @@ struct PanelTabSelector: View {
     }
 }
 
+/// What the Agents tab says when nothing is running: the panel can now open without a
+/// session, and an empty list would read as broken rather than as "start one".
+private struct AgentsEmptyState: View {
+    @ObservedObject private var l10n = L10n.shared
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "terminal")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.45))
+                .accessibilityHidden(true)
+            Text(l10n["agents_empty"])
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.65))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.white.opacity(0.04))
+        )
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+    }
+}
+
 struct PanelTabContent: View {
     var appState: AppState
     @AppStorage(SettingsKey.selectedPanelTab) private var selected: String = SettingsDefaults.selectedPanelTab
@@ -103,7 +132,11 @@ struct PanelTabContent: View {
             case .agents:
                 VStack(spacing: 0) {
                     HatchStage(appState: appState)
-                    SessionListView(appState: appState, onlySessionId: nil)
+                    if appState.sessions.isEmpty {
+                        AgentsEmptyState()
+                    } else {
+                        SessionListView(appState: appState, onlySessionId: nil)
+                    }
                 }
                 .transition(slide(forward))
             }
