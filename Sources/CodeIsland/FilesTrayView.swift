@@ -221,6 +221,7 @@ final class TrayStage: ObservableObject {
             guard let self, !self.isBusy,
                   let delegate = NSApp.delegate as? AppDelegate,
                   delegate.appState.surface.isExpanded,
+                  !delegate.appState.hasPendingInteraction,
                   !(delegate.panelController?.isMouseOverContent ?? false) else { return }
             withAnimation(NotchAnimation.close) { delegate.appState.surface = .collapsed }
         }
