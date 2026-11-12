@@ -95,7 +95,7 @@ struct FilesTrayView: View {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .light))
                     .foregroundStyle(.white.opacity(0.55))
-                Text("Adicionar")
+                Text(L10n.shared["tray_add"])
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
             }

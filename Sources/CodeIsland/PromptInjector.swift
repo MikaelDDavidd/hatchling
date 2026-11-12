@@ -52,21 +52,21 @@ enum PromptInjector {
     /// calls off the main actor, with a timeout, so a stuck tmux cannot freeze the notch.
     static func inject(text: String, into session: SessionSnapshot) async -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Empty prompt" }
+        guard !trimmed.isEmpty else { return L10n.shared["prompt_err_empty"] }
         guard trimmed.count <= maxPromptLength else {
-            return "The prompt is too long (\(trimmed.count) characters, the limit is \(maxPromptLength))"
+            return String(format: L10n.shared["prompt_err_too_long"], trimmed.count, maxPromptLength)
         }
         // While the agent waits on an approval or a question, Return would answer that dialog
         // instead of sending a prompt.
         if session.status == .waitingApproval || session.status == .waitingQuestion {
-            return "The session is waiting for an answer. Answer it first, then send the prompt."
+            return L10n.shared["prompt_err_waiting"]
         }
 
         if hasTmuxPane(session) {
             return await Task.detached { injectViaTmux(text: trimmed, session: session) }.value
         }
         guard keystrokeInjectionEnabled else {
-            return "This session is not in tmux. Turn on keystroke injection in Settings to send prompts to it."
+            return L10n.shared["prompt_err_not_tmux"]
         }
         return await MainActor.run { injectViaKeystrokes(text: trimmed, session: session) }
     }
@@ -75,7 +75,7 @@ enum PromptInjector {
 
     private static func injectViaTmux(text: String, session: SessionSnapshot) -> String? {
         guard let pane = session.tmuxPane, let tmux = findTmux() else {
-            return "tmux not found on PATH"
+            return L10n.shared["prompt_err_no_tmux"]
         }
 
         var env = ProcessInfo.processInfo.environment
@@ -88,20 +88,20 @@ enum PromptInjector {
         if let current = output(tmux, ["display-message", "-p", "-t", pane, "#{pane_current_command}"], env: env) {
             let name = current.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
             if shells.contains(name.lowercased()) {
-                return "The agent is no longer running in that tmux pane"
+                return L10n.shared["prompt_err_pane_gone"]
             }
         } else {
-            return "Could not check the tmux pane"
+            return L10n.shared["prompt_err_pane_check"]
         }
 
         // Two calls, deliberately. `send-keys -l` sends the text literally, so a prompt
         // containing "Enter" or a semicolon cannot be read as a key name; the second call
         // sends the actual Return.
         guard run(tmux, ["send-keys", "-t", pane, "-l", text], env: env) else {
-            return "tmux rejected the text"
+            return L10n.shared["prompt_err_tmux_text"]
         }
         guard run(tmux, ["send-keys", "-t", pane, "Enter"], env: env) else {
-            return "tmux rejected the newline"
+            return L10n.shared["prompt_err_tmux_newline"]
         }
         return nil
     }
@@ -156,7 +156,7 @@ enum PromptInjector {
     @MainActor
     private static func injectViaKeystrokes(text: String, session: SessionSnapshot) -> String? {
         guard AXIsProcessTrusted() else {
-            return "Accessibility permission is not granted to Hatchling"
+            return L10n.shared["prompt_err_accessibility"]
         }
 
         // Raise the session's terminal first. Without this the keystrokes land in whatever is
@@ -171,12 +171,12 @@ enum PromptInjector {
         }
 
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
-            return "Could not create an event source"
+            return L10n.shared["prompt_err_event_source"]
         }
 
         for chunk in text.chunked(into: 20) {
             guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) else {
-                return "Could not synthesise keystrokes"
+                return L10n.shared["prompt_err_keystrokes"]
             }
             var utf16 = Array(chunk.utf16)
             down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)

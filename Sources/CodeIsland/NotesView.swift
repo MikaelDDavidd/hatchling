@@ -27,8 +27,8 @@ struct NotesView: View {
                         .matchedGeometryEffect(id: note.id, in: animation)
                         .onTapGesture { expandedId = note.id }
                         .contextMenu {
-                            Button("Mudar cor") { store.cycleColor(id: note.id) }
-                            Button("Apagar", role: .destructive) { store.delete(id: note.id) }
+                            Button(L10n.shared["notes_change_color"]) { store.cycleColor(id: note.id) }
+                            Button(L10n.shared["notes_delete"], role: .destructive) { store.delete(id: note.id) }
                         }
                 }
             }
@@ -46,7 +46,7 @@ struct NotesView: View {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .light))
                     .foregroundStyle(.white.opacity(0.55))
-                Text("Nova")
+                Text(L10n.shared["notes_new"])
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
             }
@@ -85,7 +85,7 @@ private struct NoteCard: View {
 
     private var preview: String {
         let trimmed = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Nota vazia" : trimmed
+        return trimmed.isEmpty ? L10n.shared["notes_empty"] : trimmed
     }
 
     var body: some View {
@@ -133,7 +133,7 @@ private struct ExpandedNoteCard: View {
             header
             ZStack(alignment: .topLeading) {
                 if draft.isEmpty {
-                    Text("Escreva sua nota…")
+                    Text(L10n.shared["notes_placeholder"])
                         .font(.system(size: 12))
                         .foregroundStyle(.black.opacity(0.35))
                         .padding(.horizontal, 12)
@@ -174,7 +174,7 @@ private struct ExpandedNoteCard: View {
                     .foregroundStyle(.black.opacity(0.65))
             }
             .buttonStyle(.plain)
-            .help("Voltar")
+            .help(L10n.shared["notes_back"])
 
             Spacer()
 
@@ -184,7 +184,7 @@ private struct ExpandedNoteCard: View {
                     .foregroundStyle(.black.opacity(0.65))
             }
             .buttonStyle(.plain)
-            .help("Trocar cor")
+            .help(L10n.shared["notes_change_color"])
 
             Button(action: onDelete) {
                 Image(systemName: "trash")
@@ -192,7 +192,7 @@ private struct ExpandedNoteCard: View {
                     .foregroundStyle(.black.opacity(0.65))
             }
             .buttonStyle(.plain)
-            .help("Apagar")
+            .help(L10n.shared["notes_delete"])
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
