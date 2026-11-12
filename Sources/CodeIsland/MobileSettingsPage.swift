@@ -10,7 +10,8 @@ import Combine
 struct MobileSettingsPage: View {
     @AppStorage(SettingsKey.mobileBridgeEnabled) private var enabled = SettingsDefaults.mobileBridgeEnabled
     @AppStorage(SettingsKey.mobileRelayURL) private var relayURL = SettingsDefaults.mobileRelayURL
-    @AppStorage(SettingsKey.mobileRelayToken) private var relayToken = SettingsDefaults.mobileRelayToken
+    /// Edited here, stored in the Keychain (see RelayTokenStore), not in UserDefaults.
+    @State private var relayToken = RelayTokenStore.token
     @AppStorage(SettingsKey.mobileAllowKeystrokeInjection) private var allowKeystrokes = SettingsDefaults.mobileAllowKeystrokeInjection
 
     @ObservedObject private var bridge = MobileBridge.shared
@@ -34,6 +35,9 @@ struct MobileSettingsPage: View {
             if case .online = bridge.state { bridge.refreshPairedDevices() }
         }
         .onReceive(tick) { now = $0 }
+        .onChange(of: relayToken) { _, value in
+            RelayTokenStore.token = value
+        }
         .onChange(of: enabled) { _, isOn in
             isOn ? bridge.start() : bridge.stop()
         }
