@@ -135,6 +135,15 @@ private struct RemoteHostsPage: View {
     @State private var identityFile = ""
     @State private var autoConnect = false
 
+    /// Empty means "use the default", which is fine; anything else has to be a real port.
+    /// A typo used to turn into nil and connect to 22 without a word.
+    private var portError: String? {
+        let trimmed = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let value = Int(trimmed), (1...65535).contains(value) else { return l10n["remote_port_invalid"] }
+        return nil
+    }
+
     var body: some View {
         Form {
             Section(l10n["remote_hosts"]) {
@@ -153,6 +162,11 @@ private struct RemoteHostsPage: View {
                 TextField(l10n["remote_host"], text: $host)
                 TextField(l10n["remote_user"], text: $user)
                 TextField(l10n["remote_port"], text: $port)
+                if let portError {
+                    Text(portError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 TextField(l10n["remote_identity"], text: $identityFile)
                 Toggle(l10n["remote_auto_connect"], isOn: $autoConnect)
 
@@ -178,7 +192,8 @@ private struct RemoteHostsPage: View {
                     autoConnect = false
                 }
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || portError != nil)
             }
 
             Section {
@@ -1885,6 +1900,9 @@ private struct ShortcutsPage: View {
     @State private var recordingAction: ShortcutAction?
     @State private var eventMonitor: Any?
     @State private var refreshKey = 0
+    /// Set when a key without ⌘, ⌃ or ⌥ was pressed while recording: a global shortcut
+    /// needs one, or it would fire while typing in any app.
+    @State private var needsModifier = false
 
     var body: some View {
         Form {
@@ -1893,6 +1911,7 @@ private struct ShortcutsPage: View {
                     ShortcutRow(
                         action: action,
                         isRecording: recordingAction == action,
+                        needsModifier: recordingAction == action && needsModifier,
                         onStartRecording: { startRecording(action) },
                         onClear: { clearBinding(action) }
                     )
@@ -1907,6 +1926,7 @@ private struct ShortcutsPage: View {
     private func startRecording(_ action: ShortcutAction) {
         stopRecording()
         recordingAction = action
+        needsModifier = false
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 { // Escape — cancel
                 self.stopRecording()
@@ -1914,6 +1934,7 @@ private struct ShortcutsPage: View {
             }
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard mods.contains(.command) || mods.contains(.control) || mods.contains(.option) else {
+                self.needsModifier = true
                 return nil
             }
             action.setBinding(keyCode: event.keyCode, modifiers: mods)
@@ -1937,6 +1958,7 @@ private struct ShortcutsPage: View {
             eventMonitor = nil
         }
         recordingAction = nil
+        needsModifier = false
     }
 
     private func notifyChange() {
@@ -1949,6 +1971,7 @@ private struct ShortcutsPage: View {
 private struct ShortcutRow: View {
     let action: ShortcutAction
     let isRecording: Bool
+    var needsModifier: Bool = false
     let onStartRecording: () -> Void
     let onClear: () -> Void
     @ObservedObject private var l10n = L10n.shared
@@ -1974,12 +1997,19 @@ private struct ShortcutRow: View {
             }
             Spacer()
             if isRecording {
-                Text(l10n["shortcut_recording"])
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 6).stroke(.orange, lineWidth: 1))
+                HStack(spacing: 8) {
+                    if needsModifier {
+                        Text(l10n["shortcut_needs_modifier"])
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Text(l10n["shortcut_recording"])
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 6).stroke(.orange, lineWidth: 1))
+                }
             } else if action.isEnabled {
                 HStack(spacing: 6) {
                     Text(action.binding.displayString)
