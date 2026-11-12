@@ -191,6 +191,8 @@ private struct FileTile: View {
                         .foregroundStyle(.white, .black.opacity(0.7))
                 }
                 .buttonStyle(.plain)
+                .help(L10n.shared["a11y_remove_file"])
+                .accessibilityLabel(L10n.shared["a11y_remove_file"])
                 .offset(x: 4, y: -4)
                 .transition(.opacity)
             }

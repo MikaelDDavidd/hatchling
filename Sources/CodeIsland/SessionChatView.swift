@@ -63,6 +63,8 @@ struct SessionChatView: View {
                     .foregroundStyle(.white.opacity(0.55))
             }
             .buttonStyle(.plain)
+            .help(L10n.shared["a11y_back_to_list"])
+            .accessibilityLabel(L10n.shared["a11y_back_to_list"])
 
             AgentDot(source: session.source, status: session.status, size: 9)
 
@@ -316,6 +318,8 @@ struct SessionChatView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .help(L10n.shared["a11y_send"])
+                .accessibilityLabel(L10n.shared["a11y_send"])
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
