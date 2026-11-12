@@ -82,6 +82,16 @@ final class AppState {
         }
     }
     private var modelReadRetryAt: [String: Date] = [:]
+    /// When each session's provider title was last read from disk. Hooks arrive many times a
+    /// second while a CLI works, and a title only changes around a prompt or a finished turn.
+    @ObservationIgnored private var titleReadAt: [String: Date] = [:]
+    /// The read each session is waiting on, so a slow read that lands after a newer one
+    /// can't put an older title back.
+    @ObservationIgnored private var pendingTitleRead: [String: Int] = [:]
+    @ObservationIgnored private var titleReadSerial = 0
+    /// Hooks other than a prompt, a finished turn or a session start re-read the title at
+    /// most this often, which still picks up a rename made mid-turn.
+    private static let titleRereadInterval: TimeInterval = 45
 
     var rotatingSessionId: String?
     var rotatingSession: SessionSnapshot? {
@@ -433,6 +443,8 @@ final class AppState {
         stopMonitor(sessionId)
         exitingSessions.removeValue(forKey: sessionId)
         modelReadRetryAt.removeValue(forKey: sessionId)
+        titleReadAt[sessionId] = nil
+        pendingTitleRead[sessionId] = nil
         completionQueue.removeAll { $0 == sessionId }
         completionQueuedAt[sessionId] = nil
         shownCompletion[sessionId] = nil
@@ -759,25 +771,46 @@ final class AppState {
         }
     }
 
-    private func refreshProviderTitle(for trackedSessionId: String, providerSessionId: String? = nil) {
+    /// `force` reads the title now; otherwise a read made within `titleRereadInterval` stands.
+    private func refreshProviderTitle(for trackedSessionId: String, providerSessionId: String? = nil, force: Bool = true) {
         guard let session = sessions[trackedSessionId] else { return }
         guard !session.isRemote else { return }
 
+        let supported = SessionTitleStore.supports(provider: session.source)
         let lookupSessionId = providerSessionId ?? session.providerSessionId ?? trackedSessionId
-        if let providerSessionId {
-            sessions[trackedSessionId]?.providerSessionId = providerSessionId
-        } else if SessionTitleStore.supports(provider: session.source) {
+        if (providerSessionId != nil || supported), session.providerSessionId != lookupSessionId {
             sessions[trackedSessionId]?.providerSessionId = lookupSessionId
         }
 
-        guard SessionTitleStore.supports(provider: session.source) else { return }
+        guard supported else { return }
 
-        if let resolved = SessionTitleStore.title(for: lookupSessionId, provider: session.source, cwd: session.cwd) {
-            sessions[trackedSessionId]?.sessionTitle = resolved.title
-            sessions[trackedSessionId]?.sessionTitleSource = resolved.source
-        } else {
-            sessions[trackedSessionId]?.sessionTitle = nil
-            sessions[trackedSessionId]?.sessionTitleSource = nil
+        let now = Date()
+        if !force, let lastRead = titleReadAt[trackedSessionId],
+           now.timeIntervalSince(lastRead) < Self.titleRereadInterval {
+            return
+        }
+        titleReadAt[trackedSessionId] = now
+        titleReadSerial += 1
+        let serial = titleReadSerial
+        pendingTitleRead[trackedSessionId] = serial
+
+        // The read touches the transcript or the Codex index, so it runs off the main actor
+        // and only the result is applied here.
+        let provider = session.source
+        let cwd = session.cwd
+        Task.detached(priority: .utility) {
+            let resolved = SessionTitleStore.title(for: lookupSessionId, provider: provider, cwd: cwd)
+            await MainActor.run { [weak self] in
+                guard let self, self.pendingTitleRead[trackedSessionId] == serial,
+                      let current = self.sessions[trackedSessionId] else { return }
+                self.pendingTitleRead[trackedSessionId] = nil
+                if current.sessionTitle != resolved?.title {
+                    self.sessions[trackedSessionId]?.sessionTitle = resolved?.title
+                }
+                if current.sessionTitleSource != resolved?.source {
+                    self.sessions[trackedSessionId]?.sessionTitleSource = resolved?.source
+                }
+            }
         }
     }
 
@@ -852,7 +885,11 @@ final class AppState {
         if let provider = sessions[sessionId]?.source,
            sessions[sessionId]?.isRemote != true,
            SessionTitleStore.supports(provider: provider) {
-            refreshProviderTitle(for: sessionId)
+            // Titles are written around a prompt or at the end of a turn; tool hooks in
+            // between only re-check now and then.
+            let titleEvents: Set<String> = ["Stop", "SessionStart", "UserPromptSubmit"]
+            let force = titleEvents.contains(EventNormalizer.normalize(event.eventName))
+            refreshProviderTitle(for: sessionId, force: force)
         }
 
         // Handle the "else if activeSessionId == sessionId → mostActive" edge case
