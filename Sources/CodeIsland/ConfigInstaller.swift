@@ -486,7 +486,8 @@ struct ConfigInstaller {
     static func uninstall() {
         let fm = FileManager.default
         try? fm.removeItem(atPath: hookScriptPath)
-        try? fm.removeItem(atPath: bridgePath)
+        // Through the install queue, so a copy still pending can't put the bridge back afterwards.
+        bridgeInstallQueue.sync { _ = try? FileManager.default.removeItem(atPath: bridgePath) }
         // Also clean up legacy paths (#32)
         try? fm.removeItem(atPath: legacyBridgePath)
         try? fm.removeItem(atPath: legacyHookScriptPath)
@@ -968,6 +969,10 @@ struct ConfigInstaller {
         }
     }
 
+    /// Copies of the bridge run here, one at a time and off the main thread: this is called
+    /// from the periodic hook check and on every app activation, and the binary is several MB.
+    private static let bridgeInstallQueue = DispatchQueue(label: "codeisland.bridge-install", qos: .utility)
+
     private static func installBridgeBinary(fm: FileManager) {
         guard let execPath = Bundle.main.executablePath else { return }
         let execDir = (execPath as NSString).deletingLastPathComponent
@@ -976,6 +981,33 @@ struct ConfigInstaller {
         if !fm.fileExists(atPath: srcPath) { srcPath = execDir + "/codeisland-bridge" }
         guard fm.fileExists(atPath: srcPath) else { return }
 
+        // Nearly every call finds the installed copy already current; two stats settle that
+        // without copying and swapping the executable again.
+        if bridgeBinaryIsCurrent(srcPath: srcPath, fm: fm) { return }
+
+        let source = srcPath
+        bridgeInstallQueue.async {
+            let fm = FileManager.default
+            // Another call may have installed it while this one waited in the queue.
+            if bridgeBinaryIsCurrent(srcPath: source, fm: fm) { return }
+            copyBridgeBinary(from: source, fm: fm)
+        }
+    }
+
+    /// The installed bridge matches the bundled one when size and modification date agree.
+    /// The copy is stamped with the source's date below, so an app update (a new bundled
+    /// binary) always shows up as a mismatch.
+    private static func bridgeBinaryIsCurrent(srcPath: String, fm: FileManager) -> Bool {
+        guard fm.isExecutableFile(atPath: bridgePath),
+              let src = try? fm.attributesOfItem(atPath: srcPath),
+              let dst = try? fm.attributesOfItem(atPath: bridgePath),
+              let srcSize = src[.size] as? NSNumber, let dstSize = dst[.size] as? NSNumber,
+              let srcDate = src[.modificationDate] as? Date, let dstDate = dst[.modificationDate] as? Date
+        else { return false }
+        return srcSize == dstSize && srcDate == dstDate
+    }
+
+    private static func copyBridgeBinary(from srcPath: String, fm: FileManager) {
         // Atomic replace: copy to temp file first, then rename (overwrites atomically)
         let tmpPath = bridgePath + ".tmp.\(ProcessInfo.processInfo.processIdentifier)"
         do {
@@ -984,6 +1016,10 @@ struct ConfigInstaller {
             chmod(tmpPath, 0o755)
             // Strip quarantine xattr so Gatekeeper won't block the binary
             stripQuarantine(tmpPath)
+            // Stamp the copy with the source's date so the next check can recognise it.
+            if let srcDate = (try? fm.attributesOfItem(atPath: srcPath))?[.modificationDate] as? Date {
+                try? fm.setAttributes([.modificationDate: srcDate], ofItemAtPath: tmpPath)
+            }
             _ = try fm.replaceItemAt(URL(fileURLWithPath: bridgePath), withItemAt: URL(fileURLWithPath: tmpPath))
         } catch {
             // replaceItemAt fails if destination doesn't exist yet — fall back to rename
