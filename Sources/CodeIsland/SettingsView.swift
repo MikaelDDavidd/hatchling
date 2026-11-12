@@ -195,6 +195,7 @@ private struct RemoteHostRow: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var remoteManager = RemoteManager.shared
     let host: RemoteHost
+    @State private var confirmingRemove = false
 
     private var status: SSHForwarder.Status {
         remoteManager.connectionStatus[host.id] ?? .disconnected
@@ -257,9 +258,16 @@ private struct RemoteHostRow: View {
                 }
 
                 Button(role: .destructive) {
-                    remoteManager.removeHost(id: host.id)
+                    confirmingRemove = true
                 } label: {
                     Text(l10n["remote_remove"])
+                }
+                // Removing drops the host's address and settings along with the connection.
+                .confirmationDialog(String(format: l10n["confirm_remove_host_title"], host.name), isPresented: $confirmingRemove) {
+                    Button(l10n["confirm_remove_host_action"], role: .destructive) { remoteManager.removeHost(id: host.id) }
+                    Button(l10n["confirm_cancel"], role: .cancel) {}
+                } message: {
+                    Text(l10n["confirm_remove_host_message"])
                 }
             }
             .buttonStyle(.bordered)
@@ -368,6 +376,18 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.aiProvider) private var aiProvider = AIProvider.auto.rawValue
     @State private var hasApiKey = KeychainSecret.anthropic.hasKey
     @State private var hasNvidiaKey = KeychainSecret.nvidia.hasKey
+    @State private var confirmingYolo = false
+
+    /// Turning YOLO on lets every tool call through unseen, so it asks first; turning it
+    /// off is always safe and happens at once.
+    private var yoloBinding: Binding<Bool> {
+        Binding(
+            get: { autoAcceptPermissions },
+            set: { on in
+                if on { confirmingYolo = true } else { autoAcceptPermissions = false }
+            }
+        )
+    }
 
     /// A key field with Save and, once saved, Remove. The key goes straight to the Keychain.
     private func keyRow(title: String, placeholder: String, draft: Binding<String>, saved: Binding<Bool>,
@@ -420,7 +440,7 @@ private struct BehaviorPage: View {
             }
 
             Section {
-                Toggle(isOn: $autoAcceptPermissions) {
+                Toggle(isOn: yoloBinding) {
                     HStack(spacing: 10) {
                         Image(systemName: "bolt.fill")
                             .font(.system(size: 14))
@@ -449,6 +469,12 @@ private struct BehaviorPage: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                }
+                .confirmationDialog(l10n["confirm_yolo_title"], isPresented: $confirmingYolo) {
+                    Button(l10n["confirm_yolo_action"], role: .destructive) { autoAcceptPermissions = true }
+                    Button(l10n["confirm_cancel"], role: .cancel) {}
+                } message: {
+                    Text(l10n["confirm_yolo_message"])
                 }
             } header: {
                 Text(l10n["permissions_section"])
@@ -546,6 +572,22 @@ private struct HooksPage: View {
     @State private var customConfigPath = ""
     @State private var customConfigKey = "hooks"
     @State private var customFormat: HookFormat = .claude
+    @State private var confirmingUninstall = false
+
+    /// Takes Hatchling out of every CLI's config. The agents keep running, but the notch goes
+    /// blind to them until the hooks are installed again, so it is asked first.
+    private func uninstallAllHooks() {
+        // Disable all CLIs before uninstalling
+        for cli in ConfigInstaller.allCLIs {
+            UserDefaults.standard.set(false, forKey: "cli_enabled_\(cli.source)")
+        }
+        UserDefaults.standard.set(false, forKey: "cli_enabled_opencode")
+        ConfigInstaller.uninstall()
+        refreshCLIStatuses()
+        refreshKey += 1
+        statusMessage = l10n["hooks_uninstalled"]
+        statusIsError = false
+    }
 
     private func refreshCLIStatuses() {
         for cli in ConfigInstaller.allCLIs {
@@ -679,22 +721,19 @@ private struct HooksPage: View {
                     .buttonStyle(.bordered)
 
                     Button(role: .destructive) {
-                        // Disable all CLIs before uninstalling
-                        for cli in ConfigInstaller.allCLIs {
-                            UserDefaults.standard.set(false, forKey: "cli_enabled_\(cli.source)")
-                        }
-                        UserDefaults.standard.set(false, forKey: "cli_enabled_opencode")
-                        ConfigInstaller.uninstall()
-                        refreshCLIStatuses()
-                        refreshKey += 1
-                        statusMessage = l10n["hooks_uninstalled"]
-                        statusIsError = false
+                        confirmingUninstall = true
                     } label: {
                         Text(l10n["uninstall"])
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .tint(.red)
+                    .confirmationDialog(l10n["confirm_uninstall_title"], isPresented: $confirmingUninstall) {
+                        Button(l10n["confirm_uninstall_action"], role: .destructive) { uninstallAllHooks() }
+                        Button(l10n["confirm_cancel"], role: .cancel) {}
+                    } message: {
+                        Text(l10n["confirm_uninstall_message"])
+                    }
                 }
 
                 if !statusMessage.isEmpty {

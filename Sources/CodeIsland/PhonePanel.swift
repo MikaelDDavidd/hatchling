@@ -77,6 +77,9 @@ struct PhonePairingView: View {
     @State private var knownIds: Set<String> = []
     /// A code has been on screen, so a new phone in the list was this page's doing.
     @State private var codeShown = false
+    /// The paired phone whose Disconnect was clicked once and now waits for a second click.
+    /// Disconnecting is final: the phone needs a fresh code to come back.
+    @State private var confirmingRevoke: String?
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -231,17 +234,45 @@ struct PhonePairingView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.9))
                         .lineLimit(1)
-                    Text(seen(device))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Button { bridge.revoke(deviceId: device.id) } label: {
-                        Text(l10n["phone_disconnect"])
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(red: 1.0, green: 0.54, blue: 0.54))
+                    // Gives way to the question while it is asked, so the row stays one line.
+                    if confirmingRevoke != device.id {
+                        Text(seen(device))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.45))
+                            .lineLimit(1)
                     }
-                    .buttonStyle(.plain)
+                    Spacer(minLength: 8)
+                    if confirmingRevoke == device.id {
+                        // Asked in the row itself: a dialog would hang off this borderless
+                        // panel, and a click outside the panel collapses it mid-question.
+                        Text(l10n["confirm_disconnect_short"])
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                        PanelButton(title: l10n["confirm_cancel"]) { confirmingRevoke = nil }
+                        Button {
+                            confirmingRevoke = nil
+                            bridge.revoke(deviceId: device.id)
+                        } label: {
+                            Text(l10n["phone_disconnect"])
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 12)
+                                .frame(height: 28)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color(red: 1.0, green: 0.54, blue: 0.54))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button { confirmingRevoke = device.id } label: {
+                            Text(l10n["phone_disconnect"])
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(red: 1.0, green: 0.54, blue: 0.54))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
