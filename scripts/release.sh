@@ -5,7 +5,8 @@
 #
 # 1. Sets the version in Info.plist.
 # 2. Builds, signs with the Developer ID and notarizes (build.sh --notarize).
-# 3. Creates the GitHub release v<version> on MikaelDDavidd/hatchling with the DMG.
+# 3. Creates the GitHub release v<version> on MikaelDDavidd/hatchling with the DMG, twice:
+#    versioned, and as Hatchling.dmg for the website's direct download link.
 #
 # The app checks that repository at launch and every six hours, downloads the DMG of a
 # newer release, confirms it is signed by the same developer team and installs it when no
@@ -36,5 +37,10 @@ mkdir -p dist
 cp .build/release/Hatchling.dmg "$DMG"
 spctl -a -t install "$DMG"
 
-gh release create "v$VERSION" "$DMG" --repo "$REPO" --title "Hatchling $VERSION" --notes "$NOTES"
+# A second copy with a fixed name, so the website can always link to
+# releases/latest/download/Hatchling.dmg and the download starts right away.
+STABLE="$(mktemp -d)/Hatchling.dmg"
+cp "$DMG" "$STABLE"
+
+gh release create "v$VERSION" "$DMG" "$STABLE" --repo "$REPO" --title "Hatchling $VERSION" --notes "$NOTES"
 echo "Published v$VERSION. Installed copies update within six hours, or at their next launch."

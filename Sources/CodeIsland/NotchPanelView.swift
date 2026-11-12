@@ -232,6 +232,21 @@ struct NotchPanelView: View {
                 }
                 switch appState.surface {
                 case .approvalCard, .questionCard: return
+                case .buddySpeech:
+                    // Hatch is talking: the mouse over it holds the bubble open. Leaving
+                    // closes it only if its time is already up, after a short grace.
+                    appState.buddySpeechHovered = hovering
+                    if !hovering && appState.dismissBuddySpeechOnLeave {
+                        hoverTimer?.invalidate()
+                        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { _ in
+                            Task { @MainActor in
+                                if !appState.buddySpeechHovered && appState.dismissBuddySpeechOnLeave {
+                                    appState.dismissBuddySpeech()
+                                }
+                            }
+                        }
+                    }
+                    return
                 case .completionCard:
                     // Completion card: mark entered on hover-in, block collapse until entered
                     if hovering {

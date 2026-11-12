@@ -9,3 +9,4 @@ dev.sh
 
 # Packaged builds to hand out
 dist/
+.netlify/
