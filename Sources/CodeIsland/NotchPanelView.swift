@@ -320,7 +320,8 @@ struct NotchPanelView: View {
                     hoverTimer?.invalidate()
                     hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
                         Task { @MainActor in
-                            guard !isHovered else { return }
+                            // A card may have arrived during the delay; it stays up.
+                            guard !isHovered, !appState.hasPendingInteraction else { return }
                             withAnimation(NotchAnimation.close) {
                                 appState.surface = .collapsed
                             }
