@@ -5,6 +5,7 @@ import SwiftUI
 /// species only flavours what it says.
 struct BuddyPage: View {
     private var pt: Bool { L10n.shared.effectiveLanguage == "pt" }
+    @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var reader = BuddyReader.shared
     @State private var isPetting = false
 
@@ -38,7 +39,7 @@ struct BuddyPage: View {
                                 Text(buddy.name)
                                     .font(.system(size: 18, weight: .bold))
                                 if buddy.isShiny {
-                                    Text("shiny")
+                                    Text(l10n["buddy_shiny"])
                                         .font(.system(size: 11, weight: .semibold))
                                         .foregroundStyle(.yellow)
                                 }
@@ -55,7 +56,7 @@ struct BuddyPage: View {
                                     .foregroundStyle(buddy.rarity.color)
                             }
                             if let hatchedAt = buddy.hatchedAt {
-                                Text((pt ? "nasceu em " : "hatched ") + hatchedAt.formatted(date: .abbreviated, time: .omitted))
+                                Text(String(format: l10n["buddy_hatched_on"], hatchedAt.formatted(date: .abbreviated, time: .omitted)))
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.tertiary)
                             }
@@ -64,7 +65,7 @@ struct BuddyPage: View {
                     }
                     .padding(.vertical, 6)
                 } header: {
-                    Text(pt ? "Seu companheiro" : "Your buddy")
+                    Text(l10n["buddy_section"])
                 }
 
                 Section {
@@ -74,16 +75,15 @@ struct BuddyPage: View {
                     StatBar(name: "WISDOM",    value: buddy.stats.wisdom,    color: .purple)
                     StatBar(name: "SNARK",     value: buddy.stats.snark,     color: .orange)
                 } header: {
-                    Text(pt ? "Atributos" : "Stats")
+                    Text(l10n["buddy_stats"])
                 } footer: {
-                    Text(pt ? "Os atributos vêm do companheiro que o Claude Code criou pra você e não mudam. A descrição acima e o jeito de falar do Hatch saem deles."
-                            : "The stats come from the companion Claude Code made for you and never change. The description above and the way Hatch talks come from them.")
+                    Text(l10n["buddy_stats_footer"])
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
 
                 Section {
-                    Button("Reload from ~/.claude.json") {
+                    Button(l10n["buddy_reload_from"]) {
                         reader.reload()
                     }
                 }
@@ -95,14 +95,15 @@ struct BuddyPage: View {
                                 .font(.system(size: 28))
                                 .foregroundStyle(.tertiary)
                             VStack(alignment: .leading) {
-                                Text("Nenhum buddy encontrado")
+                                Text(l10n["buddy_none_title"])
                                     .font(.system(size: 14, weight: .semibold))
-                                Text("Roda Claude Code uma vez pra gerar `~/.claude.json` com seu companion. Depois clica em Reload.")
+                                // LocalizedStringKey so the backticks still render as code, as the literal did.
+                                Text(LocalizedStringKey(l10n["buddy_none_body"]))
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        Button("Reload") { reader.reload() }
+                        Button(l10n["buddy_reload"]) { reader.reload() }
                     }
                     .padding(.vertical, 4)
                 }
