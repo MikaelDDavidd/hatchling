@@ -320,36 +320,36 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
   }
 
   // ================================================================= iPhone
+  // The app as approved on the mobile canvas: Hatch in the middle of every screen, talking
+  // through a bubble, with what you can do about it at the bottom.
   function phone() {
     const stage = document.getElementById('sim-phone');
     if (!stage) return;
     const W = 390;
-    const ringSvg = (pct, color) => {
-      const c = 2 * Math.PI * 17;
-      return `<svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="17" fill="none" stroke="${color}" stroke-opacity=".18" stroke-width="4"/><circle cx="22" cy="22" r="17" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${c * pct / 100} ${c}" transform="rotate(-90 22 22)"/></svg>`;
+    const AGENT = { claude: C.claude, codex: C.codex };
+    const miniRing = (pct, color) => {
+      const c = 2 * Math.PI * 7;
+      return `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="${color}" stroke-opacity=".2" stroke-width="2.4"/><circle cx="9" cy="9" r="7" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="${c * pct / 100} ${c}" transform="rotate(-90 9 9)"/></svg>`;
     };
+    const stageHtml = (id, hatchSize) => `<div class="ps-stage" id="${id}">
+      <div class="ps-bub" id="${id}-bub"></div>
+      <span class="ps-dot big"></span><span class="ps-dot small"></span>
+      <div class="ps-hatch" id="${id}-h" style="width:${hatchSize}px;height:${hatchSize}px"></div>
+      <span class="ps-floor" style="width:${Math.round(hatchSize * .58)}px;margin-top:-${Math.round(hatchSize * .1)}px"></span>
+      <div class="ps-below" id="${id}-below"></div>
+    </div>`;
     stage.innerHTML = `<div class="sim-scaler"><div class="ph">
   <div class="ph-status"><span>9:41</span><span style="display:flex;gap:6px;align-items:center"><svg width="18" height="12" viewBox="0 0 18 12" fill="#fff"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="rgba(255,255,255,.5)"/><rect x="2" y="2" width="19" height="8" rx="2" fill="#fff"/><rect x="24" y="4" width="1.5" height="4" rx=".7" fill="rgba(255,255,255,.5)"/></svg></span></div>
   <div class="ph-island"></div>
   <div class="ph-screen" id="p-home">
-    <div class="ph-top"><span style="width:7px;height:7px;border-radius:50%;background:${C.working}"></span>Mac connected</div>
-    <div class="rings">
-      <div class="ring"><div class="w">${ringSvg(38, C.claudeUse)}<b style="color:${C.claudeUse}">38</b></div><span>Claude <small>5h</small></span></div>
-      <div class="ring"><div class="w">${ringSvg(72, C.ctxHigh)}<b style="color:${C.ctxHigh}">72</b></div><span>Claude <small>7d</small></span></div>
-      <div class="ring"><div class="w">${ringSvg(12, C.codexUse)}<b style="color:${C.codexUse}">12</b></div><span>Codex <small>5h</small></span></div>
-      <div class="ring"><div class="w">${ringSvg(30, C.codexUse)}<b style="color:${C.codexUse}">30</b></div><span>Codex <small>7d</small></span></div>
-    </div>
-    <div class="ph-hero">
-      <div class="think" id="p-think"></div>
-      <span class="think-dot" style="left:109.7px;top:75.4px;width:16px;height:16px"></span>
-      <span class="think-dot" style="left:100.7px;top:97.8px;width:10px;height:10px"></span>
-      <div class="hatch-wrap" id="p-hatch"></div>
-    </div>
-    <div class="ph-list" id="p-list"></div>
+    <div class="ps-top"><span class="adot" style="background:${C.working};color:${C.working}"></span><b>Mac connected</b><span style="flex:1"></span>${miniRing(38, C.claudeUse)}<span class="mono">38%</span></div>
+    ${stageHtml('p-hs', 200)}
+    <div class="ps-list"><div class="ps-label"><span>Sessions</span><span class="mono">4</span></div><div class="ps-card" id="p-list"></div></div>
   </div>
   <div class="ph-screen off-down" id="p-att"></div>
-  <div class="ph-screen off-right" id="p-chat"></div>
-  <div class="splash" id="p-splash"><div class="hatch-wrap" id="p-splash-h"></div></div>
+  <div class="ph-screen off-right" id="p-sess"></div>
+  <div class="ps-done gone" id="p-done"></div>
+  <div class="splash gone" id="p-splash"><div class="ps-splash-h" id="p-splash-h"></div><span class="ps-floor" id="p-splash-f" style="width:110px;margin-top:-19px"></span></div>
   <div class="touch" id="p-touch"></div>
 </div></div>`;
     const scaler = stage.firstElementChild, root = scaler.firstElementChild;
@@ -357,24 +357,31 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
     const $ = (id) => root.querySelector('#' + id);
     let sessions;
     const fresh = () => ([
-      { id: 'a', project: 'recipes-api', tag: '#3b1c', agent: 'claude', status: 'working', model: 'opus-5-5', pct: 41, now: 'Editing src/routes/recipes.ts', task: 'Search recipes by ingredient', ago: '20s' },
-      { id: 'b', project: 'landing-page', tag: '#c41d', agent: 'codex', status: 'working', model: 'gpt-5.5', pct: 22, now: 'Running pnpm build', task: 'Ship the new home page', ago: '1m' },
-      { id: 'c', project: 'budget-app', tag: '#7f2a', agent: 'claude', status: 'idle', model: 'sonnet-5-5', pct: 64, now: 'Done: 128 tests passing. The spending chart now groups by category.', task: 'run the tests', ago: '4m' },
-      { id: 'd', project: 'design-system', tag: '#a07e', agent: 'claude', status: 'idle', model: 'sonnet-5-5', pct: 88, now: 'The colour tokens now have a dark variant.', task: 'make the dark theme', ago: '1h' },
+      { id: 'a', project: 'recipes-api', tag: '#3b1c', agent: 'claude', status: 'working', model: 'opus-5-5', pct: 41, now: 'Running the tests', ask: 'Search recipes by ingredient', mins: 12 },
+      { id: 'b', project: 'landing-page', tag: '#c41d', agent: 'codex', status: 'working', model: 'gpt-5.5', pct: 22, now: 'Running pnpm build', ask: 'Ship the new home page', mins: 6 },
+      { id: 'c', project: 'budget-app', tag: '#7f2a', agent: 'claude', status: 'done', model: 'sonnet-5-5', pct: 64, now: 'Done: 128 tests passing.', ask: 'run the tests', mins: 31 },
+      { id: 'd', project: 'design-system', tag: '#a07e', agent: 'claude', status: 'idle', model: 'sonnet-5-5', pct: 88, now: 'The colour tokens now have a dark variant.', ask: 'make the dark theme', mins: 64 },
     ]);
-    function pcard(s) {
-      const [label, color] = STATE[s.status];
-      const need = s.status === 'approval';
-      return `<div class="pcard${need ? ' need' : ''}" data-id="${s.id}">
-  <div class="row">${dot(s)}<span class="name" style="color:${s.status === 'idle' ? 'rgba(255,255,255,.75)' : '#fff'}">${s.project}</span><span class="tag">${s.tag}</span><span class="state" style="font-size:12px;color:${color}">${label}</span></div>
-  <div class="row ctx" style="font-size:11px;margin-top:5px"><span>${s.model}</span><span class="bar"><i style="width:${s.pct}%;background:${ctxColor(s.pct)}"></i></span><b style="color:${ctxColor(s.pct)}">${s.pct}%</b></div>
-  <div class="now" style="color:${s.status === 'idle' ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.9)'}">${need ? 'Wants to run a command' : s.now}</div>
-  <div class="row task"><span>${s.task}</span><span class="ago" style="font-size:11px">${s.ago}</span>${MARK[s.agent](s.agent === 'codex' ? C.codex : C.claude)}</div>
-</div>`;
+    const STATUS = {
+      working: ['working', C.working], approval: ['needs your OK', C.waiting], question: ['has a question', C.waiting],
+      done: ['done', 'rgba(255,255,255,.7)'], idle: ['idle', 'rgba(255,255,255,.4)'],
+    };
+    function row(s) {
+      const [label, color] = STATUS[s.status];
+      const busy = s.status === 'working';
+      const line = s.status === 'approval' || s.status === 'question' ? 'Waiting for your answer' : s.now;
+      return `<div class="ps-row" data-id="${s.id}"><span class="adot${busy ? ' pulse' : ''}" style="background:${AGENT[s.agent]};color:${AGENT[s.agent]};opacity:${s.status === 'idle' ? .4 : 1}"></span>
+        <span class="ps-row-t"><b>${s.project}</b><small>${line}</small></span><span class="ps-state" style="color:${color}">${label}</span></div>`;
     }
-    const list = () => { $('p-list').innerHTML = sessions.map(pcard).join(''); };
+    const list = () => { $('p-list').innerHTML = sessions.map(row).join(''); };
     const set = (id, patch) => Object.assign(sessions.find((s) => s.id === id), patch);
-    const think = (t) => say($('p-think'), t);
+    const bubble = (id, html) => {
+      const el = $(id + '-bub');
+      if (reduce) { el.innerHTML = html; return; }
+      el.classList.add('swap');
+      setTimeout(() => { el.innerHTML = html; el.classList.remove('swap'); }, 160);
+    };
+    const sayHtml = (main, quiet) => `<p class="ps-say">${main}${quiet ? ` <span>${quiet}</span>` : ''}</p>`;
     function touch(el, ox = .5, oy = .5) {
       if (!el) return;
       const p = where(root, el, stage, W, ox, oy), t = $('p-touch');
@@ -382,66 +389,91 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
       t.classList.remove('go'); void t.offsetWidth; t.classList.add('go');
     }
     const show = (id, cls, on) => $(id).classList.toggle(cls, !on);
-    function home(mood = 'working', line = '2 sessions working right now.') {
+    function home(mood = 'working', main = 'recipes-api: running the tests.', quiet = 'budget-app just finished.') {
       sessions = sessions || fresh();
-      list(); setHatch($('p-hatch'), mood, 'claude'); $('p-think').textContent = line;
-      show('p-att', 'off-down', false); show('p-chat', 'off-right', false); $('p-home').classList.remove('off-left');
-      $('p-splash').classList.add('gone');
+      list(); setHatch($('p-hs-h'), mood, 'claude'); $('p-hs-bub').innerHTML = sayHtml(main, quiet);
+      show('p-att', 'off-down', false); show('p-sess', 'off-right', false); $('p-home').classList.remove('off-left');
+      $('p-splash').classList.add('gone'); $('p-done').classList.add('gone');
     }
-    function attScreen() {
-      $('p-att').innerHTML = `<div class="ph-top" style="gap:12px"><div style="width:44px;height:44px;position:relative"><div id="p-att-h" style="position:absolute;left:-8px;top:-12px;width:60px;height:60px"></div></div>
-        <div class="say" style="font-size:13px">recipes-api wants to run a command.</div></div>
-        <div class="att"><div class="row" style="margin-top:20px">${dot({ agent: 'claude', status: 'approval' })}<b style="font-size:15px">recipes-api</b><span class="tag">#3b1c</span><span class="state" style="font-size:12px;color:${C.waiting}">needs your OK</span></div>
-        <h3>Wants to run a command</h3>
-        <div class="code">$ npm run test -- --coverage<small>Run the test suite before deploying</small></div></div>
-        <div class="att-btns"><span class="b neg">Deny</span><span class="b">Always</span><span class="b pri" id="p-allow">Allow</span></div>`;
-      $('p-att').style.background = '#0b0b0c';
-      setHatch($('p-att-h'), 'approval', 'claude');
+    const subject = (s, label, color, back) => `<div class="ps-top">${back ? `<div class="back" id="p-back"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3 5.5 8l5 5"/></svg></div>` : ''}
+      <span class="adot${s.status === 'working' ? ' pulse' : ''}" style="background:${AGENT[s.agent]};color:${AGENT[s.agent]}"></span><b>${s.project}</b><span class="mono dim">${s.tag}</span><span style="flex:1"></span><span class="ps-state" style="color:${color}">${label}</span></div>`;
+    function approvalScreen() {
+      const s = sessions.find((x) => x.id === 'a');
+      $('p-att').innerHTML = subject(s, 'needs your OK', C.waiting) + stageHtml('p-as', 170) +
+        `<div class="ps-btns"><span class="ps-btn neg">Deny</span><span class="ps-btn wide">Always this session</span><span class="ps-btn pri" id="p-allow">Allow</span></div>`;
+      $('p-as-bub').innerHTML = `${sayHtml('Can I let it run this?')}<div class="ps-code"><i>$ </i>npm run test -- --coverage</div><p class="ps-detail">To run the test suite before deploying.</p>`;
+      setHatch($('p-as-h'), 'approval', 'claude');
     }
-    function chatScreen() {
-      $('p-chat').style.background = '#0b0b0c';
-      $('p-chat').innerHTML = `<div class="ph-top" style="gap:12px"><div class="back" id="p-back"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3 5.5 8l5 5"/></svg></div>
-        <div><div class="row">${dot({ agent: 'claude', status: 'idle' })}<b style="font-size:14px">budget-app</b><span class="tag">#7f2a</span><span style="font-size:11px;color:rgba(255,255,255,.4)">idle</span></div>
-        <div class="ctx row" style="font-size:10px"><span>sonnet-5-5</span><span class="bar"><i style="width:64%;background:${C.ctxMid}"></i></span><b style="color:${C.ctxMid}">64%</b></div></div></div>
-        <div class="chat" style="margin-top:14px">
-          <div class="bub">the spending chart mixes up categories, can you group them?</div>
-          <div class="agent">I found it: transactions imported from the bank statement arrived without a <code>categoryId</code>.
-            <ul><li>Fixed the import in <code>ImportService.kt</code></li><li>The chart now groups by category</li><li>Added 4 tests for the statement case</li></ul>
-            <div class="chips"><span>Read</span><span>Grep</span><span>Edit ×2</span></div></div>
-          <div class="bub">run the tests</div>
-          <div class="agent">Done: <b>128 tests passing</b>. The spending chart now groups by category.<div class="chips"><span>Bash</span></div></div>
-        </div>
-        <div class="composer"><div>Message the session</div><span></span></div>`;
+    function questionScreen() {
+      const s = sessions.find((x) => x.id === 'b');
+      $('p-att').innerHTML = subject(s, 'has a question', C.waiting) + stageHtml('p-qs', 150) +
+        `<div class="ps-bottom"><div class="ps-card">
+          <div class="ps-row opt"><span class="n">1</span><span class="ps-row-t"><b>Vercel</b><small>Previews for every branch</small></span></div>
+          <div class="ps-row opt" id="p-opt"><span class="n">2</span><span class="ps-row-t"><b>Netlify</b><small>Where the old site lives</small></span></div>
+          <div class="ps-row opt"><span class="n">3</span><span class="ps-row-t"><b>Cloudflare Pages</b><small>Same place as the DNS</small></span></div>
+        </div><div class="ps-btns static"><span class="ps-btn">Skip</span><span class="ps-btn wide2">Answer something else</span></div></div>`;
+      $('p-qs-bub').innerHTML = sayHtml('Where should I deploy the new home?');
+      setHatch($('p-qs-h'), 'question', 'codex');
+    }
+    function sessionScreen() {
+      const s = sessions.find((x) => x.id === 'c');
+      $('p-sess').innerHTML = subject(s, 'done', 'rgba(255,255,255,.7)', true) + stageHtml('p-ss', 170) +
+        `<div class="ps-bottom"><div class="ps-note"><span id="p-note">Send the session a note</span><i id="p-send"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg></i></div></div>`;
+      $('p-ss-bub').innerHTML = `${sayHtml('Done: 128 tests passing.')}<p class="ps-detail">You asked: run the tests.</p>`;
+      $('p-ss-below').innerHTML = `<div class="ps-meta"><span>sonnet-5-5</span><i></i><span class="ps-bar"><b style="width:64%;background:${C.ctxMid}"></b></span><span style="color:${C.ctxMid}">64%</span><i></i><span>31 min</span></div>`;
+      setHatch($('p-ss-h'), 'happy', 'claude');
+    }
+    function doneScreen() {
+      $('p-done').innerHTML = `<div class="ps-top"><span class="dim">Session finished</span><span style="flex:1"></span><span class="back"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 1.5 10.5 10.5M10.5 1.5 1.5 10.5"/></svg></span></div>
+        <div class="ps-cele"><span class="ps-ring"></span><span class="ps-ring r2"></span><div class="ps-drop"><div class="ps-hops" id="p-done-h"></div></div></div>
+        <div class="ps-reveal"><h3>recipes-api</h3><div class="mono dim c">#3b1c · 12 min · opus-5-5</div>
+          <div class="ps-card pad"><small>What got done</small><p>All 212 tests pass and coverage is at 87%. Ready for the deploy.</p></div>
+          <span class="ps-btn pri full">Open session</span><div class="ps-timer"><b></b></div><div class="dim c" style="font-size:12px">Tap anywhere to close</div></div>`;
+      setHatch($('p-done-h'), 'surprised', 'claude');
+      const d = $('p-done'); d.classList.remove('gone', 'play'); void d.offsetWidth; d.classList.add('play');
     }
     const scenes = [
       { label: 'Hatch says hi', dur: 3400, setup() {
           sessions = fresh(); home();
-          const s = $('p-splash'); s.classList.remove('gone', 'in'); setHatch($('p-splash-h'), 'idle', 'claude');
-          void s.offsetWidth; requestAnimationFrame(() => s.classList.add('in'));
+          const s = $('p-splash'), h = $('p-splash-h');
+          s.classList.remove('gone', 'land', 'wave', 'hop'); setHatch(h, 'surprised', 'claude');
+          void s.offsetWidth; requestAnimationFrame(() => s.classList.add('land'));
         }, steps: [
-          [700, () => setHatch($('p-splash-h'), 'waving', 'claude', true)],
-          [1500, () => setHatch($('p-splash-h'), 'happy', 'claude', true)],
-          [2700, () => $('p-splash').classList.add('gone')],
+          [650, () => { setHatch($('p-splash-h'), 'waving', 'claude'); $('p-splash').classList.add('wave'); }],
+          [1450, () => { setHatch($('p-splash-h'), 'cheering', 'claude'); $('p-splash').classList.add('hop'); }],
+          [2050, () => setHatch($('p-splash-h'), 'happy', 'claude')],
+          [2750, () => $('p-splash').classList.add('gone')],
         ] },
       { label: 'Poke Hatch', dur: 7000, setup() { sessions = fresh(); home(); }, steps: [
-          [900, () => { touch($('p-hatch'), .5, .55); setHatch($('p-hatch'), 'happy', 'claude', true); think('Hey, that tickles.'); }],
-          [3600, () => { touch($('p-hatch'), .5, .55); setHatch($('p-hatch'), 'wink', 'claude', true); think('Watching your 4 sessions. 2 working.'); }],
+          [900, () => { touch($('p-hs-h'), .5, .55); setHatch($('p-hs-h'), 'happy', 'claude', true); bubble('p-hs', sayHtml('Hey, that tickles.')); }],
+          [3600, () => { touch($('p-hs-h'), .5, .55); setHatch($('p-hs-h'), 'wink', 'claude', true); bubble('p-hs', sayHtml('Watching your 4 sessions.', '2 working.')); }],
         ] },
-      { label: 'Approve', dur: 7200, setup() { sessions = fresh(); home(); }, steps: [
-          [500, () => { set('a', { status: 'approval', ago: 'now' }); list(); setHatch($('p-hatch'), 'approval', 'claude'); think('recipes-api needs your OK. Take a look?'); }],
-          [2000, () => { attScreen(); show('p-att', 'off-down', true); }],
-          [4300, () => touch($('p-allow'))],
-          [4700, () => { show('p-att', 'off-down', false); set('a', { status: 'working', now: 'Running npm run test' }); list(); setHatch($('p-hatch'), 'happy', 'claude', true); think('Allowed. The tests are running.'); }],
+      { label: 'Approve', dur: 7600, setup() { sessions = fresh(); home(); }, steps: [
+          [500, () => { set('a', { status: 'approval' }); list(); setHatch($('p-hs-h'), 'approval', 'claude'); bubble('p-hs', sayHtml('recipes-api needs your OK.')); }],
+          [1900, () => { approvalScreen(); show('p-att', 'off-down', true); }],
+          [4600, () => touch($('p-allow'))],
+          [5000, () => { show('p-att', 'off-down', false); set('a', { status: 'working', now: 'Running npm run test' }); list(); setHatch($('p-hs-h'), 'happy', 'claude', true); bubble('p-hs', sayHtml('Allowed. The tests are running.')); }],
         ] },
-      { label: 'Read the chat', dur: 7600, setup() { sessions = fresh(); home(); }, steps: [
-          [900, () => { const c = $('p-list').querySelector('[data-id="c"]'); touch(c); c.classList.add('press'); }],
-          [1300, () => { chatScreen(); $('p-home').classList.add('off-left'); show('p-chat', 'off-right', true); }],
-          [6200, () => touch($('p-back'))],
-          [6500, () => { show('p-chat', 'off-right', false); $('p-home').classList.remove('off-left'); }],
+      { label: 'Answer', dur: 7400, setup() { sessions = fresh(); home(); }, steps: [
+          [500, () => { set('b', { status: 'question' }); list(); setHatch($('p-hs-h'), 'question', 'codex'); bubble('p-hs', sayHtml('landing-page has a question for you.')); }],
+          [1800, () => { questionScreen(); show('p-att', 'off-down', true); }],
+          [4400, () => { const o = $('p-opt'); touch(o); o.classList.add('press'); }],
+          [4800, () => { show('p-att', 'off-down', false); set('b', { status: 'working', now: 'Deploying to Netlify' }); list(); setHatch($('p-hs-h'), 'working', 'codex', true); bubble('p-hs', sayHtml('Answered. landing-page is back at it.')); }],
         ] },
-      { label: 'Hold Hatch', dur: 5000, setup() { sessions = fresh(); home(); }, steps: [
-          [800, () => { touch($('p-hatch'), .5, .55); setHatch($('p-hatch'), 'waving', 'claude', true); think('Connected to your Mac for 12 min.'); }],
-          [3800, () => { setHatch($('p-hatch'), 'working', 'claude'); think('2 sessions working right now.'); }],
+      { label: 'Session done', dur: 7000, setup() { sessions = fresh(); home(); }, steps: [
+          [700, () => doneScreen()],
+          [1250, () => setHatch($('p-done-h'), 'cheering', 'claude')],
+          [2000, () => setHatch($('p-done-h'), 'happy', 'claude')],
+          [6600, () => { $('p-done').classList.add('gone'); set('a', { status: 'done', now: 'All 212 tests pass.' }); list(); setHatch($('p-hs-h'), 'happy', 'claude'); $('p-hs-bub').innerHTML = sayHtml('recipes-api is done.', 'landing-page is still building.'); }],
+        ] },
+      { label: 'Open a session', dur: 7600, setup() { sessions = fresh(); home(); }, steps: [
+          [800, () => { const r = $('p-list').querySelector('[data-id="c"]'); touch(r); r.classList.add('press'); }],
+          [1200, () => { sessionScreen(); $('p-home').classList.add('off-left'); show('p-sess', 'off-right', true); }],
+          [3000, () => { const n = $('p-note'); n.textContent = 'now ship it to TestFlight'; n.classList.add('typed'); $('p-send').classList.add('ready'); }],
+          [4300, () => { touch($('p-send')); }],
+          [4600, () => { const n = $('p-note'); n.textContent = 'Send the session a note'; n.classList.remove('typed'); $('p-send').classList.remove('ready'); setHatch($('p-ss-h'), 'working', 'claude', true); bubble('p-ss', `${sayHtml('On it: shipping to TestFlight.')}<p class="ps-detail">You asked: now ship it to TestFlight.</p>`); }],
+          [6600, () => touch($('p-back'))],
+          [6900, () => { show('p-sess', 'off-right', false); $('p-home').classList.remove('off-left'); }],
         ] },
     ];
     director(scenes, document.getElementById('sim-phone-scenes'), stage);

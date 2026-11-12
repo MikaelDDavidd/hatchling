@@ -666,7 +666,16 @@ public func reduceEvent(
             keys: ["message", "text", "summary", "status", "detail"],
             includeNested: true
         )
-        if let msg = notificationText, !msg.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
+        // "Claude is waiting for your input": the turn is over. When its Stop never arrived
+        // (Hatchling was restarting, say), this is the only sign, and recording it as a tool
+        // description kept the session "working" for good.
+        if isIdlePrompt(event: event, message: notificationText) {
+            if !isWaiting {
+                sessions[sessionId]?.status = .idle
+                sessions[sessionId]?.currentTool = nil
+                sessions[sessionId]?.toolDescription = nil
+            }
+        } else if let msg = notificationText, !msg.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
             sessions[sessionId]?.toolDescription = msg
         }
         if QuestionPayload.from(event: event) != nil {
@@ -702,6 +711,13 @@ public func reduceEvent(
 }
 
 // MARK: - Private Helpers
+
+/// Claude Code's "waiting for your input" notification. Newer versions tag it; older ones only
+/// say it in the message.
+func isIdlePrompt(event: HookEvent, message: String?) -> Bool {
+    if let type = event.rawJSON["notification_type"] as? String { return type == "idle_prompt" }
+    return message?.lowercased().contains("waiting for your input") == true
+}
 
 public func extractMetadata(into sessions: inout [String: SessionSnapshot], sessionId: String, event: HookEvent) {
     if let cwd = event.rawJSON["cwd"] as? String, !cwd.isEmpty {
