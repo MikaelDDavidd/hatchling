@@ -16,6 +16,9 @@ struct MobileSettingsPage: View {
 
     @ObservedObject private var bridge = MobileBridge.shared
     @ObservedObject private var l10n = L10n.shared
+    /// Starts open when the server or token is still missing: there is nothing to hide yet.
+    @State private var showConnectionDetails =
+        (UserDefaults.standard.string(forKey: SettingsKey.mobileRelayURL) ?? "").isEmpty || RelayTokenStore.token.isEmpty
     @State private var now = Date()
     @State private var revealToken = false
     @State private var pendingRevoke: MobileBridge.PairedDevice?
@@ -51,25 +54,35 @@ struct MobileSettingsPage: View {
             Toggle(l10n["phone_connect_toggle"], isOn: $enabled)
 
             if enabled {
-                TextField(l10n["phone_server"], text: $relayURL, prompt: Text("wss://hatch.odd-now.com/ws"))
-                    .font(.system(size: 11, design: .monospaced))
+                // The server and its token are set once, by whoever runs the relay; day to day
+                // only the state line below matters. Opened by itself while they're still empty.
+                DisclosureGroup(l10n["advanced"], isExpanded: $showConnectionDetails) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["phone_server"], text: $relayURL, prompt: Text("wss://hatch.odd-now.com/ws"))
+                            .font(.system(size: 11, design: .monospaced))
+                        FieldHelp(l10n["adv_help_relay_url"])
+                    }
 
-                HStack {
-                    if revealToken {
-                        TextField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
-                            .font(.system(size: 11, design: .monospaced))
-                    } else {
-                        SecureField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
-                            .font(.system(size: 11, design: .monospaced))
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            if revealToken {
+                                TextField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
+                                    .font(.system(size: 11, design: .monospaced))
+                            } else {
+                                SecureField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
+                                    .font(.system(size: 11, design: .monospaced))
+                            }
+                            Button {
+                                revealToken.toggle()
+                            } label: {
+                                Image(systemName: revealToken ? "eye.slash" : "eye")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
+                            .accessibilityLabel(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
+                        }
+                        FieldHelp(l10n["adv_help_relay_token"])
                     }
-                    Button {
-                        revealToken.toggle()
-                    } label: {
-                        Image(systemName: revealToken ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.borderless)
-                    .help(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
-                    .accessibilityLabel(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
                 }
 
                 HStack(spacing: 8) {
