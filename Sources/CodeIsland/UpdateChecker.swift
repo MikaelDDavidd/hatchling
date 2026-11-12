@@ -74,13 +74,19 @@ final class UpdateChecker: ObservableObject {
 
     func checkForUpdates() {
         guard !isChecking else { return }
+        // A check landing mid-install would flip the state back to "available" and start a
+        // second install over the same files.
+        switch state {
+        case .downloading, .installing: return
+        default: break
+        }
         if currentVersion == AppVersion.fallback && Bundle.main.bundleIdentifier == nil { return }
         isChecking = true
         state = .checking
 
         let urlString = "https://api.github.com/repos/\(repo)/releases/latest"
         guard let url = URL(string: urlString) else {
-            state = .failed("Invalid URL")
+            state = .failed(L10n.shared["update_err_invalid_url"])
             isChecking = false
             return
         }
@@ -92,11 +98,15 @@ final class UpdateChecker: ObservableObject {
         Task {
             defer { isChecking = false }
             do {
-                let (data, _) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    state = .failed(String(format: L10n.shared["update_err_github_status"], (response as? HTTPURLResponse)?.statusCode ?? 0))
+                    return
+                }
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let tagName = json["tag_name"] as? String,
                       let htmlURL = json["html_url"] as? String else {
-                    state = .failed("Invalid response")
+                    state = .failed(L10n.shared["update_err_invalid_response"])
                     return
                 }
 
@@ -114,7 +124,7 @@ final class UpdateChecker: ObservableObject {
                     }
                 }
 
-                if isNewer(remote: remote, local: currentVersion) {
+                if Self.isNewer(remote: remote, local: currentVersion) {
                     state = .available(version: remote, dmgURL: dmgURL, releaseURL: htmlURL)
                     installWhenIdle()
                 } else {
@@ -150,13 +160,25 @@ final class UpdateChecker: ObservableObject {
                     Task { @MainActor in self?.state = .downloading(progress: progress) }
                 }
                 let session = URLSession(configuration: .default, delegate: progressDelegate, delegateQueue: nil)
-                let (tempURL, _) = try await session.download(from: downloadURL, delegate: progressDelegate)
+                let (tempURL, response) = try await session.download(from: downloadURL, delegate: progressDelegate)
                 session.invalidateAndCancel()
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    throw UpdateError.downloadFailed((response as? HTTPURLResponse)?.statusCode ?? 0)
+                }
 
                 state = .downloading(progress: 1.0)
 
+                // An approval or question may have arrived during the download. Installing now
+                // would quit the app with it unanswered, so wait for things to calm down again.
+                while let appState, appState.hasPendingInteraction || appState.sessions.values.contains(where: {
+                    $0.status == .processing || $0.status == .running
+                }) {
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                }
+
                 // 2. Move downloaded file, mount, replace — all off main thread
                 state = .installing
+                let running = currentVersion
                 try await Task.detached {
                     let fm = FileManager.default
                     // Move downloaded temp file to known path
@@ -184,11 +206,26 @@ final class UpdateChecker: ObservableObject {
                         try? fm.removeItem(atPath: dmgPath)
                         throw UpdateError.untrustedSignature
                     }
-                    // Replace current app
-                    if fm.fileExists(atPath: currentAppPath) {
-                        try fm.removeItem(atPath: currentAppPath)
+                    // The DMG must hold a newer build than the one running. A mislabelled or
+                    // stale asset would otherwise install, relaunch, look "new" again and loop.
+                    let newVersion = (NSDictionary(contentsOfFile: sourceAppPath + "/Contents/Info.plist")?["CFBundleShortVersionString"] as? String) ?? ""
+                    guard Self.isNewer(remote: newVersion, local: running) else {
+                        _ = try? Self.runShellProcess("/usr/bin/hdiutil", args: ["detach", mountPoint, "-quiet"])
+                        try? fm.removeItem(atPath: dmgPath)
+                        throw UpdateError.notNewer(newVersion)
                     }
-                    try fm.copyItem(atPath: sourceAppPath, toPath: currentAppPath)
+
+                    // Copy next to the current app first and swap in one step. Removing the
+                    // installed app before copying left people with no app at all whenever the
+                    // copy failed (full disk, interrupted install).
+                    let staging = currentAppPath + ".update"
+                    try? fm.removeItem(atPath: staging)
+                    try fm.copyItem(atPath: sourceAppPath, toPath: staging)
+                    if fm.fileExists(atPath: currentAppPath) {
+                        _ = try fm.replaceItemAt(URL(fileURLWithPath: currentAppPath), withItemAt: URL(fileURLWithPath: staging))
+                    } else {
+                        try fm.moveItem(atPath: staging, toPath: currentAppPath)
+                    }
 
                     // Cleanup
                     _ = try? Self.runShellProcess("/usr/bin/hdiutil", args: ["detach", mountPoint, "-quiet"])
@@ -198,8 +235,13 @@ final class UpdateChecker: ObservableObject {
                 // 3. Relaunch (back on MainActor). Hatch mentions the update on the way up.
                 UserDefaults.standard.set(currentVersion, forKey: SettingsKey.updatedFrom)
                 Self.log.info("Relaunching app")
-                NSWorkspace.shared.open(URL(fileURLWithPath: currentAppPath))
-                try await Task.sleep(nanoseconds: 500_000_000)
+                // Opening the bundle while this copy still runs only brings it forward. A
+                // detached shell waits for this process to exit and then opens the new one.
+                let relaunch = Process()
+                relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
+                relaunch.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; /usr/bin/open \"$0\"", currentAppPath]
+                try? relaunch.run()
+                try await Task.sleep(nanoseconds: 300_000_000)
                 NSApp.terminate(nil)
 
             } catch {
@@ -213,7 +255,7 @@ final class UpdateChecker: ObservableObject {
         }
     }
 
-    private func isNewer(remote: String, local: String) -> Bool {
+    nonisolated static func isNewer(remote: String, local: String) -> Bool {
         let r = remote.split(separator: ".").compactMap { Int($0) }
         let l = local.split(separator: ".").compactMap { Int($0) }
         for i in 0..<max(r.count, l.count) {
@@ -266,10 +308,14 @@ final class UpdateChecker: ObservableObject {
     private enum UpdateError: LocalizedError {
         case appNotFoundInDMG
         case untrustedSignature
+        case notNewer(String)
+        case downloadFailed(Int)
         var errorDescription: String? {
             switch self {
-            case .appNotFoundInDMG: return "App not found in DMG"
-            case .untrustedSignature: return "The update is not signed by the same developer"
+            case .appNotFoundInDMG: return L10n.shared["update_err_no_app"]
+            case .notNewer(let version): return String(format: L10n.shared["update_err_not_newer"], version)
+            case .downloadFailed(let status): return String(format: L10n.shared["update_err_download_failed"], status)
+            case .untrustedSignature: return L10n.shared["update_err_signature"]
             }
         }
     }

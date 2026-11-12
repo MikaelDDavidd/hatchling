@@ -51,6 +51,10 @@ final class AppState {
         guard let shown = shownCompletion[sessionId] else { return false }
         return shown == completionFingerprint(sessionId)
     }
+    /// Attention ids the phone currently holds. `syncMobileAttention` diffs the queues
+    /// against it, so every way a request ends (answered here, on the phone, drained,
+    /// session gone) reaches the phone the same way.
+    var mobileAttentionPublished: [String] = []
     /// Mouse must enter the panel before auto-collapse is allowed (prevents instant dismiss)
     var completionHasBeenEntered = false
     /// Auto-collapse timer fired but mouse is inside panel — defer collapse until mouse leaves
@@ -66,6 +70,13 @@ final class AppState {
     private var lastFSScanTime: Date = .distantPast
     private var discoveryScanTask: Task<Void, Never>?
     private var pendingDiscoveryRescan = false
+    /// Minimum gap between file-event discovery scans. Doubles each time a scan turns up
+    /// nothing new and drops back to the base when one does, or when a hook starts a session.
+    @ObservationIgnored private var fsScanInterval = AppState.fsScanBaseInterval
+    /// A file event arrived inside the gap; one scan is already queued for when it ends.
+    @ObservationIgnored private var fsScanDeferred = false
+    private static let fsScanBaseInterval: TimeInterval = 3
+    private static let fsScanMaxInterval: TimeInterval = 60
     private var isShowingCompletion: Bool {
         if case .completionCard = surface { return true }
         return false
@@ -78,6 +89,16 @@ final class AppState {
         }
     }
     private var modelReadRetryAt: [String: Date] = [:]
+    /// When each session's provider title was last read from disk. Hooks arrive many times a
+    /// second while a CLI works, and a title only changes around a prompt or a finished turn.
+    @ObservationIgnored private var titleReadAt: [String: Date] = [:]
+    /// The read each session is waiting on, so a slow read that lands after a newer one
+    /// can't put an older title back.
+    @ObservationIgnored private var pendingTitleRead: [String: Int] = [:]
+    @ObservationIgnored private var titleReadSerial = 0
+    /// Hooks other than a prompt, a finished turn or a session start re-read the title at
+    /// most this often, which still picks up a rename made mid-turn.
+    private static let titleRereadInterval: TimeInterval = 45
 
     var rotatingSessionId: String?
     var rotatingSession: SessionSnapshot? {
@@ -120,10 +141,14 @@ final class AppState {
                 deadMonitors.append((sessionId, process))
                 continue
             }
-            // Check for orphaned processes (ppid <= 1)
+            // An orphan (ppid <= 1) may be a CLI left behind by a closed terminal, but it may
+            // just as well be a headless run under launchd or nohup. Hatchling never signals
+            // it; a quiet orphan only leaves the list.
             var info = proc_bsdinfo()
             let ret = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
-            if ret > 0 && info.pbi_ppid <= 1 && shouldTerminateOrphanedProcess(sessionId: sessionId, pid: pid) {
+            if ret > 0 && info.pbi_ppid <= 1 && shouldTerminateOrphanedProcess(sessionId: sessionId, pid: pid),
+               let session = sessions[sessionId], session.status == .idle,
+               Date().timeIntervalSince(session.lastActivity) > 600 {
                 orphaned.append((sessionId, pid))
             }
         }
@@ -132,8 +157,7 @@ final class AppState {
             // promptly (after 5s grace) instead of lingering for 10 minutes.
             handleProcessExit(sessionId: sessionId, exitedProcess: process)
         }
-        for (sessionId, pid) in orphaned {
-            kill(pid, SIGTERM)
+        for (sessionId, _) in orphaned {
             removeSession(sessionId)
         }
 
@@ -266,7 +290,7 @@ final class AppState {
         return ProcessIdentity(pid: pid, startTime: getProcessStartTime(pid))
     }
 
-    private nonisolated static func isLiveProcess(_ process: ProcessIdentity) -> Bool {
+    nonisolated static func isLiveProcess(_ process: ProcessIdentity) -> Bool {
         guard process.pid > 0, kill(process.pid, 0) == 0 else { return false }
         guard let expectedStart = process.startTime else { return true }
         return getProcessStartTime(process.pid) == expectedStart
@@ -426,6 +450,8 @@ final class AppState {
         stopMonitor(sessionId)
         exitingSessions.removeValue(forKey: sessionId)
         modelReadRetryAt.removeValue(forKey: sessionId)
+        titleReadAt[sessionId] = nil
+        pendingTitleRead[sessionId] = nil
         completionQueue.removeAll { $0 == sessionId }
         completionQueuedAt[sessionId] = nil
         shownCompletion[sessionId] = nil
@@ -731,6 +757,7 @@ final class AppState {
         if totalSessionCount != summary.totalSessionCount { totalSessionCount = summary.totalSessionCount }
         updateSleepPrevention()
         publishMobileState()
+        syncMobileAttention()
     }
 
     /// Keeps the Mac awake while an agent is mid-task, so a long build or a
@@ -751,25 +778,46 @@ final class AppState {
         }
     }
 
-    private func refreshProviderTitle(for trackedSessionId: String, providerSessionId: String? = nil) {
+    /// `force` reads the title now; otherwise a read made within `titleRereadInterval` stands.
+    private func refreshProviderTitle(for trackedSessionId: String, providerSessionId: String? = nil, force: Bool = true) {
         guard let session = sessions[trackedSessionId] else { return }
         guard !session.isRemote else { return }
 
+        let supported = SessionTitleStore.supports(provider: session.source)
         let lookupSessionId = providerSessionId ?? session.providerSessionId ?? trackedSessionId
-        if let providerSessionId {
-            sessions[trackedSessionId]?.providerSessionId = providerSessionId
-        } else if SessionTitleStore.supports(provider: session.source) {
+        if (providerSessionId != nil || supported), session.providerSessionId != lookupSessionId {
             sessions[trackedSessionId]?.providerSessionId = lookupSessionId
         }
 
-        guard SessionTitleStore.supports(provider: session.source) else { return }
+        guard supported else { return }
 
-        if let resolved = SessionTitleStore.title(for: lookupSessionId, provider: session.source, cwd: session.cwd) {
-            sessions[trackedSessionId]?.sessionTitle = resolved.title
-            sessions[trackedSessionId]?.sessionTitleSource = resolved.source
-        } else {
-            sessions[trackedSessionId]?.sessionTitle = nil
-            sessions[trackedSessionId]?.sessionTitleSource = nil
+        let now = Date()
+        if !force, let lastRead = titleReadAt[trackedSessionId],
+           now.timeIntervalSince(lastRead) < Self.titleRereadInterval {
+            return
+        }
+        titleReadAt[trackedSessionId] = now
+        titleReadSerial += 1
+        let serial = titleReadSerial
+        pendingTitleRead[trackedSessionId] = serial
+
+        // The read touches the transcript or the Codex index, so it runs off the main actor
+        // and only the result is applied here.
+        let provider = session.source
+        let cwd = session.cwd
+        Task.detached(priority: .utility) {
+            let resolved = SessionTitleStore.title(for: lookupSessionId, provider: provider, cwd: cwd)
+            await MainActor.run { [weak self] in
+                guard let self, self.pendingTitleRead[trackedSessionId] == serial,
+                      let current = self.sessions[trackedSessionId] else { return }
+                self.pendingTitleRead[trackedSessionId] = nil
+                if current.sessionTitle != resolved?.title {
+                    self.sessions[trackedSessionId]?.sessionTitle = resolved?.title
+                }
+                if current.sessionTitleSource != resolved?.source {
+                    self.sessions[trackedSessionId]?.sessionTitleSource = resolved?.source
+                }
+            }
         }
     }
 
@@ -789,6 +837,12 @@ final class AppState {
             return
         }
 
+        // A session just started, so another may be about to: file-event scans go back to
+        // their quickest pace instead of whatever an idle stretch backed them off to.
+        if EventNormalizer.normalize(event.eventName) == "SessionStart" {
+            fsScanInterval = Self.fsScanBaseInterval
+        }
+
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
@@ -804,17 +858,25 @@ final class AppState {
             maybeBackfillModel(for: sessionId)
         }
 
-        // If session was waiting but received an activity event, the question/permission
-        // was answered externally (e.g. user replied in terminal). Clear pending items.
+        // A pending request was answered somewhere else (in the terminal, say) only when the
+        // same agent visibly moved past it. Any activity used to count — a subagent starting,
+        // another subagent's tool call — and the request was answered "deny" on the user's
+        // behalf without them ever seeing the card.
         if wasWaiting {
             let en = EventNormalizer.normalize(event.eventName)
-            // Events that should NOT clear waiting state
-            let keepWaiting: Set<String> = ["Notification", "SessionStart", "SessionEnd", "PreCompact"]
-            if !keepWaiting.contains(en) {
-                drainPermissions(forSession: sessionId)
-                drainQuestions(forSession: sessionId)
-                if sessions[sessionId]?.status == .waitingApproval
-                    || sessions[sessionId]?.status == .waitingQuestion {
+            let resolvedPermissions = permissionQueue.filter {
+                $0.event.sessionId == sessionId && Self.movedPast($0.event, incoming: event, normalized: en)
+            }.map(\.id)
+            let resolvedQuestions = questionQueue.filter {
+                $0.event.sessionId == sessionId && Self.movedPast($0.event, incoming: event, normalized: en)
+            }.map(\.id)
+            if !resolvedPermissions.isEmpty || !resolvedQuestions.isEmpty {
+                drainPermissions(ids: Set(resolvedPermissions))
+                drainQuestions(ids: Set(resolvedQuestions))
+                let stillWaiting = permissionQueue.contains { $0.event.sessionId == sessionId }
+                    || questionQueue.contains { $0.event.sessionId == sessionId }
+                if !stillWaiting,
+                   sessions[sessionId]?.status == .waitingApproval || sessions[sessionId]?.status == .waitingQuestion {
                     sessions[sessionId]?.status = (en == "Stop") ? .idle : .processing
                     sessions[sessionId]?.currentTool = nil
                     sessions[sessionId]?.toolDescription = nil
@@ -836,7 +898,11 @@ final class AppState {
         if let provider = sessions[sessionId]?.source,
            sessions[sessionId]?.isRemote != true,
            SessionTitleStore.supports(provider: provider) {
-            refreshProviderTitle(for: sessionId)
+            // Titles are written around a prompt or at the end of a turn; tool hooks in
+            // between only re-check now and then.
+            let titleEvents: Set<String> = ["Stop", "SessionStart", "UserPromptSubmit"]
+            let force = titleEvents.contains(EventNormalizer.normalize(event.eventName))
+            refreshProviderTitle(for: sessionId, force: force)
         }
 
         // Handle the "else if activeSessionId == sessionId → mostActive" edge case
@@ -895,7 +961,7 @@ final class AppState {
         }
     }
 
-    func handlePermissionRequest(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
+    func handlePermissionRequest(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>, connectionToken: String? = nil) {
         let sessionId = event.sessionId ?? "default"
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
@@ -912,7 +978,8 @@ final class AppState {
         sessions[sessionId]?.toolDescription = event.toolDescription
         sessions[sessionId]?.lastActivity = Date()
 
-        let request = PermissionRequest(event: event, continuation: continuation)
+        var request = PermissionRequest(event: event, continuation: continuation)
+        request.connectionToken = connectionToken
         permissionQueue.append(request)
 
         // Show UI only if this is the first (or only) queued item
@@ -920,9 +987,38 @@ final class AppState {
             activeSessionId = sessionId
             surface = .approvalCard(sessionId: sessionId)
             SoundManager.shared.handleEvent("PermissionRequest")
-            publishMobileAttention(permission: request)
+        } else if surface == .collapsed {
+            // Another card is pending behind a collapsed panel; without a sound this one
+            // would arrive in silence.
+            SoundManager.shared.handleEvent("PermissionRequest")
         }
         refreshDerivedState()
+    }
+
+    /// The rule "always allow" adds, scoped to this session. It used to be the whole tool
+    /// (`ruleContent: "*"`), so always allowing one `ls` allowed every shell command. Prefer
+    /// the rule the CLI itself suggests for this request (the same one its own "don't ask
+    /// again" would add); otherwise narrow it to the command's leading words or the file.
+    static func alwaysAllowRules(for event: HookEvent) -> [[String: Any]] {
+        if let suggestions = event.rawJSON["permission_suggestions"] as? [[String: Any]] {
+            let scoped = suggestions.compactMap { suggestion -> [String: Any]? in
+                guard suggestion["type"] as? String == "addRules", suggestion["rules"] is [[String: Any]] else { return nil }
+                var rule = suggestion
+                rule["destination"] = "session"
+                rule["behavior"] = "allow"
+                return rule
+            }
+            if !scoped.isEmpty { return scoped }
+        }
+        let tool = event.toolName ?? ""
+        var rule: [String: Any] = ["toolName": tool]
+        if tool == "Bash", let command = event.toolInput?["command"] as? String {
+            let words = command.split(whereSeparator: \.isWhitespace).prefix(2).joined(separator: " ")
+            if !words.isEmpty { rule["ruleContent"] = "\(words):*" }
+        } else if let path = (event.toolInput?["file_path"] ?? event.toolInput?["path"]) as? String, !path.isEmpty {
+            rule["ruleContent"] = path
+        }
+        return [["type": "addRules", "rules": [rule], "behavior": "allow", "destination": "session"]]
     }
 
     func approvePermission(always: Bool = false) {
@@ -930,18 +1026,12 @@ final class AppState {
         let pending = permissionQueue.removeFirst()
         let responseData: Data
         if always {
-            let toolName = pending.event.toolName ?? ""
             let obj: [String: Any] = [
                 "hookSpecificOutput": [
                     "hookEventName": "PermissionRequest",
                     "decision": [
                         "behavior": "allow",
-                        "updatedPermissions": [[
-                            "type": "addRules",
-                            "rules": [["toolName": toolName, "ruleContent": "*"]],
-                            "behavior": "allow",
-                            "destination": "session"
-                        ]]
+                        "updatedPermissions": Self.alwaysAllowRules(for: pending.event)
                     ] as [String: Any]
                 ] as [String: Any]
             ]
@@ -976,7 +1066,7 @@ final class AppState {
         refreshDerivedState()
     }
 
-    func handleQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
+    func handleQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>, connectionToken: String? = nil) {
         let sessionId = event.sessionId ?? "default"
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
@@ -993,16 +1083,20 @@ final class AppState {
         sessions[sessionId]?.status = .waitingQuestion
         sessions[sessionId]?.lastActivity = Date()
 
-        let request = QuestionRequest(event: event, question: question, continuation: continuation)
+        var request = QuestionRequest(event: event, question: question, continuation: continuation)
+        request.connectionToken = connectionToken
         questionQueue.append(request)
 
-        if questionQueue.count == 1 {
+        // An approval outranks a question: a question from another session waits behind it
+        // instead of covering the approval card.
+        if questionQueue.count == 1 && permissionQueue.isEmpty {
             activeSessionId = sessionId
             withAnimation(NotchAnimation.open) {
                 surface = .questionCard(sessionId: sessionId)
             }
             SoundManager.shared.handleEvent("PermissionRequest")
-            publishMobileAttention(question: request)
+        } else {
+            SoundManager.shared.handleEvent("PermissionRequest")
         }
         refreshDerivedState()
     }
@@ -1023,7 +1117,7 @@ final class AppState {
         return input
     }
 
-    func handleAskUserQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
+    func handleAskUserQuestion(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>, connectionToken: String? = nil) {
         let sessionId = event.sessionId ?? "default"
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
@@ -1110,13 +1204,14 @@ final class AppState {
         sessions[sessionId]?.lastActivity = Date()
 
         let askState = AskUserQuestionState(items: askItems, answers: [:])
-        let request = QuestionRequest(
+        var request = QuestionRequest(
             event: event,
             question: askItems[0].payload,
             continuation: continuation,
             isFromPermission: true,
             askUserQuestionState: askState
         )
+        request.connectionToken = connectionToken
         questionQueue.append(request)
 
         if questionQueue.count == 1 {
@@ -1125,7 +1220,6 @@ final class AppState {
                 surface = .questionCard(sessionId: sessionId)
             }
             SoundManager.shared.handleEvent("PermissionRequest")
-            publishMobileAttention(question: request)
         }
         refreshDerivedState()
     }
@@ -1241,6 +1335,53 @@ final class AppState {
         refreshDerivedState()
     }
 
+    /// Whether `incoming` shows that the agent which raised `pending` has moved past it, so
+    /// the request was settled outside Hatchling. Only the same agent counts (the main agent
+    /// has no agentId), and only events that come after a decision: the tool finishing, the
+    /// agent or subagent stopping, or the user typing a new prompt.
+    static func movedPast(_ pending: HookEvent, incoming: HookEvent, normalized en: String) -> Bool {
+        switch en {
+        case "UserPromptSubmit":
+            return true
+        case "Stop":
+            return incoming.agentId == nil
+        case "SubagentStop":
+            return pending.agentId != nil && pending.agentId == incoming.agentId
+        case "PostToolUse", "PostToolUseFailure":
+            guard incoming.agentId == pending.agentId else { return false }
+            if let a = pending.rawJSON["tool_use_id"] as? String,
+               let b = incoming.rawJSON["tool_use_id"] as? String {
+                return a == b
+            }
+            return pending.toolName == nil || pending.toolName == incoming.toolName
+        default:
+            return false
+        }
+    }
+
+    private static let externalDeny = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+
+    /// Settle specific permissions that were decided elsewhere. The agent has already moved on,
+    /// so the answer is only there to release the waiting bridge process.
+    private func drainPermissions(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        permissionQueue.removeAll { item in
+            guard ids.contains(item.id) else { return false }
+            item.continuation.resume(returning: Self.externalDeny)
+            return true
+        }
+    }
+
+    /// Same as `drainPermissions(ids:)` for questions.
+    private func drainQuestions(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        questionQueue.removeAll { item in
+            guard ids.contains(item.id) else { return false }
+            item.continuation.resume(returning: item.isFromPermission ? Self.externalDeny : Data("{}".utf8))
+            return true
+        }
+    }
+
     /// Drain all queued permissions for a specific session, resuming their continuations with deny
     private func drainPermissions(forSession sessionId: String) {
         let denyResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
@@ -1251,16 +1392,20 @@ final class AppState {
         }
     }
 
-    /// Called when the bridge socket disconnects — the question/permission was answered externally (e.g. user replied in terminal)
-    func handlePeerDisconnect(sessionId: String) {
-        let hadPending = questionQueue.contains(where: { $0.event.sessionId == sessionId })
-            || permissionQueue.contains(where: { $0.event.sessionId == sessionId })
-        guard hadPending else { return }
+    /// Called when a bridge socket closes before we answered: that request was settled
+    /// externally (the user replied in the terminal, or the agent was stopped). Only the
+    /// request carried by that connection goes; others pending in the same session stay.
+    func handlePeerDisconnect(sessionId: String, connectionToken: String) {
+        let permissions = Set(permissionQueue.filter { $0.connectionToken == connectionToken }.map(\.id))
+        let questions = Set(questionQueue.filter { $0.connectionToken == connectionToken }.map(\.id))
+        guard !permissions.isEmpty || !questions.isEmpty else { return }
 
-        drainQuestions(forSession: sessionId)
-        drainPermissions(forSession: sessionId)
+        drainQuestions(ids: questions)
+        drainPermissions(ids: permissions)
+        let stillWaiting = permissionQueue.contains { $0.event.sessionId == sessionId }
+            || questionQueue.contains { $0.event.sessionId == sessionId }
         let currentStatus = sessions[sessionId]?.status
-        if currentStatus == .waitingApproval || currentStatus == .waitingQuestion {
+        if !stillWaiting, currentStatus == .waitingApproval || currentStatus == .waitingQuestion {
             sessions[sessionId]?.status = .processing
             sessions[sessionId]?.currentTool = nil
             sessions[sessionId]?.toolDescription = nil
@@ -1790,7 +1935,12 @@ final class AppState {
                     self.discoveryScanTask = nil
                     return
                 }
-                self.integrateDiscovered(discovered)
+                let foundSomething = self.integrateDiscovered(discovered)
+                // Back off while scans keep coming back empty: a busy CLI keeps touching its
+                // session store, and each scan walks the whole process table.
+                self.fsScanInterval = foundSomething
+                    ? Self.fsScanBaseInterval
+                    : min(self.fsScanInterval * 2, Self.fsScanMaxInterval)
                 self.discoveryScanTask = nil
                 if self.pendingDiscoveryRescan {
                     self.pendingDiscoveryRescan = false
@@ -1864,6 +2014,9 @@ final class AppState {
     /// of an explicit action (e.g. creating a checkpoint) in the notch itself.
     func showBuddySpeech(text: String, mood: BuddyMood = .idle, title: String? = nil,
                          reaction: HatchReaction? = nil, duration: TimeInterval = 5.5) {
+        // Hatch never talks over a card waiting for the user: the bubble would replace it and
+        // then collapse the panel, leaving the agent blocked on something nobody can see.
+        guard !hasPendingInteraction else { return }
         let speech = BuddySpeech(text: text, mood: mood, title: title, reaction: reaction)
         pendingBuddySpeech = speech
         lastBuddySpeechAt = Date()
@@ -1919,8 +2072,21 @@ final class AppState {
 
         let stream = FSEventStreamCreate(
             nil,
-            { (_, info, _, _, _, _) in
+            { (_, info, numEvents, _, eventFlags, _) in
                 guard let info = info else { return }
+                // A transcript being appended to is not a new session. Only something being
+                // created or moved into place (a new session file or folder), or the kernel
+                // saying events were lost, is worth walking the process table for.
+                let structural = FSEventStreamEventFlags(
+                    kFSEventStreamEventFlagItemCreated
+                        | kFSEventStreamEventFlagItemRenamed
+                        | kFSEventStreamEventFlagMustScanSubDirs
+                        | kFSEventStreamEventFlagUserDropped
+                        | kFSEventStreamEventFlagKernelDropped
+                        | kFSEventStreamEventFlagRootChanged
+                )
+                let flags = UnsafeBufferPointer(start: eventFlags, count: numEvents)
+                guard flags.contains(where: { $0 & structural != 0 }) else { return }
                 let appState = Unmanaged<AppState>.fromOpaque(info).takeUnretainedValue()
                 appState.handleProjectsDirChange()
             },
@@ -1928,7 +2094,8 @@ final class AppState {
             watchRoots as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             2.0,  // 2-second latency (coalesces rapid writes)
-            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)
+            // File-level events carry per-item flags, so creations can be told apart from writes.
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
         )
 
         guard let stream = stream else { return }
@@ -1941,16 +2108,35 @@ final class AppState {
     /// Called by FSEventStream when a known session-store directory changes.
     nonisolated private func handleProjectsDirChange() {
         Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            // Debounce: skip if scanned within the last 3 seconds
-            guard Date().timeIntervalSince(self.lastFSScanTime) > 3 else { return }
-            self.lastFSScanTime = Date()
-            self.requestDiscoveryScan()
+            self?.scanForFileEvent()
         }
     }
 
-    /// Merge discovered sessions into current state (skip already-known ones)
-    private func integrateDiscovered(_ discovered: [DiscoveredSession]) {
+    /// Debounced by `fsScanInterval`. An event inside the gap isn't dropped: since writes no
+    /// longer trigger anything, a missed creation might not be followed by another event, so
+    /// one scan is queued for when the gap ends.
+    private func scanForFileEvent() {
+        let wait = fsScanInterval - Date().timeIntervalSince(lastFSScanTime)
+        guard wait > 0 else {
+            lastFSScanTime = Date()
+            requestDiscoveryScan()
+            return
+        }
+        guard !fsScanDeferred else { return }
+        fsScanDeferred = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard let self else { return }
+            self.fsScanDeferred = false
+            guard self.fsEventStream != nil else { return }
+            self.scanForFileEvent()
+        }
+    }
+
+    /// Merge discovered sessions into current state (skip already-known ones).
+    /// Returns whether the scan added a session or reattached a process.
+    @discardableResult
+    private func integrateDiscovered(_ discovered: [DiscoveredSession]) -> Bool {
         var didMutate = false
         for info in discovered {
             // Session already known — try to update PID and attach monitor.
@@ -2053,6 +2239,7 @@ final class AppState {
             scheduleSave()
         }
         refreshDerivedState()
+        return didMutate
     }
 
     func stopSessionDiscovery() {

@@ -10,13 +10,18 @@ import Combine
 struct MobileSettingsPage: View {
     @AppStorage(SettingsKey.mobileBridgeEnabled) private var enabled = SettingsDefaults.mobileBridgeEnabled
     @AppStorage(SettingsKey.mobileRelayURL) private var relayURL = SettingsDefaults.mobileRelayURL
-    @AppStorage(SettingsKey.mobileRelayToken) private var relayToken = SettingsDefaults.mobileRelayToken
+    /// Edited here, stored in the Keychain (see RelayTokenStore), not in UserDefaults.
+    @State private var relayToken = RelayTokenStore.token
     @AppStorage(SettingsKey.mobileAllowKeystrokeInjection) private var allowKeystrokes = SettingsDefaults.mobileAllowKeystrokeInjection
 
     @ObservedObject private var bridge = MobileBridge.shared
     @ObservedObject private var l10n = L10n.shared
+    /// Starts open when the server or token is still missing: there is nothing to hide yet.
+    @State private var showConnectionDetails =
+        (UserDefaults.standard.string(forKey: SettingsKey.mobileRelayURL) ?? "").isEmpty || RelayTokenStore.token.isEmpty
     @State private var now = Date()
     @State private var revealToken = false
+    @State private var pendingRevoke: MobileBridge.PairedDevice?
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -34,6 +39,9 @@ struct MobileSettingsPage: View {
             if case .online = bridge.state { bridge.refreshPairedDevices() }
         }
         .onReceive(tick) { now = $0 }
+        .onChange(of: relayToken) { _, value in
+            RelayTokenStore.token = value
+        }
         .onChange(of: enabled) { _, isOn in
             isOn ? bridge.start() : bridge.stop()
         }
@@ -46,23 +54,35 @@ struct MobileSettingsPage: View {
             Toggle(l10n["phone_connect_toggle"], isOn: $enabled)
 
             if enabled {
-                TextField(l10n["phone_server"], text: $relayURL, prompt: Text("wss://hatch.odd-now.com/ws"))
-                    .font(.system(size: 11, design: .monospaced))
+                // The server and its token are set once, by whoever runs the relay; day to day
+                // only the state line below matters. Opened by itself while they're still empty.
+                DisclosureGroup(l10n["advanced"], isExpanded: $showConnectionDetails) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["phone_server"], text: $relayURL, prompt: Text("wss://hatch.odd-now.com/ws"))
+                            .font(.system(size: 11, design: .monospaced))
+                        FieldHelp(l10n["adv_help_relay_url"])
+                    }
 
-                HStack {
-                    if revealToken {
-                        TextField(l10n["phone_token"], text: $relayToken, prompt: Text("HATCHLING_MAC_TOKEN"))
-                            .font(.system(size: 11, design: .monospaced))
-                    } else {
-                        SecureField(l10n["phone_token"], text: $relayToken, prompt: Text("HATCHLING_MAC_TOKEN"))
-                            .font(.system(size: 11, design: .monospaced))
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            if revealToken {
+                                TextField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
+                                    .font(.system(size: 11, design: .monospaced))
+                            } else {
+                                SecureField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
+                                    .font(.system(size: 11, design: .monospaced))
+                            }
+                            Button {
+                                revealToken.toggle()
+                            } label: {
+                                Image(systemName: revealToken ? "eye.slash" : "eye")
+                            }
+                            .buttonStyle(.borderless)
+                            .help(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
+                            .accessibilityLabel(l10n[revealToken ? "a11y_hide_token" : "a11y_show_token"])
+                        }
+                        FieldHelp(l10n["adv_help_relay_token"])
                     }
-                    Button {
-                        revealToken.toggle()
-                    } label: {
-                        Image(systemName: revealToken ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.borderless)
                 }
 
                 HStack(spacing: 8) {
@@ -72,6 +92,7 @@ struct MobileSettingsPage: View {
                     Text(statusText)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .help(rawFailure ?? "")
                     Button(l10n["phone_reconnect"]) { bridge.restart() }
                         .controlSize(.small)
                         .disabled(relayURL.isEmpty || relayToken.isEmpty)
@@ -106,13 +127,19 @@ struct MobileSettingsPage: View {
             default: return String(format: l10n["phone_status_many"], peers)
             }
         case .retrying(let attempt): return String(format: l10n["phone_status_retrying"], attempt)
-        case .failed(let message): return message
+        case .failed(let message): return RelayErrorText.friendly(message)
         }
     }
 
     private var isOnline: Bool {
         if case .online = bridge.state { return true }
         return false
+    }
+
+    /// The relay's own words for a failure, kept for the tooltip under the plain sentence.
+    private var rawFailure: String? {
+        if case .failed(let message) = bridge.state { return message }
+        return nil
     }
 
     // MARK: - Pairing
@@ -190,10 +217,21 @@ struct MobileSettingsPage: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button(l10n["phone_revoke"]) { bridge.revoke(deviceId: device.id) }
+                    Button(l10n["phone_revoke"]) { pendingRevoke = device }
                         .controlSize(.small)
                 }
             }
+        }
+        // Revoking is final: the phone needs a fresh pairing code to come back.
+        .confirmationDialog(
+            String(format: l10n["confirm_disconnect_title"], pendingRevoke?.name ?? ""),
+            isPresented: Binding(get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }),
+            presenting: pendingRevoke
+        ) { device in
+            Button(l10n["confirm_disconnect_action"], role: .destructive) { bridge.revoke(deviceId: device.id) }
+            Button(l10n["confirm_cancel"], role: .cancel) {}
+        } message: { _ in
+            Text(l10n["confirm_disconnect_message"])
         }
     }
 

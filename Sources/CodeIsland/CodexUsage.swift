@@ -51,6 +51,7 @@ final class CodexUsageMonitor: ObservableObject {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
         }
+        refreshTimer?.tolerance = 30
         Task { await refresh() }
     }
 
@@ -63,13 +64,22 @@ final class CodexUsageMonitor: ObservableObject {
 
     func refresh() async {
         guard !isLoading else { return }
+        // The load walks every rollout Codex has ever written. Skip it when Codex isn't on
+        // this Mac or its integration is switched off; there is nothing to show then.
+        guard ConfigInstaller.isEnabled(source: "codex"),
+              FileManager.default.fileExists(atPath: CodexUsageLoader.defaultRootURL.path) else {
+            if snapshot != nil { snapshot = nil }
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         // Parsing touches the filesystem and can walk multi-MB rollouts —
         // keep it off the main thread so the notch stays responsive.
-        snapshot = await Task.detached(priority: .utility) {
+        let loaded = await Task.detached(priority: .utility) {
             try? CodexUsageLoader.load()
         }.value
+        // Republish only on change, so an unchanged reading doesn't redraw the usage row.
+        if snapshot != loaded { snapshot = loaded }
     }
 }
 

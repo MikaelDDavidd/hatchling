@@ -781,8 +781,12 @@ public func extractMetadata(into sessions: inout [String: SessionSnapshot], sess
         }
     }
     if let ppid = event.rawJSON["_ppid"] as? Int, ppid > 0 {
-        sessions[sessionId]?.cliPid = pid_t(ppid)
-        sessions[sessionId]?.cliStartTime = nil
+        // Only a different PID invalidates the recorded start time. Clearing it on every
+        // event left a window where the PID could not be told apart from a reused one.
+        if sessions[sessionId]?.cliPid != pid_t(ppid) {
+            sessions[sessionId]?.cliPid = pid_t(ppid)
+            sessions[sessionId]?.cliStartTime = nil
+        }
     }
     if let source = SessionSnapshot.normalizedSupportedSource(event.rawJSON["_source"] as? String) {
         sessions[sessionId]?.source = source
