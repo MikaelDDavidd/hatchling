@@ -155,19 +155,19 @@ class HookServer {
                     sendResponse(connection: connection, data: Data("{}".utf8))
                     return
                 }
-                monitorPeerDisconnect(connection: connection, sessionId: sessionId)
+                let token = monitorPeerDisconnect(connection: connection, sessionId: sessionId)
                 Task {
                     let responseBody = await withCheckedContinuation { continuation in
-                        appState.handleAskUserQuestion(event, continuation: continuation)
+                        appState.handleAskUserQuestion(event, continuation: continuation, connectionToken: token)
                     }
                     self.sendResponse(connection: connection, data: responseBody)
                 }
                 return
             }
-            monitorPeerDisconnect(connection: connection, sessionId: sessionId)
+            let token = monitorPeerDisconnect(connection: connection, sessionId: sessionId)
             Task {
                 let responseBody = await withCheckedContinuation { continuation in
-                    appState.handlePermissionRequest(event, continuation: continuation)
+                    appState.handlePermissionRequest(event, continuation: continuation, connectionToken: token)
                 }
                 self.sendResponse(connection: connection, data: responseBody)
             }
@@ -175,10 +175,10 @@ class HookServer {
                   QuestionPayload.from(event: event) != nil,
                   UserDefaults.standard.bool(forKey: SettingsKey.questionFeatureEnabled) {
             let questionSessionId = event.sessionId ?? "default"
-            monitorPeerDisconnect(connection: connection, sessionId: questionSessionId)
+            let token = monitorPeerDisconnect(connection: connection, sessionId: questionSessionId)
             Task {
                 let responseBody = await withCheckedContinuation { continuation in
-                    appState.handleQuestion(event, continuation: continuation)
+                    appState.handleQuestion(event, continuation: continuation, connectionToken: token)
                 }
                 self.sendResponse(connection: connection, data: responseBody)
             }
@@ -222,7 +222,9 @@ class HookServer {
     /// That caused every PermissionRequest to be auto-drained as `deny` before the UI
     /// card was even visible. We now rely on `stateUpdateHandler` transitioning to
     /// `cancelled`/`failed` — which only happens on real socket teardown, not half-close.
-    private func monitorPeerDisconnect(connection: NWConnection, sessionId: String) {
+    @discardableResult
+    private func monitorPeerDisconnect(connection: NWConnection, sessionId: String) -> String {
+        let token = UUID().uuidString
         let context = ConnectionContext()
         let connId = ObjectIdentifier(connection)
         connectionContexts[connId] = context
@@ -233,7 +235,7 @@ class HookServer {
                 switch state {
                 case .cancelled, .failed:
                     if !context.responded {
-                        self.appState.handlePeerDisconnect(sessionId: sessionId)
+                        self.appState.handlePeerDisconnect(sessionId: sessionId, connectionToken: token)
                     }
                     self.connectionContexts.removeValue(forKey: connId)
                 default:
@@ -254,6 +256,7 @@ class HookServer {
                 }
             }
         }
+        return token
     }
 
     private func sendResponse(connection: NWConnection, data: Data) {
