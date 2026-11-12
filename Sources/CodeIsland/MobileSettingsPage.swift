@@ -55,10 +55,10 @@ struct MobileSettingsPage: View {
 
                 HStack {
                     if revealToken {
-                        TextField(l10n["phone_token"], text: $relayToken, prompt: Text("HATCHLING_MAC_TOKEN"))
+                        TextField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
                             .font(.system(size: 11, design: .monospaced))
                     } else {
-                        SecureField(l10n["phone_token"], text: $relayToken, prompt: Text("HATCHLING_MAC_TOKEN"))
+                        SecureField(l10n["phone_token"], text: $relayToken, prompt: Text(l10n["phone_token_placeholder"]))
                             .font(.system(size: 11, design: .monospaced))
                     }
                     Button {

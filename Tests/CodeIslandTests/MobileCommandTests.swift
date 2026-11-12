@@ -10,6 +10,17 @@ import CodeIslandCore
 /// really receives — rather than on the queue being drained.
 @MainActor
 final class MobileCommandTests: XCTestCase {
+    // The injector's refusals are localized; the assertions here read the English ones.
+    override func setUp() {
+        super.setUp()
+        L10n.shared.language = "en"
+    }
+
+    override func tearDown() {
+        L10n.shared.language = "system"
+        super.tearDown()
+    }
+
 
     // MARK: - Helpers
 
