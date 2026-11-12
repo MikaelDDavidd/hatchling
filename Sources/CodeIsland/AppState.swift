@@ -55,6 +55,10 @@ final class AppState {
     var completionHasBeenEntered = false
     /// Auto-collapse timer fired but mouse is inside panel — defer collapse until mouse leaves
     var deferCollapseOnMouseLeave = false
+    /// The mouse is over Hatch's speech bubble: it stays open until the mouse leaves.
+    var buddySpeechHovered = false
+    /// The speech ran out of time while hovered — close it once the mouse leaves.
+    var dismissBuddySpeechOnLeave = false
     private var processMonitors: [String: (source: DispatchSourceProcess, process: ProcessIdentity)] = [:]
     private var exitingSessions: [String: ProcessIdentity] = [:]
     private var saveTimer: Timer?
@@ -663,7 +667,7 @@ final class AppState {
 
         autoCollapseTask?.cancel()
         autoCollapseTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
             guard !Task.isCancelled else { return }
             showNextCompletionOrCollapse()
         }
@@ -1863,16 +1867,27 @@ final class AppState {
         let speech = BuddySpeech(text: text, mood: mood, title: title, reaction: reaction)
         pendingBuddySpeech = speech
         lastBuddySpeechAt = Date()
+        dismissBuddySpeechOnLeave = false
+        // It only opens with the mouse elsewhere, so a stale "hovered" from an earlier
+        // bubble must not keep this one open forever.
+        buddySpeechHovered = false
         withAnimation(NotchAnimation.open) {
             surface = .buddySpeech
         }
-        // Schedule auto-dismiss
+        // Long enough to notice it and read it: the caller's duration is the floor, and a
+        // longer line gets more time, about a quarter second per word on top of a pause.
+        let words = Double((title ?? "").split(separator: " ").count + text.split(separator: " ").count)
+        let visible = min(max(duration * 1.6, 5 + words * 0.32), 18)
         buddySpeechDismissTask?.cancel()
         buddySpeechDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(visible * 1_000_000_000))
             guard let self = self else { return }
             // Only dismiss if still showing the same speech (no override happened)
-            if self.pendingBuddySpeech?.id == speech.id, self.surface == .buddySpeech {
+            guard self.pendingBuddySpeech?.id == speech.id, self.surface == .buddySpeech else { return }
+            // Someone is reading it: wait for the mouse to leave.
+            if self.buddySpeechHovered {
+                self.dismissBuddySpeechOnLeave = true
+            } else {
                 self.dismissBuddySpeech()
             }
         }
@@ -1880,6 +1895,7 @@ final class AppState {
 
     func dismissBuddySpeech() {
         buddySpeechDismissTask?.cancel()
+        dismissBuddySpeechOnLeave = false
         pendingBuddySpeech = nil
         if surface == .buddySpeech {
             withAnimation(NotchAnimation.close) {
