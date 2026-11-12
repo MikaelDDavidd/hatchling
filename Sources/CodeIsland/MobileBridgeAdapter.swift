@@ -35,6 +35,12 @@ extension AppState {
     /// Called whenever session state moves. Cheap when nothing changed — the bridge diffs
     /// before it sends, and bails immediately when no phone is connected.
     func publishMobileState() {
+        // This runs after every hook. Building each MobileSession looks up context usage,
+        // which can start a transcript re-read, so nothing is built while no phone could
+        // receive it. The bridge calls back here when it comes online and then gets
+        // everything in one go.
+        guard case .online = MobileBridge.shared.state else { return }
+
         var payload: [String: MobileSession] = [:]
         for (id, session) in sessions {
             payload[id] = mobileSession(id: id, session: session)
