@@ -120,10 +120,14 @@ final class AppState {
                 deadMonitors.append((sessionId, process))
                 continue
             }
-            // Check for orphaned processes (ppid <= 1)
+            // An orphan (ppid <= 1) may be a CLI left behind by a closed terminal, but it may
+            // just as well be a headless run under launchd or nohup. Hatchling never signals
+            // it; a quiet orphan only leaves the list.
             var info = proc_bsdinfo()
             let ret = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
-            if ret > 0 && info.pbi_ppid <= 1 && shouldTerminateOrphanedProcess(sessionId: sessionId, pid: pid) {
+            if ret > 0 && info.pbi_ppid <= 1 && shouldTerminateOrphanedProcess(sessionId: sessionId, pid: pid),
+               let session = sessions[sessionId], session.status == .idle,
+               Date().timeIntervalSince(session.lastActivity) > 600 {
                 orphaned.append((sessionId, pid))
             }
         }
@@ -132,8 +136,7 @@ final class AppState {
             // promptly (after 5s grace) instead of lingering for 10 minutes.
             handleProcessExit(sessionId: sessionId, exitedProcess: process)
         }
-        for (sessionId, pid) in orphaned {
-            kill(pid, SIGTERM)
+        for (sessionId, _) in orphaned {
             removeSession(sessionId)
         }
 
@@ -266,7 +269,7 @@ final class AppState {
         return ProcessIdentity(pid: pid, startTime: getProcessStartTime(pid))
     }
 
-    private nonisolated static func isLiveProcess(_ process: ProcessIdentity) -> Bool {
+    nonisolated static func isLiveProcess(_ process: ProcessIdentity) -> Bool {
         guard process.pid > 0, kill(process.pid, 0) == 0 else { return false }
         guard let expectedStart = process.startTime else { return true }
         return getProcessStartTime(process.pid) == expectedStart
