@@ -10,6 +10,7 @@ struct FilesTrayView: View {
     /// so it takes drops itself.
     @State private var rowTargeted = false
     @State private var hoveredId: UUID?
+    @State private var clearArmed = false
 
     @ObservedObject private var stage = TrayStage.shared
 
@@ -47,13 +48,35 @@ struct FilesTrayView: View {
         .animation(.spring(response: 0.45, dampingFraction: 0.78), value: store.items.count)
     }
 
-    @ViewBuilder
     private var trayContent: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let failure = store.failure {
+                // Short sentence for reading, the system's reason for a bug report.
+                Label(failure.message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(red: 1.0, green: 0.62, blue: 0.5))
+                    .lineLimit(1)
+                    .help(failure.detail)
+                    .padding(.leading, store.items.isEmpty ? 0 : 12)
+                    .transition(.opacity)
+            }
+            trayBody
+        }
+        .animation(.easeOut(duration: 0.2), value: store.failure)
+    }
+
+    @ViewBuilder
+    private var trayBody: some View {
         if store.items.isEmpty {
-            Text(L10n.shared["tray_drop_hint"])
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.5))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Dragging is the quick way in, but not the only one: a button for whoever has
+            // no Finder window at hand, or doesn't know the notch takes drops.
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L10n.shared["tray_drop_hint"])
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
+                PanelButton(title: L10n.shared["tray_choose_files"], action: pickFiles)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             SideScroller {
                 HStack(spacing: 8) {
@@ -70,7 +93,9 @@ struct FilesTrayView: View {
                             insertion: .offset(x: -80).combined(with: .scale(scale: 0.3, anchor: .leading)).combined(with: .opacity),
                             removal: .opacity.combined(with: .scale(scale: 0.8))
                         ))
+                        .contextMenu { itemMenu(item) }
                     }
+                    clearTile
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -107,6 +132,54 @@ struct FilesTrayView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    /// The hover "x" is the only other way to act on a file, and it can't reveal or copy.
+    @ViewBuilder
+    private func itemMenu(_ item: TrayItem) -> some View {
+        Button(L10n.shared["tray_show_in_finder"]) {
+            NSWorkspace.shared.activateFileViewerSelecting([item.storedURL])
+        }
+        Button(L10n.shared["tray_copy_path"]) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.storedURL.path, forType: .string)
+        }
+        Divider()
+        Button(L10n.shared["tray_remove"], role: .destructive) { store.remove(item) }
+    }
+
+    /// Empties the tray. Only Hatchling's copies go, the originals stay where they were, but
+    /// one stray click would still take every file at once: the first click arms it, the
+    /// second clears, and it disarms by itself after a few seconds.
+    private var clearTile: some View {
+        Button {
+            if clearArmed {
+                clearArmed = false
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) { store.clearAll() }
+            } else {
+                clearArmed = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { clearArmed = false }
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "trash")
+                    .font(.system(size: 15, weight: .light))
+                    .foregroundStyle(clearArmed ? Color(red: 1.0, green: 0.54, blue: 0.54) : .white.opacity(0.45))
+                Text(L10n.shared[clearArmed ? "tray_clear_confirm" : "tray_clear_all"])
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(clearArmed ? Color(red: 1.0, green: 0.54, blue: 0.54) : .white.opacity(0.4))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(width: 64, height: 70)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.white.opacity(clearArmed ? 0.06 : 0.0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(L10n.shared["tray_clear_all"])
+        .animation(.easeOut(duration: 0.15), value: clearArmed)
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {

@@ -86,6 +86,11 @@ final class HatchDirector: ObservableObject {
         say(pt ? "Guardei \(name)." : "Got \(name).", reaction: .swallow, hold: 4)
     }
 
+    /// The copy into the tray failed after Hatch had already said it kept the file.
+    func fileFailed(_ name: String) {
+        say(String(format: L10n.shared["tray_copy_failed"], name), hold: 5)
+    }
+
     func fileHovering() {
         say(pt ? "Solta aqui que eu guardo." : "Drop it here, I'll keep it.", reaction: .catchStart, hold: 3)
     }
