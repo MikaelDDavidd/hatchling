@@ -18,6 +18,7 @@ struct MobileSettingsPage: View {
     @ObservedObject private var l10n = L10n.shared
     @State private var now = Date()
     @State private var revealToken = false
+    @State private var pendingRevoke: MobileBridge.PairedDevice?
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -194,10 +195,21 @@ struct MobileSettingsPage: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button(l10n["phone_revoke"]) { bridge.revoke(deviceId: device.id) }
+                    Button(l10n["phone_revoke"]) { pendingRevoke = device }
                         .controlSize(.small)
                 }
             }
+        }
+        // Revoking is final: the phone needs a fresh pairing code to come back.
+        .confirmationDialog(
+            String(format: l10n["confirm_disconnect_title"], pendingRevoke?.name ?? ""),
+            isPresented: Binding(get: { pendingRevoke != nil }, set: { if !$0 { pendingRevoke = nil } }),
+            presenting: pendingRevoke
+        ) { device in
+            Button(l10n["confirm_disconnect_action"], role: .destructive) { bridge.revoke(deviceId: device.id) }
+            Button(l10n["confirm_cancel"], role: .cancel) {}
+        } message: { _ in
+            Text(l10n["confirm_disconnect_message"])
         }
     }
 
