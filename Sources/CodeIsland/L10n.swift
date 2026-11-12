@@ -466,7 +466,8 @@ final class L10n: ObservableObject {
         "phone_pair_hint": "Open Hatchling on your phone and point the camera at the QR, or type the code. It works once.",
         "phone_cancel": "Cancel",
         "phone_pair_footer": "The same QR is one click away: the phone button at the top of the panel.",
-        "phone_revoke": "Revoke",
+        // Same word as phone_disconnect: removing a paired phone has one name everywhere.
+        "phone_revoke": "Disconnect",
         "phone_prompts": "Prompts",
         "phone_prompts_toggle": "Allow prompts outside tmux",
         "phone_prompts_footer": "Sending a prompt to a session running in tmux is exact and needs no permission. Outside tmux there is no supported way to type into another program's terminal, so Hatchling synthesises keystrokes: it needs Accessibility permission, it raises the terminal window, and the text lands wherever focus ends up. Leave this off unless you need it.",
@@ -496,6 +497,14 @@ final class L10n: ObservableObject {
         "n_sessions": "sessions",
         "scroll_for_more": "Scroll for more",
         "scroll_hidden": "more below",
+        "phone_code_expired": "That code expired. Make a new one and point your phone's camera here.",
+        "phone_code_expired_short": "expired",
+        "relay_err_not_configured": "The server address and token are missing. Fill them in Settings > Phone.",
+        "relay_err_protocol": "This version of Hatchling and the server don't speak the same language. Update the app.",
+        "relay_err_auth": "The server turned the token down. Check it in Settings > Phone.",
+        "relay_err_timeout": "The server took too long to answer. I'll keep trying.",
+        "relay_err_unreachable": "I couldn't reach the server. Check the internet connection.",
+        "relay_err_generic": "Something went wrong with the server connection.",
         "lines": "lines",
     ]
 
@@ -959,6 +968,14 @@ final class L10n: ObservableObject {
         "n_sessions": "个会话",
         "scroll_for_more": "向下滚动查看更多",
         "scroll_hidden": "个未显示",
+        "phone_code_expired": "这个代码已过期。生成一个新的，再把手机摄像头对准这里。",
+        "phone_code_expired_short": "已过期",
+        "relay_err_not_configured": "缺少服务器地址和令牌。请在 设置 > 手机 中填写。",
+        "relay_err_protocol": "此版本的 Hatchling 与服务器不兼容。请更新应用。",
+        "relay_err_auth": "服务器拒绝了令牌。请在 设置 > 手机 中检查。",
+        "relay_err_timeout": "服务器响应太慢。我会继续尝试。",
+        "relay_err_unreachable": "无法连接服务器。请检查网络连接。",
+        "relay_err_generic": "服务器连接出了问题。",
         "lines": "行",
     ]
 
@@ -1422,6 +1439,14 @@ final class L10n: ObservableObject {
         "n_sessions": "oturum",
         "scroll_for_more": "Daha fazla için kaydır",
         "scroll_hidden": "aşağıda",
+        "phone_code_expired": "Bu kodun süresi doldu. Yenisini oluştur ve telefonunun kamerasını buraya tut.",
+        "phone_code_expired_short": "süresi doldu",
+        "relay_err_not_configured": "Sunucu adresi ve belirteç eksik. Ayarlar > Telefon bölümünden doldur.",
+        "relay_err_protocol": "Hatchling'in bu sürümü ile sunucu aynı dili konuşmuyor. Uygulamayı güncelle.",
+        "relay_err_auth": "Sunucu belirteci reddetti. Ayarlar > Telefon bölümünden kontrol et.",
+        "relay_err_timeout": "Sunucu yanıt vermekte çok gecikti. Denemeye devam edeceğim.",
+        "relay_err_unreachable": "Sunucuya ulaşamadım. İnternet bağlantını kontrol et.",
+        "relay_err_generic": "Sunucu bağlantısında bir şeyler ters gitti.",
         "lines": "satır",
     ]
 
@@ -1855,7 +1880,7 @@ final class L10n: ObservableObject {
         "phone_pair_hint": "Abra o Hatchling no celular e aponte a câmera para o QR, ou digite o código. Serve uma vez só.",
         "phone_cancel": "Cancelar",
         "phone_pair_footer": "O mesmo QR fica a um clique: o botão de celular no topo do painel.",
-        "phone_revoke": "Revogar",
+        "phone_revoke": "Desconectar",
         "phone_prompts": "Prompts",
         "phone_prompts_toggle": "Permitir prompts fora do tmux",
         "phone_prompts_footer": "Mandar um prompt pra uma sessão no tmux é exato e não pede permissão. Fora do tmux não existe jeito oficial de digitar no terminal de outro programa, então o Hatchling simula o teclado: precisa da permissão de Acessibilidade, traz a janela do terminal pra frente e o texto cai onde o foco estiver. Deixe desligado se não precisar.",
@@ -1885,6 +1910,14 @@ final class L10n: ObservableObject {
         "n_sessions": "sessões",
         "scroll_for_more": "Role pra ver mais",
         "scroll_hidden": "abaixo",
+        "phone_code_expired": "Esse código expirou. Gere outro e aponte a câmera do celular pra cá.",
+        "phone_code_expired_short": "expirou",
+        "relay_err_not_configured": "Falta o endereço do servidor e o token. Preencha em Ajustes > Celular.",
+        "relay_err_protocol": "Esta versão do Hatchling e o servidor não falam a mesma língua. Atualize o app.",
+        "relay_err_auth": "O servidor recusou o token. Confira em Ajustes > Celular.",
+        "relay_err_timeout": "O servidor demorou demais pra responder. Vou continuar tentando.",
+        "relay_err_unreachable": "Não consegui chegar no servidor. Confira a conexão com a internet.",
+        "relay_err_generic": "Algo deu errado na conexão com o servidor.",
         "lines": "linhas",
     ]
 }

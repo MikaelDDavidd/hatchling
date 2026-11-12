@@ -93,6 +93,41 @@ struct PhonePairingView: View {
         return code
     }
 
+    /// When the page last asked the relay for a code that hasn't arrived yet.
+    @State private var requestedAt: Date?
+    /// Codes renewed on their own during this visit. An expired code used to leave a spinner
+    /// and "making a code…" forever; now a new one is fetched, but only a few times, so a
+    /// panel left open all day doesn't keep minting codes nobody scans.
+    @State private var autoRenewals = 0
+    private static let maxAutoRenewals = 3
+
+    /// No code on screen and none coming: it expired past the renewals, or the relay never
+    /// answered the request.
+    private var codeStalled: Bool {
+        guard liveCode == nil else { return false }
+        if let requestedAt { return now.timeIntervalSince(requestedAt) > 10 }
+        return bridge.pairingCode != nil
+    }
+
+    private func requestCode() {
+        requestedAt = now
+        bridge.requestPairingCode()
+    }
+
+    /// Called every second: renews an expired code while renewals remain.
+    private func renewIfExpired() {
+        guard isOnline, justPaired == nil, let code = bridge.pairingCode, code.expiresAt <= now,
+              autoRenewals < Self.maxAutoRenewals else { return }
+        autoRenewals += 1
+        requestCode()
+    }
+
+    /// The raw reason the relay connection failed, kept for the tooltip.
+    private var rawFailure: String? {
+        if case .failed(let message) = bridge.state { return message }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 16) {
@@ -100,6 +135,8 @@ struct PhonePairingView: View {
                     .padding(.horizontal, 6)
                 SpeechBubble(text: hatchLine, thinking: false)
                     .frame(maxWidth: 420, alignment: .leading)
+                    // Hatch says it plainly; the relay's own words are here for a bug report.
+                    .help(rawFailure ?? "")
                 Spacer(minLength: 0)
             }
 
@@ -118,20 +155,26 @@ struct PhonePairingView: View {
         .padding(.top, 16)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onReceive(tick) { now = $0 }
+        .onReceive(tick) {
+            now = $0
+            renewIfExpired()
+        }
         .onDisappear { PhonePanel.shared.close() }
         .onAppear {
             knownIds = Set(bridge.pairedDevices.map(\.id))
             if isOnline {
                 bridge.refreshPairedDevices()
-                if liveCode == nil { bridge.requestPairingCode() }
+                if liveCode == nil { requestCode() }
             }
         }
         .onChange(of: bridge.state) { _, state in
-            if case .online = state, liveCode == nil, justPaired == nil { bridge.requestPairingCode() }
+            if case .online = state, liveCode == nil, justPaired == nil { requestCode() }
         }
         .onChange(of: bridge.pairingCode) { _, code in
-            if code != nil { codeShown = true }
+            if code != nil {
+                codeShown = true
+                requestedAt = nil
+            }
         }
         .onChange(of: bridge.pairedDevices) { _, new in
             if codeShown, let fresh = new.first(where: { !knownIds.contains($0.id) }) {
@@ -148,8 +191,8 @@ struct PhonePairingView: View {
         switch bridge.state {
         case .off: return l10n["phone_off_line"]
         case .connecting, .retrying: return l10n["phone_connecting_line"]
-        case .failed(let message): return String(format: l10n["phone_failed_line"], message)
-        case .online: return l10n["phone_hatch_line"]
+        case .failed(let message): return RelayErrorText.friendly(message)
+        case .online: return codeStalled ? l10n["phone_code_expired"] : l10n["phone_hatch_line"]
         }
     }
 
@@ -165,6 +208,10 @@ struct PhonePairingView: View {
                         .interpolation(.none)
                         .resizable()
                         .padding(11)
+                } else if codeStalled {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.system(size: 28, weight: .regular))
+                        .foregroundStyle(.black.opacity(0.35))
                 } else {
                     ProgressView().controlSize(.small).colorScheme(.light)
                 }
@@ -180,7 +227,8 @@ struct PhonePairingView: View {
                     .tracking(1)
                     .foregroundStyle(.white.opacity(0.95))
                     .textSelection(.enabled)
-                Text(liveCode.map { String(format: l10n["phone_valid_for"], PairingQR.clock(remaining($0))) } ?? l10n["phone_generating"])
+                Text(liveCode.map { String(format: l10n["phone_valid_for"], PairingQR.clock(remaining($0))) }
+                     ?? l10n[codeStalled ? "phone_code_expired_short" : "phone_generating"])
                     .font(.system(size: 11, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle((liveCode.map(remaining) ?? 999) < 60 ? Color(red: 0.91, green: 0.64, blue: 0.24) : .white.opacity(0.45))
@@ -192,9 +240,12 @@ struct PhonePairingView: View {
                     .padding(.top, 6)
                 HStack {
                     Spacer()
-                    PanelButton(title: l10n["phone_new_code"]) {
+                    // The main action once the code is gone; a quiet extra while one is showing.
+                    PanelButton(title: l10n[codeStalled ? "phone_generate" : "phone_new_code"], primary: codeStalled) {
                         justPaired = nil
-                        bridge.requestPairingCode()
+                        // Someone is here and asked: the automatic renewals start over.
+                        autoRenewals = 0
+                        requestCode()
                     }
                 }
                 .padding(.top, 8)
@@ -301,9 +352,11 @@ struct PhonePairingView: View {
     }
 }
 
-/// The panel's quiet grey button.
+/// The panel's button: quiet grey, or white with black text for the one main action of a
+/// view, the same pair the approval cards use.
 struct PanelButton: View {
     let title: String
+    var primary: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -311,12 +364,12 @@ struct PanelButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(primary ? Color.black : Color.white.opacity(0.85))
                 .padding(.horizontal, 12)
                 .frame(height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.white.opacity(hovering ? 0.11 : 0.07))
+                        .fill(primary ? Color.white.opacity(hovering ? 1 : 0.92) : Color.white.opacity(hovering ? 0.11 : 0.07))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -350,5 +403,25 @@ enum PairingQR {
 
     static func clock(_ seconds: Int) -> String {
         String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+/// A relay or bridge failure as one short sentence. The raw text ("relay speaks protocol v2",
+/// a URLSession error, whatever the relay sent) meant nothing to most people and came in
+/// English; the UI shows this and keeps the raw text for a tooltip.
+enum RelayErrorText {
+    static func friendly(_ raw: String) -> String {
+        let l10n = L10n.shared
+        let text = raw.lowercased()
+        func has(_ words: String...) -> Bool { words.contains { text.contains($0) } }
+
+        if has("not configured") { return l10n["relay_err_not_configured"] }
+        if has("protocol") { return l10n["relay_err_protocol"] }
+        if has("token", "unauthor", "forbidden", "auth", "401", "403", "denied") { return l10n["relay_err_auth"] }
+        if has("timed out", "timeout", "tempo limite", "esgotou") { return l10n["relay_err_timeout"] }
+        if has("offline", "internet", "network", "rede", "host", "dns", "could not connect", "não foi possível conectar") {
+            return l10n["relay_err_unreachable"]
+        }
+        return l10n["relay_err_generic"]
     }
 }
