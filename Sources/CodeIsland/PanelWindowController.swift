@@ -141,7 +141,6 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     private var visibilityTimer: Timer?
     private var autoScreenPoller: Timer?
     private var fullscreenPoller: Timer?
-    private var sessionObservationTask: Task<Void, Never>?
     private var fullscreenLatch = false
     private var settingsObservers: [NSObjectProtocol] = []
     private var globalClickMonitor: Any?
@@ -241,17 +240,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         }
 
         // Observe session changes via @Observable tracking
-        sessionObservationTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                withObservationTracking {
-                    _ = self?.appState.sessions
-                    _ = self?.appState.surface
-                } onChange: {
-                    Task { @MainActor in self?.updateVisibility() }
-                }
-                try? await Task.sleep(for: .milliseconds(500))
-            }
-        }
+        observeSessionChanges()
 
         // Observe settings changes (display choice, panel height)
         observeSettingsChanges()
@@ -385,6 +374,28 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Tracks `sessions` and `surface` with a single, self re-arming registration.
+    /// `withObservationTracking` fires `onChange` once and then drops the
+    /// registration, so it is re-armed from inside the handler instead of being
+    /// re-registered on a timer (the old 500 ms loop piled up registrations that
+    /// never fired and woke the main actor twice a second for nothing).
+    /// `onChange` runs on willSet, before the new value lands, so the update is
+    /// deferred to the next main-actor turn; a burst of mutations in the same
+    /// turn collapses into one `updateVisibility()` because the registration is
+    /// already spent until the re-arm.
+    private func observeSessionChanges() {
+        withObservationTracking {
+            _ = appState.sessions
+            _ = appState.surface
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.updateVisibility()
+                self.observeSessionChanges()
             }
         }
     }
