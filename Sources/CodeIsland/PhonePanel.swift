@@ -60,6 +60,7 @@ struct PhoneHeaderButton: View {
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
         .help(l10n["phone_tooltip"])
+        .accessibilityLabel(l10n["phone_tooltip"])
     }
 }
 

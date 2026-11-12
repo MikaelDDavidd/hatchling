@@ -798,6 +798,8 @@ private struct NotchIconButton: View {
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
         .help(tooltip ?? "")
+        // Icon only: VoiceOver reads the tooltip's words instead of the symbol name.
+        .accessibilityLabel(tooltip ?? "")
     }
 }
 
@@ -1851,17 +1853,27 @@ private struct ProjectNameLink: View {
     let color: Color
 
     var body: some View {
+        // A Button when it opens the folder, so it is reachable without a mouse; plain text
+        // otherwise, so VoiceOver doesn't announce a control that does nothing.
+        if isInteractive, let cwd {
+            Button {
+                NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+            } label: {
+                label
+            }
+            .buttonStyle(.plain)
+            .help("\(L10n.shared["open_path"]) \(cwd)")
+        } else {
+            label
+        }
+    }
+
+    private var label: some View {
         Text(name)
             .font(.system(size: fontSize, weight: .semibold))
             .foregroundStyle(color)
             .lineLimit(1)
             .truncationMode(.tail)
-            .onTapGesture {
-                if isInteractive, let cwd = cwd {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-                }
-            }
-            .help(isInteractive && cwd != nil ? "\(L10n.shared["open_path"]) \(cwd ?? "")" : "")
     }
 }
 
@@ -1973,6 +1985,15 @@ private struct SessionCard: View {
         .buttonStyle(CardPressStyle())
         .contentShape(Rectangle())
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
+        // The small button for the other way in lives inside this Button and appears only
+        // under the mouse, out of reach of the keyboard and VoiceOver. Both ways are offered
+        // here as well: as named accessibility actions and in the context menu.
+        .accessibilityAction(named: Text(L10n.shared["card_open_chat"]), openChat)
+        .accessibilityAction(named: Text(L10n.shared["card_open_app"]), openApp)
+        .contextMenu {
+            Button(L10n.shared["card_open_chat"], action: openChat)
+            Button(L10n.shared["card_open_app"], action: openApp)
+        }
     }
 
     @ViewBuilder
@@ -2159,6 +2180,7 @@ private struct SessionCard: View {
             .opacity(hovering ? 1 : 0)
             .allowsHitTesting(hovering)
             .help(L10n.shared[alternateIsChat ? "card_open_chat" : "card_open_app"])
+            .accessibilityLabel(L10n.shared[alternateIsChat ? "card_open_chat" : "card_open_app"])
             Text(timeAgo(session.startTime))
                 .font(.system(size: fontSize - 1.5, weight: .medium).monospacedDigit())
                 .tracking(0.2)

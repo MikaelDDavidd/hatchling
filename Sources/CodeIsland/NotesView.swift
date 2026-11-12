@@ -23,9 +23,13 @@ struct NotesView: View {
             HStack(spacing: 8) {
                 addCard
                 ForEach(store.notes) { note in
-                    NoteCard(note: note, color: store.color(for: note))
-                        .matchedGeometryEffect(id: note.id, in: animation)
-                        .onTapGesture { expandedId = note.id }
+                    // A Button, not a tap gesture, so a note opens from the keyboard too.
+                    Button { expandedId = note.id } label: {
+                        NoteCard(note: note, color: store.color(for: note))
+                    }
+                    .buttonStyle(.plain)
+                    .matchedGeometryEffect(id: note.id, in: animation)
+                    .accessibilityHint(L10n.shared["a11y_open_note"])
                         .contextMenu {
                             Button("Mudar cor") { store.cycleColor(id: note.id) }
                             Button("Apagar", role: .destructive) { store.delete(id: note.id) }
@@ -173,6 +177,7 @@ private struct ExpandedNoteCard: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.black.opacity(0.65))
             }
+            .accessibilityLabel(L10n.shared["a11y_back"])
             .buttonStyle(.plain)
             .help("Voltar")
 
@@ -183,6 +188,7 @@ private struct ExpandedNoteCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.black.opacity(0.65))
             }
+            .accessibilityLabel(L10n.shared["a11y_change_color"])
             .buttonStyle(.plain)
             .help("Trocar cor")
 
@@ -191,6 +197,7 @@ private struct ExpandedNoteCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.black.opacity(0.65))
             }
+            .accessibilityLabel(L10n.shared["a11y_delete_note"])
             .buttonStyle(.plain)
             .help("Apagar")
         }

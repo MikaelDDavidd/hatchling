@@ -71,6 +71,9 @@ struct PanelTabSelector: View {
                 }
                 .buttonStyle(.plain)
                 .help(tab.label)
+                // Only the chosen tab shows its name; the others are bare icons.
+                .accessibilityLabel(tab.label)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
                 .onHover { h in withAnimation(NotchAnimation.micro) { hovered = h ? tab : (hovered == tab ? nil : hovered) } }
             }
         }
