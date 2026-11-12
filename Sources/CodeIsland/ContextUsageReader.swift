@@ -49,33 +49,65 @@ struct ContextUsage: Equatable {
 final class ContextUsageStore: ObservableObject {
     static let shared = ContextUsageStore()
 
-    private struct Entry {
-        let usage: ContextUsage
-        /// Timestamp of the session.lastActivity at capture time —
-        /// used to decide whether the cache is stale.
-        let capturedAt: Date
-    }
-
-    @Published private var cache: [String: Entry] = [:]
+    /// Only the usage itself is published: views observing the store re-render when a
+    /// percentage moves, not every time a re-read confirms the same number.
+    @Published private var cache: [String: ContextUsage] = [:]
+    /// The session.lastActivity each cached value was read at — used to decide whether the
+    /// cache is stale. Kept apart from `cache` so bumping it doesn't notify observers.
+    private var capturedAt: [String: Date] = [:]
+    /// Newest lastActivity seen per session, so a delayed re-read is stamped with it.
+    private var latestActivity: [String: Date] = [:]
+    /// When the last re-read of each session started.
+    private var lastRefreshAt: [String: Date] = [:]
     private var inFlight: Set<String> = []
+    /// Sessions with a re-read already waiting out the throttle.
+    private var trailingRefresh: Set<String> = []
+
+    /// Every hook advances lastActivity, so without a floor the transcript tail would be
+    /// re-scanned on each one. A session's usage is re-read at most this often; the last
+    /// change in a burst is still picked up by a trailing re-read.
+    private static let minRefreshInterval: TimeInterval = 8
 
     /// Lookup with stale-while-revalidate semantics. Triggers a background
     /// refresh when the cached value pre-dates the latest activity.
     func lookup(for session: SessionSnapshot, sessionId: String) -> ContextUsage? {
-        let entry = cache[sessionId]
-        let isFresh = (entry?.capturedAt ?? .distantPast) >= session.lastActivity
+        if latestActivity[sessionId].map({ $0 < session.lastActivity }) ?? true {
+            latestActivity[sessionId] = session.lastActivity
+        }
+        let isFresh = (capturedAt[sessionId] ?? .distantPast) >= session.lastActivity
         if !isFresh {
             scheduleRefresh(sessionId: sessionId, session: session)
         }
-        return entry?.usage
+        return cache[sessionId]
     }
 
     private func scheduleRefresh(sessionId: String, session: SessionSnapshot) {
+        guard !inFlight.contains(sessionId), !trailingRefresh.contains(sessionId) else { return }
+
+        let sinceLast = Date().timeIntervalSince(lastRefreshAt[sessionId] ?? .distantPast)
+        let wait = Self.minRefreshInterval - sinceLast
+        guard wait > 0 else {
+            startRefresh(sessionId: sessionId, session: session)
+            return
+        }
+
+        trailingRefresh.insert(sessionId)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard let self else { return }
+            self.trailingRefresh.remove(sessionId)
+            self.startRefresh(sessionId: sessionId, session: session)
+        }
+    }
+
+    private func startRefresh(sessionId: String, session: SessionSnapshot) {
         guard !inFlight.contains(sessionId) else { return }
         inFlight.insert(sessionId)
+        lastRefreshAt[sessionId] = Date()
         let source = session.source ?? "claude"
         let cwd = session.cwd
-        let activity = session.lastActivity
+        // Stamped before the read starts, so whatever the read finds is at least this new.
+        let activity = max(latestActivity[sessionId] ?? session.lastActivity, session.lastActivity)
 
         Task.detached(priority: .background) { [weak self] in
             let usage = ContextUsageReader.read(
@@ -84,8 +116,11 @@ final class ContextUsageStore: ObservableObject {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.inFlight.remove(sessionId)
-                if let usage {
-                    self.cache[sessionId] = Entry(usage: usage, capturedAt: activity)
+                // Stamp even an empty read, so a session with nothing to show isn't
+                // re-read until it moves again.
+                self.capturedAt[sessionId] = activity
+                if let usage, self.cache[sessionId] != usage {
+                    self.cache[sessionId] = usage
                 }
             }
         }
@@ -94,7 +129,11 @@ final class ContextUsageStore: ObservableObject {
     /// For testing/debug: drop the cache.
     func reset() {
         cache.removeAll()
+        capturedAt.removeAll()
+        latestActivity.removeAll()
+        lastRefreshAt.removeAll()
         inFlight.removeAll()
+        trailingRefresh.removeAll()
     }
 }
 

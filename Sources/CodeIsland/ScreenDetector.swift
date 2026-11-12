@@ -51,6 +51,10 @@ struct ScreenDetector {
         guard !screens.isEmpty else {
             return NSScreen.main ?? NSScreen()
         }
+        // With one display there is nothing to choose, so skip listing every window on screen.
+        if screens.count == 1 {
+            return screens[0]
+        }
 
         let mainScreen = NSScreen.main
         let candidates = screens.map { screen in

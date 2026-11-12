@@ -8,7 +8,7 @@ struct DiagnosticsExporter {
 
     static func export() {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "CodeIsland-Diagnostics-\(timestamp()).zip"
+        panel.nameFieldStringValue = "Hatchling-Diagnostics-\(timestamp()).zip"
         panel.allowedContentTypes = [.zip]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
@@ -21,7 +21,7 @@ struct DiagnosticsExporter {
             } catch {
                 DispatchQueue.main.async {
                     let alert = NSAlert()
-                    alert.messageText = "Export Failed"
+                    alert.messageText = L10n.shared["diagnostics_export_failed"]
                     alert.informativeText = error.localizedDescription
                     alert.runModal()
                 }
@@ -34,7 +34,7 @@ struct DiagnosticsExporter {
     private static func buildArchive(saveTo destination: URL) throws -> URL {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory.appendingPathComponent("CodeIsland-Diag-\(UUID().uuidString)", isDirectory: true)
-        let root = tmp.appendingPathComponent("CodeIsland-Diagnostics-\(timestamp())", isDirectory: true)
+        let root = tmp.appendingPathComponent("Hatchling-Diagnostics-\(timestamp())", isDirectory: true)
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
 
         // 1. Metadata

@@ -112,6 +112,40 @@ struct HatchlingMascotView: NSViewRepresentable {
     }
 }
 
+/// One pair of pointer monitors shared by every Hatch following the cursor, installed while
+/// at least one is listening and removed when the last one stops.
+@MainActor
+private final class CursorWatcher {
+    static let shared = CursorWatcher()
+
+    private var listeners: [ObjectIdentifier: () -> Void] = [:]
+    private var monitors: [Any] = []
+
+    func add(_ id: ObjectIdentifier, _ onMove: @escaping () -> Void) {
+        listeners[id] = onMove
+        guard monitors.isEmpty else { return }
+        let handler: (NSEvent) -> Void = { _ in
+            MainActor.assumeIsolated { CursorWatcher.shared.broadcast() }
+        }
+        if let g = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: handler) {
+            monitors.append(g)
+        }
+        if let l = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { e in handler(e); return e }) {
+            monitors.append(l)
+        }
+    }
+
+    func remove(_ id: ObjectIdentifier) {
+        guard listeners.removeValue(forKey: id) != nil, listeners.isEmpty else { return }
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
+    }
+
+    private func broadcast() {
+        for onMove in listeners.values { onMove() }
+    }
+}
+
 final class HatchlingMascotLayerView: NSView {
     private let figure = CALayer()
     private let body = CAGradientLayer()
@@ -181,7 +215,10 @@ final class HatchlingMascotLayerView: NSView {
     private var builtSize: CGSize = .zero
     /// When the mascot last had something to do. Long enough at rest and it dozes off.
     private var restingSince = Date()
-    private var sleepy = false
+    private var sleepy = false {
+        // A dozing Hatch doesn't look at the cursor, so it stops listening to it too.
+        didSet { if sleepy != oldValue { updateCursorFollowing() } }
+    }
     /// Drives the little things a resting mascot does on its own. Fires every few seconds,
     /// starts one Core Animation and goes back to sleep, so it costs a wake-up, not a redraw.
     private var idleTimer: Timer?
@@ -190,6 +227,7 @@ final class HatchlingMascotLayerView: NSView {
         didSet {
             NotificationCenter.default.removeObserver(self, name: .hatchCelebrate, object: nil)
             NotificationCenter.default.removeObserver(self, name: .hatchReact, object: nil)
+            updateCursorFollowing()
             guard reactsToEveryRun else { return }
             NotificationCenter.default.addObserver(self, selector: #selector(runFinished), name: .hatchCelebrate, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(reactionPosted(_:)), name: .hatchReact, object: nil)
@@ -263,13 +301,14 @@ final class HatchlingMascotLayerView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeOcclusion()
         guard window != nil else {
             idleTimer?.invalidate()
             idleTimer = nil
-            stopFollowingCursor()
+            updateCursorFollowing()
             return
         }
-        startFollowingCursor()
+        updateCursorFollowing()
         if let scale = window?.backingScaleFactor {
             for sub in allLayers { sub.contentsScale = scale }
         }
@@ -367,28 +406,48 @@ final class HatchlingMascotLayerView: NSView {
 
     // MARK: Eyes follow the cursor
 
-    private var cursorMonitors: [Any] = []
+    private var followingCursor = false
+    private var occlusionObserver: NSObjectProtocol?
     private var lastCursorUpdate = Date.distantPast
     private var cursorOffset = CGSize.zero
 
     /// The global Hatch keeps an eye on the pointer when it comes near: the pupils turn
     /// toward it, a few times a second at most, and only while Hatch is on screen.
-    private func startFollowingCursor() {
-        guard cursorMonitors.isEmpty, reactsToEveryRun, !Motion.isReduced else { return }
-        let handler: (NSEvent) -> Void = { [weak self] _ in
-            MainActor.assumeIsolated { self?.followCursor() }
-        }
-        if let g = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: handler) {
-            cursorMonitors.append(g)
-        }
-        if let l = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { e in handler(e); return e }) {
-            cursorMonitors.append(l)
+    ///
+    /// A global mouse monitor wakes the app on every pointer move anywhere on the Mac, so
+    /// Hatch only listens while the eyes could actually move: awake, and in a window that is
+    /// on screen and not covered. It joins again on waking (a poke, the cursor entering,
+    /// a new run) or when its window shows again.
+    private func updateCursorFollowing() {
+        let shouldFollow = reactsToEveryRun && !Motion.isReduced && !sleepy
+            && window?.occlusionState.contains(.visible) == true
+        guard shouldFollow != followingCursor else { return }
+        followingCursor = shouldFollow
+        if shouldFollow {
+            CursorWatcher.shared.add(ObjectIdentifier(self)) { [weak self] in self?.followCursor() }
+        } else {
+            CursorWatcher.shared.remove(ObjectIdentifier(self))
         }
     }
 
-    private func stopFollowingCursor() {
-        cursorMonitors.forEach(NSEvent.removeMonitor)
-        cursorMonitors = []
+    /// Hidden behind another window, on another space or ordered out: occlusion says so.
+    private func observeOcclusion() {
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
+        guard let window else { return }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateCursorFollowing() }
+        }
+    }
+
+    deinit {
+        let id = ObjectIdentifier(self)
+        MainActor.assumeIsolated {
+            CursorWatcher.shared.remove(id)
+            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        }
     }
 
     private func followCursor() {

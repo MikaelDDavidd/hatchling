@@ -10,6 +10,17 @@ import CodeIslandCore
 /// really receives — rather than on the queue being drained.
 @MainActor
 final class MobileCommandTests: XCTestCase {
+    // The injector's refusals are localized; the assertions here read the English ones.
+    override func setUp() {
+        super.setUp()
+        L10n.shared.language = "en"
+    }
+
+    override func tearDown() {
+        L10n.shared.language = "system"
+        super.tearDown()
+    }
+
 
     // MARK: - Helpers
 
@@ -235,29 +246,40 @@ final class MobileCommandTests: XCTestCase {
 
     // MARK: - Prompt
 
-    func testPromptingASessionThatIsNotInTmuxExplainsWhyRatherThanPretending() {
+    func testPromptingASessionThatIsNotInTmuxExplainsWhyRatherThanPretending() async {
         // canPrompt is published to the phone so the box can be hidden, but the command must
         // still refuse clearly if it arrives anyway.
         UserDefaults.standard.set(false, forKey: SettingsKey.mobileAllowKeystrokeInjection)
         defer { UserDefaults.standard.removeObject(forKey: SettingsKey.mobileAllowKeystrokeInjection) }
 
-        let appState = AppState()
         var snapshot = SessionSnapshot()
         snapshot.tmuxPane = nil
         snapshot.cliPid = 1
-        appState.sessions["plain"] = snapshot
 
-        let failure = appState.handleMobileCommand(.prompt(sessionId: "plain", text: "hello"))
+        let failure = await PromptInjector.inject(text: "hello", into: snapshot)
         XCTAssertNotNil(failure)
         XCTAssertTrue(failure?.contains("tmux") == true, "got: \(failure ?? "nil")")
     }
 
-    func testAnEmptyPromptIsRejected() {
-        let appState = AppState()
+    func testAnEmptyPromptIsRejected() async {
         var snapshot = SessionSnapshot()
         snapshot.tmuxPane = "%1"
-        appState.sessions["s"] = snapshot
+        let failure = await PromptInjector.inject(text: "   ", into: snapshot)
+        XCTAssertEqual(failure, "Empty prompt")
+    }
 
-        XCTAssertEqual(appState.handleMobileCommand(.prompt(sessionId: "s", text: "   ")), "Empty prompt")
+    func testAPromptIsRefusedWhileTheSessionWaitsForAnAnswer() async {
+        var snapshot = SessionSnapshot()
+        snapshot.tmuxPane = "%1"
+        snapshot.status = .waitingApproval
+        let failure = await PromptInjector.inject(text: "yes", into: snapshot)
+        XCTAssertTrue(failure?.contains("waiting for an answer") == true, "got: \(failure ?? "nil")")
+    }
+
+    func testAnOversizedPromptIsRefused() async {
+        var snapshot = SessionSnapshot()
+        snapshot.tmuxPane = "%1"
+        let failure = await PromptInjector.inject(text: String(repeating: "a", count: PromptInjector.maxPromptLength + 1), into: snapshot)
+        XCTAssertTrue(failure?.contains("too long") == true, "got: \(failure ?? "nil")")
     }
 }

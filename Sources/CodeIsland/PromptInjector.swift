@@ -40,26 +40,42 @@ enum PromptInjector {
 
     // MARK: - Injection
 
-    /// Returns nil on success, or a message explaining why it did not happen.
-    @MainActor
-    static func inject(text: String, into session: SessionSnapshot) -> String? {
+    /// A prompt is a message to the agent, not a document. The cap keeps a stray paste (or a
+    /// hostile client) from flooding the terminal, and stays far below tmux's argv limit.
+    static let maxPromptLength = 8_000
+
+    /// Shells a tmux pane falls back to once the CLI exits. Typing a prompt plus Return into
+    /// one of these would run the prompt as a shell command.
+    private static let shells: Set<String> = ["zsh", "bash", "sh", "fish", "dash", "tcsh", "csh", "ksh", "nu", "login"]
+
+    /// Returns nil on success, or a message explaining why it did not happen. Runs the tmux
+    /// calls off the main actor, with a timeout, so a stuck tmux cannot freeze the notch.
+    static func inject(text: String, into session: SessionSnapshot) async -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Empty prompt" }
+        guard !trimmed.isEmpty else { return L10n.shared["prompt_err_empty"] }
+        guard trimmed.count <= maxPromptLength else {
+            return String(format: L10n.shared["prompt_err_too_long"], trimmed.count, maxPromptLength)
+        }
+        // While the agent waits on an approval or a question, Return would answer that dialog
+        // instead of sending a prompt.
+        if session.status == .waitingApproval || session.status == .waitingQuestion {
+            return L10n.shared["prompt_err_waiting"]
+        }
 
         if hasTmuxPane(session) {
-            return injectViaTmux(text: trimmed, session: session)
+            return await Task.detached { injectViaTmux(text: trimmed, session: session) }.value
         }
         guard keystrokeInjectionEnabled else {
-            return "This session is not in tmux. Turn on keystroke injection in Settings to send prompts to it."
+            return L10n.shared["prompt_err_not_tmux"]
         }
-        return injectViaKeystrokes(text: trimmed, session: session)
+        return await MainActor.run { injectViaKeystrokes(text: trimmed, session: session) }
     }
 
     // MARK: - tmux
 
     private static func injectViaTmux(text: String, session: SessionSnapshot) -> String? {
         guard let pane = session.tmuxPane, let tmux = findTmux() else {
-            return "tmux not found on PATH"
+            return L10n.shared["prompt_err_no_tmux"]
         }
 
         var env = ProcessInfo.processInfo.environment
@@ -67,14 +83,25 @@ enum PromptInjector {
             env["TMUX"] = socket
         }
 
+        // The pane must still be running the agent. If the CLI exited, the pane is back at a
+        // shell prompt and the text would be executed as a command.
+        if let current = output(tmux, ["display-message", "-p", "-t", pane, "#{pane_current_command}"], env: env) {
+            let name = current.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            if shells.contains(name.lowercased()) {
+                return L10n.shared["prompt_err_pane_gone"]
+            }
+        } else {
+            return L10n.shared["prompt_err_pane_check"]
+        }
+
         // Two calls, deliberately. `send-keys -l` sends the text literally, so a prompt
         // containing "Enter" or a semicolon cannot be read as a key name; the second call
         // sends the actual Return.
         guard run(tmux, ["send-keys", "-t", pane, "-l", text], env: env) else {
-            return "tmux rejected the text"
+            return L10n.shared["prompt_err_tmux_text"]
         }
         guard run(tmux, ["send-keys", "-t", pane, "Enter"], env: env) else {
-            return "tmux rejected the newline"
+            return L10n.shared["prompt_err_tmux_newline"]
         }
         return nil
     }
@@ -88,20 +115,40 @@ enum PromptInjector {
 
     @discardableResult
     private static func run(_ launchPath: String, _ args: [String], env: [String: String]) -> Bool {
+        execute(launchPath, args, env: env) != nil
+    }
+
+    /// Standard output of a successful run, or nil.
+    private static func output(_ launchPath: String, _ args: [String], env: [String: String]) -> String? {
+        execute(launchPath, args, env: env)
+    }
+
+    /// Runs a short command and gives up after `timeout` seconds. Never called on the main
+    /// actor: a tmux server that stops answering must not take the notch down with it.
+    private static func execute(_ launchPath: String, _ args: [String], env: [String: String], timeout: TimeInterval = 3) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = args
         process.environment = env
-        process.standardOutput = Pipe()
+        let stdout = Pipe()
+        process.standardOutput = stdout
         process.standardError = Pipe()
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
         do {
             try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
         } catch {
             log.error("failed to run \(launchPath): \(error.localizedDescription)")
-            return false
+            return nil
         }
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            log.error("\(launchPath) timed out")
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     // MARK: - Keystrokes
@@ -109,7 +156,7 @@ enum PromptInjector {
     @MainActor
     private static func injectViaKeystrokes(text: String, session: SessionSnapshot) -> String? {
         guard AXIsProcessTrusted() else {
-            return "Accessibility permission is not granted to Hatchling"
+            return L10n.shared["prompt_err_accessibility"]
         }
 
         // Raise the session's terminal first. Without this the keystrokes land in whatever is
@@ -124,12 +171,12 @@ enum PromptInjector {
         }
 
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
-            return "Could not create an event source"
+            return L10n.shared["prompt_err_event_source"]
         }
 
         for chunk in text.chunked(into: 20) {
             guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) else {
-                return "Could not synthesise keystrokes"
+                return L10n.shared["prompt_err_keystrokes"]
             }
             var utf16 = Array(chunk.utf16)
             down.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: &utf16)
