@@ -206,12 +206,16 @@ struct PhonePairingView: View {
 
     @ViewBuilder
     private var offlineBody: some View {
+        // One main action, white and on the right: retrying after a failure, otherwise
+        // going to Settings to turn the connection on.
         HStack {
             Spacer()
             if enabled, case .failed = bridge.state {
-                PanelButton(title: l10n["phone_retry"]) { bridge.restart() }
+                PanelButton(title: l10n["phone_open_settings"]) { SettingsWindowController.shared.show() }
+                PanelButton(title: l10n["phone_retry"], primary: true) { bridge.restart() }
+            } else {
+                PanelButton(title: l10n["phone_open_settings"], primary: true) { SettingsWindowController.shared.show() }
             }
-            PanelButton(title: l10n["phone_open_settings"]) { SettingsWindowController.shared.show() }
         }
     }
 
@@ -270,9 +274,11 @@ struct PhonePairingView: View {
     }
 }
 
-/// The panel's quiet grey button.
+/// The panel's button: quiet grey, or white with black text for the one main action of a
+/// view, the same pair the approval cards use.
 struct PanelButton: View {
     let title: String
+    var primary: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -280,12 +286,12 @@ struct PanelButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(primary ? Color.black : Color.white.opacity(0.85))
                 .padding(.horizontal, 12)
                 .frame(height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.white.opacity(hovering ? 0.11 : 0.07))
+                        .fill(primary ? Color.white.opacity(hovering ? 1 : 0.92) : Color.white.opacity(hovering ? 0.11 : 0.07))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }

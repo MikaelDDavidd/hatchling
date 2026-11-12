@@ -1865,11 +1865,13 @@ private struct ProjectNameLink: View {
     }
 }
 
+/// Shows the sessions hidden below the fold. It used to expand by itself after 0.6 s under
+/// the mouse, so passing over it on the way to a card changed the list under the pointer;
+/// now it takes a click, like every other control in the panel.
 private struct SessionsExpandLink: View {
     let count: Int
     let action: () -> Void
     @State private var hovering = false
-    @State private var hoverTimer: Timer?
 
     var body: some View {
         Button(action: action) {
@@ -1888,16 +1890,7 @@ private struct SessionsExpandLink: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { h in
-            withAnimation(NotchAnimation.micro) { hovering = h }
-            hoverTimer?.invalidate()
-            hoverTimer = nil
-            if h {
-                hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { _ in
-                    Task { @MainActor in action() }
-                }
-            }
-        }
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
     }
 }
 
