@@ -62,6 +62,6 @@ final class L10nTests: XCTestCase {
 
         let updateAvailable = L10n.shared["update_available_body"]
         let formattedUpdate = String(format: updateAvailable, "1.0.19", "1.0.18")
-        XCTAssertEqual(formattedUpdate, "CodeIsland 1.0.19 mevcut (şimdiki: 1.0.18). İndirmek ister misiniz?")
+        XCTAssertEqual(formattedUpdate, "Hatchling 1.0.19 mevcut (şimdiki: 1.0.18). İndirmek ister misiniz?")
     }
 }
