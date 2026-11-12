@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hatchling Privacy</title>
+<meta name="description" content="What the Hatchling Mac app and its iPhone companion collect, and what they do not.">
+<link rel="canonical" href="https://hatchling.mikaeldavid.dev/privacy">
+<link rel="icon" href="icon.png">
+<meta name="theme-color" content="#0b0b0c">
+<style>
+  :root{--bg:#0b0b0c;--ink:#f2f2f2;--muted:rgba(242,242,242,.62);--line:rgba(255,255,255,.08);--hatch:#ff8f5c;
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+  main{max-width:680px;margin:0 auto;padding:56px 16px 80px}
+  a{color:var(--ink)}
+  .brand{display:inline-flex;align-items:center;gap:10px;font-weight:700;text-decoration:none}
+  .brand img{width:28px;height:28px;border-radius:7px}
+  h1{font-size:34px;letter-spacing:-.03em;line-height:1.1;margin:40px 0 6px}
+  h2{font-size:19px;margin:36px 0 6px}
+  p,li{color:var(--muted)}
+  ul{padding-left:20px}
+  .date{font-size:14px;color:var(--muted)}
+  hr{border:0;border-top:1px solid var(--line);margin:56px 0}
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/"><img src="icon.png" alt="">Hatchling</a>
+
+  <h1>Privacy</h1>
+  <p class="date">Last updated November 12, 2026</p>
+
+  <p>Hatchling is a Mac app that shows your coding agents in the notch, and an iPhone app that lets you follow them and answer them away from the desk. Neither app has accounts, ads, analytics or tracking.</p>
+
+  <h2>On your Mac</h2>
+  <p>The Mac app reads the status your coding tools report through their hooks: session names, the tool being used, approval requests and questions. All of it stays on your Mac. The token that connects the Mac to the phone server is kept in your macOS Keychain.</p>
+
+  <h2>Between the Mac and the iPhone</h2>
+  <p>When you turn on the iPhone connection, the Mac sends that same session information to a relay server, which forwards it to the phones you paired. The relay keeps it in memory only while it is passing it on. It does not store session content, prompts or code.</p>
+  <p>The relay stores, for each paired phone: a name for the device, a hash of its access token, when it was paired and when it was last seen. Disconnecting a phone from the Mac deletes that entry.</p>
+  <p>Push notifications carry only the project name and the kind of request, never the command or the code. They are delivered by Apple's push service.</p>
+
+  <h2>On the iPhone</h2>
+  <p>The camera is used only to read the pairing QR code shown on the Mac. Nothing is recorded or uploaded. The app keeps its access token on the device.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or requests: open an issue at <a href="https://github.com/MikaelDDavidd/hatchling/issues">github.com/MikaelDDavidd/hatchling</a>.</p>
+
+  <hr>
+
+  <h1 lang="pt-BR">Privacidade</h1>
+  <div lang="pt-BR">
+    <p>O Hatchling é um app de Mac que mostra seus agentes de código no notch, e um app de iPhone para acompanhar e responder a eles longe da mesa. Nenhum dos dois tem conta, anúncio, análise de uso ou rastreamento.</p>
+    <h2>No Mac</h2>
+    <p>O app lê o status que as suas ferramentas de código informam pelos hooks: nome da sessão, ferramenta em uso, pedidos de aprovação e perguntas. Tudo fica no seu Mac. O token que liga o Mac ao celular fica no Keychain do macOS.</p>
+    <h2>Entre o Mac e o iPhone</h2>
+    <p>Quando você liga a conexão com o celular, o Mac manda essas mesmas informações para um servidor de retransmissão, que repassa aos celulares pareados. O servidor só guarda isso na memória enquanto repassa. Ele não armazena conteúdo de sessão, prompt nem código.</p>
+    <p>Para cada celular pareado, o servidor guarda: um nome para o aparelho, um hash do token de acesso, quando foi pareado e quando apareceu pela última vez. Desconectar o celular pelo Mac apaga esse registro.</p>
+    <p>As notificações levam só o nome do projeto e o tipo de pedido, nunca o comando ou o código. Quem entrega é o serviço de notificações da Apple.</p>
+    <h2>No iPhone</h2>
+    <p>A câmera é usada só para ler o QR de pareamento que aparece no Mac. Nada é gravado nem enviado. O app guarda o token de acesso no próprio aparelho.</p>
+    <h2>Contato</h2>
+    <p>Dúvidas ou pedidos: abra uma issue em <a href="https://github.com/MikaelDDavidd/hatchling/issues">github.com/MikaelDDavidd/hatchling</a>.</p>
+  </div>
+</main>
+</body>
+</html>
