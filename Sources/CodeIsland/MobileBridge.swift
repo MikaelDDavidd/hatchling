@@ -106,7 +106,7 @@ final class MobileBridge: ObservableObject {
     }
 
     private var token: String {
-        UserDefaults.standard.string(forKey: SettingsKey.mobileRelayToken) ?? ""
+        RelayTokenStore.token
     }
 
     private var isEnabled: Bool {

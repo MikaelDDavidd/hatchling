@@ -94,7 +94,29 @@ final class TrayStore: ObservableObject {
             persist()
         } catch {
             NSLog("TrayStore add failed: \(error.localizedDescription)")
+            // Hatch has already said "got it" by the time the copy runs, so a failure that
+            // only went to the log left the user believing the file was kept.
+            reportFailure(name: fileURL.lastPathComponent, detail: error.localizedDescription)
         }
+    }
+
+    /// The last file that could not be kept, shown in the tray for a few seconds.
+    struct Failure: Equatable {
+        let message: String
+        let detail: String
+    }
+    @Published private(set) var failure: Failure?
+    private var failureExpiry: DispatchWorkItem?
+
+    private func reportFailure(name: String, detail: String) {
+        failure = Failure(message: String(format: L10n.shared["tray_copy_failed"], name), detail: detail)
+        HatchDirector.shared.fileFailed(name)
+        failureExpiry?.cancel()
+        let expiry = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.failure = nil }
+        }
+        failureExpiry = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: expiry)
     }
 
     func remove(_ item: TrayItem) {

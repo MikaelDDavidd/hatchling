@@ -101,7 +101,8 @@ final class MobileBridgeReconnectTests: XCTestCase {
         // The xctest process has its own defaults domain; the installed app is untouched.
         UserDefaults.standard.set(true, forKey: SettingsKey.mobileBridgeEnabled)
         UserDefaults.standard.set("ws://127.0.0.1:\(port)/ws", forKey: SettingsKey.mobileRelayURL)
-        UserDefaults.standard.set(Self.macToken, forKey: SettingsKey.mobileRelayToken)
+        RelayTokenStore.service = "dev.mikaeldavid.hatchling.relay.tests"
+        RelayTokenStore.token = Self.macToken
     }
 
     private func waitFor(_ description: String, timeout: TimeInterval = 12, _ condition: () -> Bool) -> Bool {
@@ -122,6 +123,7 @@ final class MobileBridgeReconnectTests: XCTestCase {
         MobileBridge.shared.stop()
         stopRelay()
         if let storeDir { try? FileManager.default.removeItem(at: storeDir) }
+        RelayTokenStore.token = ""
         for key in [SettingsKey.mobileBridgeEnabled, SettingsKey.mobileRelayURL, SettingsKey.mobileRelayToken] {
             UserDefaults.standard.removeObject(forKey: key)
         }

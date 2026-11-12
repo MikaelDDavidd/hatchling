@@ -135,6 +135,15 @@ private struct RemoteHostsPage: View {
     @State private var identityFile = ""
     @State private var autoConnect = false
 
+    /// Empty means "use the default", which is fine; anything else has to be a real port.
+    /// A typo used to turn into nil and connect to 22 without a word.
+    private var portError: String? {
+        let trimmed = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let value = Int(trimmed), (1...65535).contains(value) else { return l10n["remote_port_invalid"] }
+        return nil
+    }
+
     var body: some View {
         Form {
             Section(l10n["remote_hosts"]) {
@@ -153,6 +162,11 @@ private struct RemoteHostsPage: View {
                 TextField(l10n["remote_host"], text: $host)
                 TextField(l10n["remote_user"], text: $user)
                 TextField(l10n["remote_port"], text: $port)
+                if let portError {
+                    Text(portError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 TextField(l10n["remote_identity"], text: $identityFile)
                 Toggle(l10n["remote_auto_connect"], isOn: $autoConnect)
 
@@ -178,7 +192,8 @@ private struct RemoteHostsPage: View {
                     autoConnect = false
                 }
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || portError != nil)
             }
 
             Section {
@@ -195,6 +210,7 @@ private struct RemoteHostRow: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var remoteManager = RemoteManager.shared
     let host: RemoteHost
+    @State private var confirmingRemove = false
 
     private var status: SSHForwarder.Status {
         remoteManager.connectionStatus[host.id] ?? .disconnected
@@ -257,9 +273,16 @@ private struct RemoteHostRow: View {
                 }
 
                 Button(role: .destructive) {
-                    remoteManager.removeHost(id: host.id)
+                    confirmingRemove = true
                 } label: {
                     Text(l10n["remote_remove"])
+                }
+                // Removing drops the host's address and settings along with the connection.
+                .confirmationDialog(String(format: l10n["confirm_remove_host_title"], host.name), isPresented: $confirmingRemove) {
+                    Button(l10n["confirm_remove_host_action"], role: .destructive) { remoteManager.removeHost(id: host.id) }
+                    Button(l10n["confirm_cancel"], role: .cancel) {}
+                } message: {
+                    Text(l10n["confirm_remove_host_message"])
                 }
             }
             .buttonStyle(.bordered)
@@ -368,6 +391,18 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.aiProvider) private var aiProvider = AIProvider.auto.rawValue
     @State private var hasApiKey = KeychainSecret.anthropic.hasKey
     @State private var hasNvidiaKey = KeychainSecret.nvidia.hasKey
+    @State private var confirmingYolo = false
+
+    /// Turning YOLO on lets every tool call through unseen, so it asks first; turning it
+    /// off is always safe and happens at once.
+    private var yoloBinding: Binding<Bool> {
+        Binding(
+            get: { autoAcceptPermissions },
+            set: { on in
+                if on { confirmingYolo = true } else { autoAcceptPermissions = false }
+            }
+        )
+    }
 
     /// A key field with Save and, once saved, Remove. The key goes straight to the Keychain.
     private func keyRow(title: String, placeholder: String, draft: Binding<String>, saved: Binding<Bool>,
@@ -410,8 +445,18 @@ private struct BehaviorPage: View {
                     Text("Anthropic (Claude Haiku)").tag(AIProvider.anthropic.rawValue)
                     Text("NVIDIA").tag(AIProvider.nvidia.rawValue)
                 }
-                keyRow(title: "Anthropic", placeholder: "sk-ant-…", draft: $apiKeyDraft, saved: $hasApiKey, secret: .anthropic)
-                keyRow(title: "NVIDIA", placeholder: "nvapi-…", draft: $nvidiaKeyDraft, saved: $hasNvidiaKey, secret: .nvidia)
+                // Keys are for people who want AI-written lines; the defaults work without
+                // them, so they wait behind Advanced instead of greeting everyone.
+                DisclosureGroup(l10n["advanced"]) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        keyRow(title: "Anthropic", placeholder: "sk-ant-…", draft: $apiKeyDraft, saved: $hasApiKey, secret: .anthropic)
+                        FieldHelp(l10n["adv_help_anthropic_key"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        keyRow(title: "NVIDIA", placeholder: "nvapi-…", draft: $nvidiaKeyDraft, saved: $hasNvidiaKey, secret: .nvidia)
+                        FieldHelp(l10n["adv_help_nvidia_key"])
+                    }
+                }
                 Text(l10n["ai_summary_hint"])
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -420,7 +465,7 @@ private struct BehaviorPage: View {
             }
 
             Section {
-                Toggle(isOn: $autoAcceptPermissions) {
+                Toggle(isOn: yoloBinding) {
                     HStack(spacing: 10) {
                         Image(systemName: "bolt.fill")
                             .font(.system(size: 14))
@@ -430,10 +475,10 @@ private struct BehaviorPage: View {
                             .frame(width: 22)
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
-                                Text("YOLO mode — auto-accept permissions")
+                                Text(l10n["yolo_title"])
                                     .font(.system(size: 13, weight: .semibold))
                                 if autoAcceptPermissions {
-                                    Text("ACTIVE")
+                                    Text(l10n["yolo_active"])
                                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 5)
@@ -443,15 +488,21 @@ private struct BehaviorPage: View {
                                         )
                                 }
                             }
-                            Text("Skip every approval card and immediately allow whatever the agent wants to run. Useful for trusted projects, dangerous everywhere else.")
+                            Text(l10n["yolo_desc"])
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
+                .confirmationDialog(l10n["confirm_yolo_title"], isPresented: $confirmingYolo) {
+                    Button(l10n["confirm_yolo_action"], role: .destructive) { autoAcceptPermissions = true }
+                    Button(l10n["confirm_cancel"], role: .cancel) {}
+                } message: {
+                    Text(l10n["confirm_yolo_message"])
+                }
             } header: {
-                Text("Permissions")
+                Text(l10n["permissions_section"])
             }
 
             Section(l10n["display_section"]) {
@@ -546,6 +597,22 @@ private struct HooksPage: View {
     @State private var customConfigPath = ""
     @State private var customConfigKey = "hooks"
     @State private var customFormat: HookFormat = .claude
+    @State private var confirmingUninstall = false
+
+    /// Takes Hatchling out of every CLI's config. The agents keep running, but the notch goes
+    /// blind to them until the hooks are installed again, so it is asked first.
+    private func uninstallAllHooks() {
+        // Disable all CLIs before uninstalling
+        for cli in ConfigInstaller.allCLIs {
+            UserDefaults.standard.set(false, forKey: "cli_enabled_\(cli.source)")
+        }
+        UserDefaults.standard.set(false, forKey: "cli_enabled_opencode")
+        ConfigInstaller.uninstall()
+        refreshCLIStatuses()
+        refreshKey += 1
+        statusMessage = l10n["hooks_uninstalled"]
+        statusIsError = false
+    }
 
     private func refreshCLIStatuses() {
         for cli in ConfigInstaller.allCLIs {
@@ -588,10 +655,10 @@ private struct HooksPage: View {
                 .id("opencode-\(refreshKey)")
             }
 
-            Section("Custom CLIs") {
+            Section(l10n["custom_cli_section"]) {
                 let customItems = ConfigInstaller.customCLIConfigs()
                 if customItems.isEmpty {
-                    Text("No custom CLI configured")
+                    Text(l10n["custom_cli_empty"])
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(customItems) { item in
@@ -616,40 +683,59 @@ private struct HooksPage: View {
                     }
                 }
 
-                TextField("Name (e.g. MyTool)", text: $customName)
-                TextField("Source (e.g. mytool)", text: $customSource)
-                TextField("Config path (e.g. .mytool/settings.json)", text: $customConfigPath)
-                TextField("Config key", text: $customConfigKey)
-                Picker("Template", selection: $customFormat) {
-                    Text("Claude").tag(HookFormat.claude)
-                    Text("Codex/Gemini").tag(HookFormat.nested)
-                    Text("Cursor").tag(HookFormat.flat)
-                    Text("Copilot").tag(HookFormat.copilot)
-                }
+                // Adding a CLI by hand needs to know how its config file is laid out; most
+                // people never do it, so the form waits behind Advanced, each field explained.
+                DisclosureGroup(l10n["advanced"]) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_name"], text: $customName)
+                        FieldHelp(l10n["adv_help_cli_name"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_source"], text: $customSource)
+                        FieldHelp(l10n["adv_help_cli_source"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_config_path"], text: $customConfigPath)
+                        FieldHelp(l10n["adv_help_cli_path"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField(l10n["custom_cli_config_key"], text: $customConfigKey)
+                        FieldHelp(l10n["adv_help_cli_key"])
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker(l10n["custom_cli_template"], selection: $customFormat) {
+                            Text("Claude").tag(HookFormat.claude)
+                            Text("Codex/Gemini").tag(HookFormat.nested)
+                            Text("Cursor").tag(HookFormat.flat)
+                            Text("Copilot").tag(HookFormat.copilot)
+                        }
+                        FieldHelp(l10n["adv_help_cli_template"])
+                    }
 
-                Button("Add Custom CLI") {
-                    let result = ConfigInstaller.addCustomCLI(
-                        name: customName,
-                        source: customSource,
-                        configPath: customConfigPath,
-                        format: customFormat,
-                        configKey: customConfigKey
-                    )
-                    statusMessage = result.message
-                    statusIsError = !result.ok
-                    guard result.ok else { return }
+                    Button(l10n["custom_cli_add"]) {
+                        let result = ConfigInstaller.addCustomCLI(
+                            name: customName,
+                            source: customSource,
+                            configPath: customConfigPath,
+                            format: customFormat,
+                            configKey: customConfigKey
+                        )
+                        statusMessage = result.message
+                        statusIsError = !result.ok
+                        guard result.ok else { return }
 
-                    let normalizedSource = customSource
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .lowercased()
-                    _ = ConfigInstaller.setEnabled(source: normalizedSource, enabled: true)
-                    customName = ""
-                    customSource = ""
-                    customConfigPath = ""
-                    customConfigKey = "hooks"
-                    customFormat = .claude
-                    refreshCLIStatuses()
-                    refreshKey += 1
+                        let normalizedSource = customSource
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .lowercased()
+                        _ = ConfigInstaller.setEnabled(source: normalizedSource, enabled: true)
+                        customName = ""
+                        customSource = ""
+                        customConfigPath = ""
+                        customConfigKey = "hooks"
+                        customFormat = .claude
+                        refreshCLIStatuses()
+                        refreshKey += 1
+                    }
                 }
             }
 
@@ -679,22 +765,19 @@ private struct HooksPage: View {
                     .buttonStyle(.bordered)
 
                     Button(role: .destructive) {
-                        // Disable all CLIs before uninstalling
-                        for cli in ConfigInstaller.allCLIs {
-                            UserDefaults.standard.set(false, forKey: "cli_enabled_\(cli.source)")
-                        }
-                        UserDefaults.standard.set(false, forKey: "cli_enabled_opencode")
-                        ConfigInstaller.uninstall()
-                        refreshCLIStatuses()
-                        refreshKey += 1
-                        statusMessage = l10n["hooks_uninstalled"]
-                        statusIsError = false
+                        confirmingUninstall = true
                     } label: {
                         Text(l10n["uninstall"])
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .tint(.red)
+                    .confirmationDialog(l10n["confirm_uninstall_title"], isPresented: $confirmingUninstall) {
+                        Button(l10n["confirm_uninstall_action"], role: .destructive) { uninstallAllHooks() }
+                        Button(l10n["confirm_cancel"], role: .cancel) {}
+                    } message: {
+                        Text(l10n["confirm_uninstall_message"])
+                    }
                 }
 
                 if !statusMessage.isEmpty {
@@ -1445,20 +1528,150 @@ private struct SoundEventRow: View {
     }
 }
 
+// MARK: - Update status
+
+/// Where the updater stands, on the About page. UpdateChecker checks every six hours and
+/// installs on its own, but nothing showed its state: a failed download or a Homebrew copy
+/// that can't replace itself went unnoticed. This only reads the state and calls the
+/// checker's public entry points; the download and install logic stays in UpdateChecker.
+private struct UpdateStatusCard: View {
+    @ObservedObject private var l10n = L10n.shared
+    @ObservedObject private var updater = UpdateChecker.shared
+    @State private var copied = false
+
+    private static let releasesURL = "https://github.com/MikaelDDavidd/hatchling/releases/latest"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+                statusLine
+                Spacer(minLength: 8)
+                actions
+            }
+            if case .available(let version, _, _) = updater.state, updater.isHomebrewInstall {
+                homebrewCommand(version: version)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: 440)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+        )
+        .animation(.easeInOut(duration: 0.2), value: updater.state)
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        switch updater.state {
+        case .idle:
+            label(String(format: l10n["update_current_version"], AppVersion.current))
+        case .checking:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                label(l10n["update_checking"])
+            }
+        case .upToDate:
+            label(String(format: l10n["no_update_body"], AppVersion.current))
+        case .available(let version, _, _):
+            label(String(format: l10n["update_available_body_short"], version, AppVersion.current))
+        case .downloading(let progress):
+            VStack(alignment: .leading, spacing: 6) {
+                label("\(l10n["update_downloading"]) \(Int(progress * 100))%")
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: 200)
+            }
+        case .installing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                label(l10n["update_installing"])
+            }
+        case .failed(let detail):
+            // The raw error is for a bug report, not for reading: it goes in the tooltip.
+            label(l10n["update_failed_title"], color: Color(red: 1.0, green: 0.45, blue: 0.4))
+                .help(detail)
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        switch updater.state {
+        case .idle, .upToDate:
+            cardButton(l10n["update_check_now"], primary: false) { updater.checkForUpdates() }
+        case .checking, .downloading, .installing:
+            EmptyView()
+        case .available:
+            if !updater.isHomebrewInstall {
+                cardButton(l10n["update_now"], primary: true) { updater.performUpdate() }
+            }
+        case .failed:
+            HStack(spacing: 8) {
+                cardButton(l10n["update_manual_download"], primary: false) {
+                    if let url = URL(string: Self.releasesURL) { NSWorkspace.shared.open(url) }
+                }
+                cardButton(l10n["update_retry"], primary: true) { updater.checkForUpdates() }
+            }
+        }
+    }
+
+    /// A Homebrew copy lives in the Caskroom and must not overwrite itself, so it gets the
+    /// command to run instead of an install button.
+    private func homebrewCommand(version: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(format: l10n["update_homebrew_body"], version))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(l10n["update_homebrew_command"])
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.black.opacity(0.25))
+                    )
+                cardButton(copied ? l10n["update_copied"] : l10n["update_copy_command"], primary: true) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(l10n["update_homebrew_command"], forType: .string)
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                }
+            }
+        }
+    }
+
+    private func label(_ text: String, color: Color? = nil) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(color ?? Color.primary.opacity(0.85))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Primary is the white button with black text, secondary the grey one, as in the panel.
+    private func cardButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: primary ? .semibold : .medium))
+                .foregroundStyle(primary ? Color.black : Color.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(primary ? Color(red: 0.925, green: 0.925, blue: 0.925) : Color(nsColor: .controlBackgroundColor))
+                )
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - About Page
 
 private struct AboutPage: View {
     @ObservedObject private var l10n = L10n.shared
-
-    private let features: [(icon: String, label: String)] = [
-        ("pawprint.fill",         "Buddy ASCII (18 species, rarity, stats)"),
-        ("bubble.left.fill",      "Buddy speech bubbles (occasional musings)"),
-        ("chart.bar.fill",        "Per-session context window % (model + tokens)"),
-        ("circle.dotted",         "Anthropic status panel (live)"),
-        ("text.alignleft",        "Whimsical gerund verbs while working"),
-        ("rectangle.3.group.fill", "1 mascot per CLI source, side-by-side"),
-        ("link.circle.fill",      "Hooks for 17 CLIs (Claude, Codex, Gemini, Cursor…)"),
-    ]
 
     var body: some View {
         ScrollView {
@@ -1468,37 +1681,34 @@ private struct AboutPage: View {
                     VStack(spacing: 4) {
                         Text("Hatchling")
                             .font(.system(size: 26, weight: .bold))
-                        Text("v\(AppVersion.current) · early hatch")
+                        Text("v\(AppVersion.current) · \(l10n["about_version_tag"])")
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 18)
+                UpdateStatusCard()
 
-                Text("Your AI coding agents, hatched into a tiny notch.\nPet-companions, live tool status, context-window meters, and Anthropic uptime — without leaving your menu bar.")
+                Text(l10n["about_tagline"])
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
 
-                // Feature highlights
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("WHAT'S NEW IN HATCHLING")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .padding(.bottom, 4)
-                    ForEach(features, id: \.label) { f in
-                        HStack(spacing: 10) {
-                            Image(systemName: f.icon)
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color(red: 1.0, green: 0.65, blue: 0.25))
-                                .frame(width: 18)
-                            Text(f.label)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
+                // What changed: a fixed list here went stale with every release and still
+                // described the app this one was forked from. The release notes on GitHub are
+                // written per version, so the page points there instead.
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(l10n["about_whats_new"])
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(l10n["about_whats_new_hint"])
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    Spacer(minLength: 8)
+                    aboutLink(l10n["about_release_notes"], icon: "doc.text", url: "https://github.com/MikaelDDavidd/hatchling/releases")
                 }
                 .padding(16)
                 .frame(maxWidth: 440)
@@ -1510,8 +1720,8 @@ private struct AboutPage: View {
                 // Quick links
                 VStack(spacing: 8) {
                     HStack(spacing: 10) {
-                        aboutLink("Anthropic Status", icon: "circle.dotted", url: "https://status.claude.com")
-                        aboutLink("Plan Usage", icon: "chart.pie", url: "https://claude.ai/settings/usage")
+                        aboutLink(l10n["about_link_status"], icon: "circle.dotted", url: "https://status.claude.com")
+                        aboutLink(l10n["about_link_usage"], icon: "chart.pie", url: "https://claude.ai/settings/usage")
                     }
                     HStack(spacing: 10) {
                         aboutLink("Claude Code", icon: "ant", url: "https://github.com/anthropics/claude-code")
@@ -1541,10 +1751,10 @@ private struct AboutPage: View {
 
                 // Credits
                 VStack(spacing: 4) {
-                    Text("CREDITS")
+                    Text(l10n["about_credits"])
                         .font(.system(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(.tertiary)
-                    Text("Forked from Code Island by xiang wang (wxtsky/CodeIsland), originally inspired by Claude Island by farouqaldori. Buddy ASCII pet, WyHash and species table adapted from MioIsland by MioMioOS (xmqywx/CodeIsland), CC BY-NC 4.0.")
+                    Text(l10n["about_credits_body"])
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
@@ -1583,6 +1793,22 @@ private struct AboutPage: View {
         aboutButton(title, icon: icon) {
             if let u = URL(string: url) { NSWorkspace.shared.open(u) }
         }
+    }
+}
+
+// MARK: - Field help
+
+/// One sentence under a settings field saying what goes in it, for the fields behind
+/// Advanced that most people never need to touch.
+struct FieldHelp: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -1885,6 +2111,9 @@ private struct ShortcutsPage: View {
     @State private var recordingAction: ShortcutAction?
     @State private var eventMonitor: Any?
     @State private var refreshKey = 0
+    /// Set when a key without ⌘, ⌃ or ⌥ was pressed while recording: a global shortcut
+    /// needs one, or it would fire while typing in any app.
+    @State private var needsModifier = false
 
     var body: some View {
         Form {
@@ -1893,6 +2122,7 @@ private struct ShortcutsPage: View {
                     ShortcutRow(
                         action: action,
                         isRecording: recordingAction == action,
+                        needsModifier: recordingAction == action && needsModifier,
                         onStartRecording: { startRecording(action) },
                         onClear: { clearBinding(action) }
                     )
@@ -1907,6 +2137,7 @@ private struct ShortcutsPage: View {
     private func startRecording(_ action: ShortcutAction) {
         stopRecording()
         recordingAction = action
+        needsModifier = false
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 { // Escape — cancel
                 self.stopRecording()
@@ -1914,6 +2145,7 @@ private struct ShortcutsPage: View {
             }
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard mods.contains(.command) || mods.contains(.control) || mods.contains(.option) else {
+                self.needsModifier = true
                 return nil
             }
             action.setBinding(keyCode: event.keyCode, modifiers: mods)
@@ -1937,6 +2169,7 @@ private struct ShortcutsPage: View {
             eventMonitor = nil
         }
         recordingAction = nil
+        needsModifier = false
     }
 
     private func notifyChange() {
@@ -1949,6 +2182,7 @@ private struct ShortcutsPage: View {
 private struct ShortcutRow: View {
     let action: ShortcutAction
     let isRecording: Bool
+    var needsModifier: Bool = false
     let onStartRecording: () -> Void
     let onClear: () -> Void
     @ObservedObject private var l10n = L10n.shared
@@ -1974,20 +2208,32 @@ private struct ShortcutRow: View {
             }
             Spacer()
             if isRecording {
-                Text(l10n["shortcut_recording"])
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 6).stroke(.orange, lineWidth: 1))
-            } else if action.isEnabled {
-                HStack(spacing: 6) {
-                    Text(action.binding.displayString)
+                HStack(spacing: 8) {
+                    if needsModifier {
+                        Text(l10n["shortcut_needs_modifier"])
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Text(l10n["shortcut_recording"])
                         .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.orange)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
-                        .onTapGesture { onStartRecording() }
+                        .background(RoundedRectangle(cornerRadius: 6).stroke(.orange, lineWidth: 1))
+                }
+            } else if action.isEnabled {
+                HStack(spacing: 6) {
+                    // Buttons rather than tap gestures, so a shortcut can be re-recorded
+                    // without a mouse.
+                    Button(action: onStartRecording) {
+                        Text(action.binding.displayString)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(l10n["a11y_record_shortcut"])
 
                     Button(action: onClear) {
                         Image(systemName: "xmark.circle.fill")
@@ -1995,15 +2241,20 @@ private struct ShortcutRow: View {
                             .font(.system(size: 14))
                     }
                     .buttonStyle(.plain)
+                    .help(l10n["a11y_clear_shortcut"])
+                    .accessibilityLabel(l10n["a11y_clear_shortcut"])
                 }
             } else {
-                Text(l10n["shortcut_none"])
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
-                    .onTapGesture { onStartRecording() }
+                Button(action: onStartRecording) {
+                    Text(l10n["shortcut_none"])
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(l10n["a11y_record_shortcut"])
             }
         }
         .contentShape(Rectangle())

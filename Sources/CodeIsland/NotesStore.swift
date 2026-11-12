@@ -76,8 +76,35 @@ final class NotesStore: ObservableObject {
         persist()
     }
 
+    /// The note deleted last, kept for a few seconds so it can be brought back. Deleting
+    /// takes a single click and a note can hold a lot of text, but a dialog for every
+    /// sticky note would be heavier than the mistake it prevents: an undo is enough.
+    @Published private(set) var recentlyDeleted: StickyNote?
+    private var recentlyDeletedIndex = 0
+    private var undoExpiry: DispatchWorkItem?
+    static let undoWindow: TimeInterval = 5
+
     func delete(id: UUID) {
-        notes.removeAll { $0.id == id }
+        guard let idx = notes.firstIndex(where: { $0.id == id }) else { return }
+        recentlyDeleted = notes[idx]
+        recentlyDeletedIndex = idx
+        notes.remove(at: idx)
+        // Written right away: if the app quits during the undo window the delete stands,
+        // which is what the user asked for.
+        persist()
+        undoExpiry?.cancel()
+        let expiry = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.recentlyDeleted = nil }
+        }
+        undoExpiry = expiry
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.undoWindow, execute: expiry)
+    }
+
+    func undoDelete() {
+        guard let note = recentlyDeleted else { return }
+        undoExpiry?.cancel()
+        recentlyDeleted = nil
+        notes.insert(note, at: min(recentlyDeletedIndex, notes.count))
         persist()
     }
 

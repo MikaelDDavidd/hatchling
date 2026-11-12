@@ -63,6 +63,8 @@ struct SessionChatView: View {
                     .foregroundStyle(.white.opacity(0.55))
             }
             .buttonStyle(.plain)
+            .help(L10n.shared["a11y_back_to_list"])
+            .accessibilityLabel(L10n.shared["a11y_back_to_list"])
 
             AgentDot(source: session.source, status: session.status, size: 9)
 
@@ -309,13 +311,17 @@ struct SessionChatView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(draft.isEmpty ? .white.opacity(0.2) : Color.black)
                         .frame(width: 28, height: 28)
+                        // The panel's primary button is white with black text everywhere else;
+                        // green here read as a status colour, not as "send".
                         .background(
                             RoundedRectangle(cornerRadius: 7)
-                                .fill(draft.isEmpty ? Color.white.opacity(0.06) : Color(red: 0.3, green: 0.85, blue: 0.4))
+                                .fill(draft.isEmpty ? Color.white.opacity(0.06) : Color.white.opacity(0.92))
                         )
                 }
                 .buttonStyle(.plain)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .help(L10n.shared["a11y_send"])
+                .accessibilityLabel(L10n.shared["a11y_send"])
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -333,10 +339,13 @@ struct SessionChatView: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        sendError = PromptInjector.inject(text: text, into: session)
-        if sendError == nil {
-            draft = ""
-            SoundManager.shared.handleEvent("PromptSent")
+        let session = session
+        Task { @MainActor in
+            sendError = await PromptInjector.inject(text: text, into: session)
+            if sendError == nil {
+                draft = ""
+                SoundManager.shared.handleEvent("PromptSent")
+            }
         }
     }
 }

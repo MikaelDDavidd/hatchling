@@ -16,6 +16,45 @@ struct NotesView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.85), value: expandedId)
+        .overlay(alignment: .bottom) {
+            if store.recentlyDeleted != nil && expandedId == nil {
+                undoBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: store.recentlyDeleted?.id)
+    }
+
+    /// "Note deleted · Undo", for a few seconds after a delete.
+    private var undoBar: some View {
+        HStack(spacing: 10) {
+            Text(L10n.shared["note_deleted"])
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { store.undoDelete() }
+            } label: {
+                Text(L10n.shared["note_undo"])
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 10)
+                    .frame(height: 22)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(red: 0.925, green: 0.925, blue: 0.925)))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(white: 0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
+        .padding(.bottom, 6)
     }
 
     private var carousel: some View {
@@ -23,12 +62,16 @@ struct NotesView: View {
             HStack(spacing: 8) {
                 addCard
                 ForEach(store.notes) { note in
-                    NoteCard(note: note, color: store.color(for: note))
-                        .matchedGeometryEffect(id: note.id, in: animation)
-                        .onTapGesture { expandedId = note.id }
+                    // A Button, not a tap gesture, so a note opens from the keyboard too.
+                    Button { expandedId = note.id } label: {
+                        NoteCard(note: note, color: store.color(for: note))
+                    }
+                    .buttonStyle(.plain)
+                    .matchedGeometryEffect(id: note.id, in: animation)
+                    .accessibilityHint(L10n.shared["a11y_open_note"])
                         .contextMenu {
-                            Button("Mudar cor") { store.cycleColor(id: note.id) }
-                            Button("Apagar", role: .destructive) { store.delete(id: note.id) }
+                            Button(L10n.shared["notes_change_color"]) { store.cycleColor(id: note.id) }
+                            Button(L10n.shared["notes_delete"], role: .destructive) { store.delete(id: note.id) }
                         }
                 }
             }
@@ -46,7 +89,7 @@ struct NotesView: View {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .light))
                     .foregroundStyle(.white.opacity(0.55))
-                Text("Nova")
+                Text(L10n.shared["notes_new"])
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
             }
@@ -85,7 +128,7 @@ private struct NoteCard: View {
 
     private var preview: String {
         let trimmed = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Nota vazia" : trimmed
+        return trimmed.isEmpty ? L10n.shared["notes_empty"] : trimmed
     }
 
     var body: some View {
@@ -133,7 +176,7 @@ private struct ExpandedNoteCard: View {
             header
             ZStack(alignment: .topLeading) {
                 if draft.isEmpty {
-                    Text("Escreva sua nota…")
+                    Text(L10n.shared["notes_placeholder"])
                         .font(.system(size: 12))
                         .foregroundStyle(.black.opacity(0.35))
                         .padding(.horizontal, 12)
@@ -173,8 +216,9 @@ private struct ExpandedNoteCard: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.black.opacity(0.65))
             }
+            .accessibilityLabel(L10n.shared["a11y_back"])
             .buttonStyle(.plain)
-            .help("Voltar")
+            .help(L10n.shared["notes_back"])
 
             Spacer()
 
@@ -183,16 +227,18 @@ private struct ExpandedNoteCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.black.opacity(0.65))
             }
+            .accessibilityLabel(L10n.shared["a11y_change_color"])
             .buttonStyle(.plain)
-            .help("Trocar cor")
+            .help(L10n.shared["notes_change_color"])
 
             Button(action: onDelete) {
                 Image(systemName: "trash")
                     .font(.system(size: 11))
                     .foregroundStyle(.black.opacity(0.65))
             }
+            .accessibilityLabel(L10n.shared["a11y_delete_note"])
             .buttonStyle(.plain)
-            .help("Apagar")
+            .help(L10n.shared["notes_delete"])
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

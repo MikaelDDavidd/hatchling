@@ -13,11 +13,21 @@ extension AppState {
     func setupMobileBridge() {
         MobileBridge.shared.commandHandler = { [weak self] command in
             guard let self else { return "Hatchling is shutting down" }
+            // Prompts run their tmux calls off the main actor; everything else is state.
+            if case .prompt(let sessionId, let text) = command {
+                guard let session = await MainActor.run(body: { self.sessions[sessionId] }) else { return "Unknown session" }
+                return await PromptInjector.inject(text: text, into: session)
+            }
             return await MainActor.run { self.handleMobileCommand(command) }
         }
         MobileBridge.shared.onStateChange = { [weak self] state in
             guard case .online = state else { return }
-            Task { @MainActor in self?.publishMobileState() }
+            Task { @MainActor in
+                // A phone that (re)connected knows nothing: resend every pending request.
+                self?.mobileAttentionPublished = []
+                self?.publishMobileState()
+                self?.syncMobileAttention()
+            }
         }
         MobileBridge.shared.start()
     }
@@ -25,6 +35,12 @@ extension AppState {
     /// Called whenever session state moves. Cheap when nothing changed — the bridge diffs
     /// before it sends, and bails immediately when no phone is connected.
     func publishMobileState() {
+        // This runs after every hook. Building each MobileSession looks up context usage,
+        // which can start a transcript re-read, so nothing is built while no phone could
+        // receive it. The bridge calls back here when it comes online and then gets
+        // everything in one go.
+        guard case .online = MobileBridge.shared.state else { return }
+
         var payload: [String: MobileSession] = [:]
         for (id, session) in sessions {
             payload[id] = mobileSession(id: id, session: session)
@@ -145,6 +161,26 @@ extension AppState {
 
     // MARK: - Publishing attention
 
+    /// Brings the phone's pending requests in line with the queues. Only the first request
+    /// used to be sent, nothing was resent after a reconnect, and a request settled on the
+    /// Mac stayed on the phone. New ones go out oldest last, so a phone that shows a single
+    /// request shows the one at the head of the queue.
+    func syncMobileAttention() {
+        guard case .online = MobileBridge.shared.state else { return }
+        let current = permissionQueue.map(\.id) + questionQueue.map(\.id)
+        let known = Set(mobileAttentionPublished)
+        for id in mobileAttentionPublished where !current.contains(id) {
+            MobileBridge.shared.publishAttentionCleared(attentionId: id, reason: "answered")
+        }
+        for permission in permissionQueue.reversed() where !known.contains(permission.id) {
+            publishMobileAttention(permission: permission)
+        }
+        for question in questionQueue.reversed() where !known.contains(question.id) {
+            publishMobileAttention(question: question)
+        }
+        mobileAttentionPublished = current
+    }
+
     func publishMobileAttention(permission: PermissionRequest) {
         let sessionId = permission.event.sessionId ?? ""
         MobileBridge.shared.publish(attention: MobileAttention(
@@ -255,7 +291,6 @@ extension AppState {
             case "deny":        denyPermission()
             default:            return "Unknown decision \(decision)"
             }
-            MobileBridge.shared.publishAttentionCleared(attentionId: attentionId, reason: "answered")
             return nil
 
         case .questionAnswer(let attentionId, let answers):
@@ -264,7 +299,6 @@ extension AppState {
             }
             // Keyed by question text, matching what AskUserQuestion expects.
             answerQuestionMulti(answers.map { (question: $0.key, answer: $0.value) })
-            MobileBridge.shared.publishAttentionCleared(attentionId: attentionId, reason: "answered")
             return nil
 
         case .questionSkip(let attentionId):
@@ -272,7 +306,6 @@ extension AppState {
                 return "That question was already answered"
             }
             skipQuestion()
-            MobileBridge.shared.publishAttentionCleared(attentionId: attentionId, reason: "answered")
             return nil
 
         case .interrupt(let sessionId):
@@ -280,14 +313,21 @@ extension AppState {
             guard let pid = session.cliPid, pid > 0 else {
                 return "This session has no live process to interrupt"
             }
+            // Signal only the process this session recorded: same PID and same start time.
+            // A PID on its own may already belong to something else.
+            guard let started = session.cliStartTime,
+                  Self.isLiveProcess(ProcessIdentity(pid: pid, startTime: started)) else {
+                return "Could not confirm this session's process is still the same one"
+            }
             guard kill(pid, SIGINT) == 0 else {
                 return "Could not interrupt: \(String(cString: strerror(errno)))"
             }
             return nil
 
-        case .prompt(let sessionId, let text):
-            guard let session = sessions[sessionId] else { return "Unknown session" }
-            return PromptInjector.inject(text: text, into: session)
+        case .prompt:
+            // Handled before reaching here, in the command handler, so it can run off the
+            // main actor.
+            return "Prompts are not handled on this path"
 
         case .refresh:
             publishMobileState()
