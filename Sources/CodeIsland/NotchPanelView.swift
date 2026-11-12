@@ -32,16 +32,21 @@ struct NotchPanelView: View {
 
     private var isActive: Bool { !appState.sessions.isEmpty }
     /// First launch / no-session state should still render a visible marker so the app
-    /// doesn't disappear completely behind the physical notch.
+    /// doesn't disappear completely behind the physical notch. Once the panel is opened
+    /// the marker gives way to the regular header, so it only shows while collapsed.
     private var showIdleIndicator: Bool {
-        !isActive && !hideWhenNoSession
+        !isActive && !hideWhenNoSession && !shouldShowExpanded
     }
     /// Whether the bar content should be visible (respects hideWhenNoSession)
     private var showBar: Bool {
         isActive && !(hideWhenNoSession && appState.activeSessionCount == 0)
     }
+    /// Files, Notes and the phone page don't need a session, so the panel opens without one
+    /// too: otherwise they are unreachable until an agent starts. Only the tabbed panel opens
+    /// this way; Hatch's remarks keep their old rule and stay quiet while nothing runs.
     private var shouldShowExpanded: Bool {
-        showBar && appState.surface.isExpanded
+        guard appState.surface.isExpanded else { return false }
+        return showBar || (!isActive && appState.surface == .sessionList)
     }
 
     /// Mascot size — fits within the menu bar height
@@ -75,9 +80,9 @@ struct NotchPanelView: View {
     private var panelWidth: CGFloat {
         let nw = effectiveNotchW
         let maxWidth = min(620, screenWidth - 40)
-        if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 80 : nw + compactWingWidth * 2 }
-        if !isActive { return hasNotch ? notchW - 20 : nw }
         if shouldShowExpanded { return min(max(nw + 200, 580), maxWidth) }
+        if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 160 : nw + compactWingWidth * 2 }
+        if !isActive { return hasNotch ? notchW - 20 : nw }
         let extra: CGFloat = appState.status == .idle ? 0 : 8
         // Reserve space for tool status — proportional to screen width
         let toolExtra: CGFloat = displayedToolStatus ? (hasNotch ? screenWidth * 0.03 : screenWidth * 0.04) : 0
@@ -87,7 +92,7 @@ struct NotchPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
-                if showBar {
+                if showBar || shouldShowExpanded {
                     // Active: compact bar — wider version when expanded
                     HStack(spacing: 0) {
                         CompactLeftWing(appState: appState, expanded: shouldShowExpanded, mascotSize: mascotSize, hasNotch: hasNotch, showToolStatus: showToolStatus)
@@ -109,7 +114,8 @@ struct NotchPanelView: View {
                         notchW: notchW,
                         notchHeight: notchHeight,
                         hasNotch: hasNotch,
-                        hovered: idleHovered
+                        hovered: idleHovered,
+                        onOpen: openWithoutSession
                     )
                 } else {
                     // Idle: just the notch shell
@@ -213,6 +219,9 @@ struct NotchPanelView: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 if DebugFlags.pinOpen { return }
+                // Leaving a panel that was opened from the idle marker: drop the marker's
+                // hover look too, or it comes back widened once the panel collapses.
+                if !hovering && !showIdleIndicator { idleHovered = false }
                 // Idle indicator hover — delay un-hover to prevent oscillation when
                 // the animated width change crosses the mouse position (#52).
                 if showIdleIndicator {
@@ -421,6 +430,18 @@ struct NotchPanelView: View {
             }
         case .collapsed:
             EmptyView()
+        }
+    }
+
+    /// Opens the panel from the idle marker. With no session there is nothing to hover-preview,
+    /// so this is a click: the panel holds Files, Notes and the phone page, which work without
+    /// an agent. `isHovered` is set so leaving the panel collapses it the usual way.
+    private func openWithoutSession() {
+        hoverTimer?.invalidate()
+        hoverTimer = nil
+        isHovered = true
+        withAnimation(NotchAnimation.open) {
+            appState.surface = .sessionList
         }
     }
 
@@ -810,16 +831,21 @@ private struct IdleIndicatorBar: View {
     let notchHeight: CGFloat
     let hasNotch: Bool
     let hovered: Bool
+    let onOpen: () -> Void
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.soundEnabled) private var soundEnabled = SettingsDefaults.soundEnabled
 
     var body: some View {
         HStack(spacing: 0) {
-            // Left: mascot
-            HStack(spacing: 6) {
+            // Left: mascot. Clicking it opens the panel, the same as the chevron on the right.
+            Button(action: onOpen) {
                 MascotView(source: "claude", status: .idle, size: mascotSize)
                     .opacity(hovered ? 0.9 : 0.5)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help(l10n["open_panel"])
+            .accessibilityLabel(l10n["open_panel"])
             .padding(.leading, 6)
 
             Spacer(minLength: hasNotch ? notchW : 0)
@@ -827,11 +853,15 @@ private struct IdleIndicatorBar: View {
             // Right: expanded shows text + buttons, collapsed shows nothing
             if hovered {
                 HStack(spacing: 8) {
-                    Text("0")
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.4))
+                    // Says why the marker is quiet instead of a bare session count of "0".
+                    Text(l10n["idle_no_agents"])
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                        .fixedSize()
 
                     HStack(spacing: 4) {
+                        NotchIconButton(icon: "chevron.down", tooltip: l10n["open_panel"], action: onOpen)
                         NotchIconButton(icon: soundEnabled ? "speaker.wave.2" : "speaker.slash", tooltip: soundEnabled ? l10n["mute"] : l10n["enable_sound_tooltip"]) {
                             soundEnabled.toggle()
                         }
