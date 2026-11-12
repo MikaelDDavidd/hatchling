@@ -22,7 +22,12 @@ extension AppState {
         }
         MobileBridge.shared.onStateChange = { [weak self] state in
             guard case .online = state else { return }
-            Task { @MainActor in self?.publishMobileState() }
+            Task { @MainActor in
+                // A phone that (re)connected knows nothing: resend every pending request.
+                self?.mobileAttentionPublished = []
+                self?.publishMobileState()
+                self?.syncMobileAttention()
+            }
         }
         MobileBridge.shared.start()
     }
@@ -150,6 +155,26 @@ extension AppState {
 
     // MARK: - Publishing attention
 
+    /// Brings the phone's pending requests in line with the queues. Only the first request
+    /// used to be sent, nothing was resent after a reconnect, and a request settled on the
+    /// Mac stayed on the phone. New ones go out oldest last, so a phone that shows a single
+    /// request shows the one at the head of the queue.
+    func syncMobileAttention() {
+        guard case .online = MobileBridge.shared.state else { return }
+        let current = permissionQueue.map(\.id) + questionQueue.map(\.id)
+        let known = Set(mobileAttentionPublished)
+        for id in mobileAttentionPublished where !current.contains(id) {
+            MobileBridge.shared.publishAttentionCleared(attentionId: id, reason: "answered")
+        }
+        for permission in permissionQueue.reversed() where !known.contains(permission.id) {
+            publishMobileAttention(permission: permission)
+        }
+        for question in questionQueue.reversed() where !known.contains(question.id) {
+            publishMobileAttention(question: question)
+        }
+        mobileAttentionPublished = current
+    }
+
     func publishMobileAttention(permission: PermissionRequest) {
         let sessionId = permission.event.sessionId ?? ""
         MobileBridge.shared.publish(attention: MobileAttention(
@@ -260,7 +285,6 @@ extension AppState {
             case "deny":        denyPermission()
             default:            return "Unknown decision \(decision)"
             }
-            MobileBridge.shared.publishAttentionCleared(attentionId: attentionId, reason: "answered")
             return nil
 
         case .questionAnswer(let attentionId, let answers):
@@ -269,7 +293,6 @@ extension AppState {
             }
             // Keyed by question text, matching what AskUserQuestion expects.
             answerQuestionMulti(answers.map { (question: $0.key, answer: $0.value) })
-            MobileBridge.shared.publishAttentionCleared(attentionId: attentionId, reason: "answered")
             return nil
 
         case .questionSkip(let attentionId):
@@ -277,7 +300,6 @@ extension AppState {
                 return "That question was already answered"
             }
             skipQuestion()
-            MobileBridge.shared.publishAttentionCleared(attentionId: attentionId, reason: "answered")
             return nil
 
         case .interrupt(let sessionId):
