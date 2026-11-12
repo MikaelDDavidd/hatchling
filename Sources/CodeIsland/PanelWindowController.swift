@@ -203,6 +203,8 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                 // Rebuild again after a short delay to pick up the final screen configuration.
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 self?.refreshCurrentScreen(forceRebuild: true)
+                // A display was plugged in or removed: the auto poller only runs with more than one.
+                self?.configureAutoScreenPolling()
             }
         }
 
@@ -437,12 +439,20 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         autoScreenPoller = nil
 
         guard SettingsManager.shared.displayChoice == "auto" else { return }
+        // With a single display "auto" has only one answer. Displays coming and going are
+        // caught by didChangeScreenParameters, which calls back here.
+        guard NSScreen.screens.count > 1 else { return }
 
-        autoScreenPoller = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        // App switches, space changes and display changes already move the panel the moment
+        // they happen. This poll only catches a window dragged to another display within the
+        // same app, which can wait a few seconds; each tick lists every window on screen.
+        let poller = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshCurrentScreen()
             }
         }
+        poller.tolerance = 1.0
+        autoScreenPoller = poller
     }
 
     private func updatePosition() {
