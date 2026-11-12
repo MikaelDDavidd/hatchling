@@ -51,6 +51,10 @@ final class AppState {
         guard let shown = shownCompletion[sessionId] else { return false }
         return shown == completionFingerprint(sessionId)
     }
+    /// Attention ids the phone currently holds. `syncMobileAttention` diffs the queues
+    /// against it, so every way a request ends (answered here, on the phone, drained,
+    /// session gone) reaches the phone the same way.
+    var mobileAttentionPublished: [String] = []
     /// Mouse must enter the panel before auto-collapse is allowed (prevents instant dismiss)
     var completionHasBeenEntered = false
     /// Auto-collapse timer fired but mouse is inside panel — defer collapse until mouse leaves
@@ -734,6 +738,7 @@ final class AppState {
         if totalSessionCount != summary.totalSessionCount { totalSessionCount = summary.totalSessionCount }
         updateSleepPrevention()
         publishMobileState()
+        syncMobileAttention()
     }
 
     /// Keeps the Mac awake while an agent is mid-task, so a long build or a
@@ -932,7 +937,6 @@ final class AppState {
             activeSessionId = sessionId
             surface = .approvalCard(sessionId: sessionId)
             SoundManager.shared.handleEvent("PermissionRequest")
-            publishMobileAttention(permission: request)
         } else if surface == .collapsed {
             // Another card is pending behind a collapsed panel; without a sound this one
             // would arrive in silence.
@@ -1041,7 +1045,6 @@ final class AppState {
                 surface = .questionCard(sessionId: sessionId)
             }
             SoundManager.shared.handleEvent("PermissionRequest")
-            publishMobileAttention(question: request)
         } else {
             SoundManager.shared.handleEvent("PermissionRequest")
         }
@@ -1167,7 +1170,6 @@ final class AppState {
                 surface = .questionCard(sessionId: sessionId)
             }
             SoundManager.shared.handleEvent("PermissionRequest")
-            publishMobileAttention(question: request)
         }
         refreshDerivedState()
     }
