@@ -4,8 +4,8 @@ import SwiftUI
 
 /// Real Claude rate-limit data captured from Claude Code's statusline JSON
 /// (v2.1.80+). The wrapper script writes ~/.codeisland/rate-limits.json on
-/// every Claude Code interaction. This reader polls that file on a short
-/// interval so the UsageBar reflects the actual session/weekly usage —
+/// every Claude Code interaction. This reader watches that file so the
+/// UsageBar reflects the actual session/weekly usage —
 /// no API calls, no estimates, no auth.
 struct ClaudeRateLimits: Equatable {
     let fiveHourPercent: Int?
@@ -54,27 +54,95 @@ final class ClaudeRateLimitReader: ObservableObject {
 
     private var timer: Timer?
     private var probeTimer: Timer?
+    private var cacheWatcher: FSEventStreamRef?
     /// The latest answer from asking Claude Code directly.
     nonisolated(unsafe) private static var probed: ClaudeRateLimits?
     private(set) var isRunning = false
+    private var isProbing = false
+    private var lastProbeAt: Date = .distantPast
+
+    /// Whether anyone would see a fresh reading right now: a Claude session is working or
+    /// the panel is open. Set by the app; with no answer the probe is allowed.
+    var probeDemand: (() -> Bool)?
+
+    /// A reading younger than this, from any source, makes asking Claude Code pointless.
+    private static let probeStaleAfter: TimeInterval = 15 * 60
+    /// Floor between two probes, so reopening the panel doesn't spawn the CLI each time.
+    private static let minProbeGap: TimeInterval = 5 * 60
 
     private init() {}
 
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        // Poll often enough to feel live, but file writes are cheap so 10s is fine.
-        timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+        // The statusline wrapper rewrites the cache on every interaction; react to that
+        // instead of re-reading it every 10 seconds whether anything changed or not.
+        startWatchingCache()
+        // Backstop for what the watcher doesn't cover: the desktop app's history (written
+        // now and then, never live), whether the statusline is installed, and a cache folder
+        // that didn't exist yet at launch.
+        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.startWatchingCache()
+                self?.refresh()
+            }
         }
+        timer?.tolerance = 15
         refresh()
-        // Ask Claude Code itself every five minutes: it works for sessions in the desktop app
-        // too, which never run the terminal statusline.
-        probe()
+        // Ask Claude Code itself: it works for sessions in the desktop app too, which never run
+        // the terminal statusline. Each ask launches a whole Claude Code process, so it only
+        // happens when a reading would be seen and the last one is old (see probeIfNeeded).
         probeTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.probe() }
+            Task { @MainActor in self?.probeIfNeeded() }
         }
         probeTimer?.tolerance = 30
+        // First check once discovery has had a moment to find the sessions already running.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            self?.probeIfNeeded()
+        }
+    }
+
+    /// Asks Claude Code for the limits when the newest reading is stale and someone would
+    /// see the answer. Also called when the usage row appears.
+    func probeIfNeeded() {
+        guard isRunning, !isProbing else { return }
+        let now = Date()
+        if let captured = limits?.capturedAt, now.timeIntervalSince(captured) < Self.probeStaleAfter { return }
+        guard now.timeIntervalSince(lastProbeAt) >= Self.minProbeGap else { return }
+        guard probeDemand?() ?? true else { return }
+        probe()
+    }
+
+    private func startWatchingCache() {
+        guard cacheWatcher == nil else { return }
+        let dir = rateLimitCachePath.deletingLastPathComponent().path
+        guard FileManager.default.fileExists(atPath: dir) else { return }
+
+        var context = FSEventStreamContext()
+        // The reader is a process-lifetime singleton and the stream is delivered on the main
+        // queue, so the unretained pointer can't outlive it.
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+        let stream = FSEventStreamCreate(
+            nil,
+            { (_, info, numEvents, eventPaths, _, _) in
+                guard let info else { return }
+                // The folder also holds the hook script, the bridge and the statusline's raw
+                // payload; only the cache itself matters here.
+                let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String] ?? []
+                guard paths.prefix(numEvents).contains(where: { $0.hasSuffix("/rate-limits.json") }) else { return }
+                let reader = Unmanaged<ClaudeRateLimitReader>.fromOpaque(info).takeUnretainedValue()
+                Task { @MainActor in reader.refresh() }
+            },
+            &context,
+            [dir] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            1.0,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
+        )
+        guard let stream else { return }
+        FSEventStreamSetDispatchQueue(stream, .main)
+        FSEventStreamStart(stream)
+        cacheWatcher = stream
     }
 
     /// Opens Terminal running `claude /login`, then asks for the limits every 20 seconds
@@ -108,6 +176,9 @@ final class ClaudeRateLimitReader: ObservableObject {
     private var loginWatch: Timer?
 
     private func probe() {
+        guard !isProbing else { return }
+        isProbing = true
+        lastProbeAt = Date()
         Task.detached(priority: .utility) {
             #if DEBUG
             // Preview the signed-out row without signing out.
@@ -117,6 +188,7 @@ final class ClaudeRateLimitReader: ObservableObject {
             let result = ClaudeUsageProbe.run()
             #endif
             await MainActor.run {
+                self.isProbing = false
                 switch result {
                 case .limits(let l):
                     Self.probed = l
@@ -137,10 +209,16 @@ final class ClaudeRateLimitReader: ObservableObject {
         timer = nil
         probeTimer?.invalidate()
         probeTimer = nil
+        if let stream = cacheWatcher {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            cacheWatcher = nil
+        }
     }
 
-    /// Polls the cache off the main thread and republishes only on change —
-    /// an unconditional assignment every 10s would redraw the notch forever.
+    /// Reads the cache off the main thread and republishes only on change —
+    /// an unconditional assignment on every read would redraw the notch forever.
     func refresh() {
         Task.detached(priority: .utility) {
             let installed = StatuslineInstaller.isInstalled

@@ -71,6 +71,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         //     wrapper on launch so it kicks in next session start.
         CodexUsageMonitor.shared.start()
         StatuslineInstaller.install()
+        // Asking Claude Code for its limits launches the CLI, so it is only worth it while a
+        // Claude session is working or the panel is open to show the numbers.
+        ClaudeRateLimitReader.shared.probeDemand = { [weak appState] in
+            guard let appState else { return false }
+            return appState.surface.isExpanded || appState.sessions.values.contains {
+                $0.source == "claude" && !$0.isRemote && $0.status != .idle
+            }
+        }
         ClaudeRateLimitReader.shared.start()
         // Public Anthropic statuspage poller (every 5 min).
         AnthropicStatusMonitor.shared.start()
