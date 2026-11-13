@@ -1,5 +1,119 @@
 # Changelog
 
+## [v0.5.12] - 2026-11-12
+
+### Fixed
+- A session that already finished no longer stays "working" in the notch and on
+  the phone. When the end-of-turn event is lost (Hatchling was restarting, for
+  example), Claude Code's "waiting for you" now marks the session as stopped.
+
+## [v0.5.11] - 2026-11-12
+
+### Security
+- An approval is no longer denied on its own when another agent in the same
+  session finishes.
+- "Always allow" covers only that command or file, not the whole tool.
+- Leaving plan mode asks for your approval and shows the plan on the card.
+- Prompts sent from the phone are size-limited and are not delivered while the
+  session is waiting for an answer.
+- The relay token is kept in the Keychain.
+
+### Fixed
+- The hook installer backs up a CLI settings file before changing it and leaves
+  one it cannot parse alone.
+- Hatchling no longer signals processes that might belong to an old session.
+- The self-update checks the version it installs and waits until no session is
+  busy.
+- A pending approval is never hidden behind another card.
+- The phone receives every pending approval, including after it reconnects.
+
+### Changed
+- Less file reading, scanning and polling in the background.
+- The panel opens even when no session is running.
+- Answer approvals from the keyboard: Return allows, Esc denies, numbers pick an
+  option.
+- The About page shows the updater's state.
+- Destructive actions ask first, and deleting a note can be undone.
+- The files tray has a file picker and a context menu.
+- Pairing renews an expired code by itself and explains relay errors.
+- Better VoiceOver and keyboard support.
+- Rarely used settings moved under Advanced.
+- Complete Portuguese, Turkish and Chinese translations.
+
+## [v0.5.10] - 2026-11-12
+
+### Changed
+- Hatch's lines stay on screen longer, and longer sentences get more time.
+- Hovering a speech bubble keeps it open until the mouse leaves.
+- The finished-session card stays open for 8 seconds.
+- New website: https://hatchling.mikaeldavid.dev
+
+## [v0.5.9] - 2026-11-11
+
+### Added
+- Hatch learns about you: role, stack, team, likes. It all lives in one file you
+  can read and wipe in Settings > About you.
+- A phone button at the top of the panel shows the pairing QR, the code and the
+  paired phones.
+
+### Changed
+- Settings > Phone is translated, with a bigger QR and a countdown for the code.
+
+### Fixed
+- Opening Settings > Phone no longer stops session state from reaching the phone.
+
+## [v0.5.5] - 2026-11-10
+
+### Added
+- New moves for Hatch: dance, nod, shake, stretch, hide-and-seek, spin, hiccup,
+  typing and giggling behind its hands.
+- Cursor games: the eyes follow the mouse, wiggling over Hatch tickles it,
+  resting on it starts hide-and-seek, a double click makes it spin.
+
+### Changed
+- Hatch speaks up on its own more often, with a weekly cap, and remarks on new,
+  long and interrupted sessions.
+
+### Fixed
+- Hatch no longer gets stuck asleep, its eyes no longer blur when it smiles, and
+  the spin stays in place.
+
+## [v0.5.2] - 2026-11-10
+
+### Added
+- YOLO mode also works in the Claude desktop app. It approves before each tool
+  and does nothing in auto and plan modes.
+- Claude's 5-hour and weekly limits are read live from Claude Code itself, with a
+  Sign in button when the terminal is not signed in.
+
+### Fixed
+- The context window of current models (1M) is reported correctly.
+- The app opens straight into Hatch's hello.
+- After one summary, at most one more appears, and a summary already shown does
+  not come back.
+
+## [v0.5.1] - 2026-11-09
+
+### Fixed
+- After the summary of a finished session, at most one more appears: the most
+  recent one, if it is recent. Before, every finished session came one by one.
+- A summary already shown does not come back when the session ends again with
+  nothing new.
+
+## [v0.5.0] - 2026-11-09
+
+### Added
+- A redesigned panel: session cards, the Agents tab, and new question and
+  approval cards.
+- Hatch, the single mascot, says hello when the app opens and comments on what
+  is happening, based on the time of day and the sessions.
+- Summaries and Hatch's lines can be written by AI: Claude Haiku, or NVIDIA's
+  free API (key from build.nvidia.com).
+- Self-update: the app installs new versions on its own when no session is busy.
+
+### Changed
+- Notes and files scroll sideways with the mouse wheel.
+
 ## [v0.4.0] - 2026-08-31
 
 ### Added
