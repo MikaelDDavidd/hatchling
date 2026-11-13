@@ -1,91 +1,74 @@
-<div align="center">
-
-<img src="notch-ico.png" width="160" alt="Hatchling icon">
-
-# Hatchling
-
-**Your AI coding agents, hatched into a tiny notch.**
-
-A macOS menu‑bar status panel for every AI coding agent you have running — Claude Code, Codex, Gemini CLI, Cursor, Copilot, and 12 more — with live mascots, context meters, YOLO mode, and a buddy pet.
-
-[![Swift](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)](https://swift.org)
-[![macOS](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](https://www.apple.com/macos/)
-[![SwiftUI](https://img.shields.io/badge/SwiftUI-AppKit-007AFF?logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Architecture](https://img.shields.io/badge/Universal-arm64%20%7C%20x86__64-lightgrey)]()
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/mikaeldavid)
-[![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/MikaelDDavidd)
-
-</div>
-
----
-
-## Overview
-
-Hatchling turns your MacBook's notch (or menu bar) into a live cockpit for every AI coding agent you run. Pet‑style mascots tell you who's working, who's waiting on a permission prompt, and who's idle — without leaving the menu bar or alt‑tabbing into a terminal.
-
-It hooks into 17 different CLIs through Unix sockets, parses local session files for context‑window and rate‑limit data, and surfaces it all in a single notch‑shaped panel that expands on hover. There's also a deterministically‑generated ASCII pet that lives in Settings, occasionally heckles your commits, and survives Anthropic removing `/buddy` from the Claude CLI.
-
 <p align="center">
-  <img src="docs/images/notch-panel.png" width="640" alt="Notch panel screenshot">
+  <img src="notch-ico.png" width="128" alt="Hatchling app icon">
 </p>
 
-### Key Features
+<h1 align="center">Hatchling</h1>
 
-- **17 CLIs supported** out of the box — Claude Code, Codex, Gemini, Cursor, Trae, Copilot, Qoder, Factory, CodeBuddy, StepFun, AntiGravity, WorkBuddy, Hermes, Qwen Code, OpenCode, Droid, and more
-- **One mascot per source** — side‑by‑side in the notch, ranked by attention (alerts first, working next, idle last)
-- **Whimsical gerund verbs** — `Hatching…`, `Brewing…`, `Pondering…`, `Enchanting…` replace the session counter while an agent is thinking
-- **Approval cards with YOLO mode** — ghost‑style buttons for permission requests, plus an opt‑in auto‑accept toggle with a permanent bolt badge so you never forget it's on
-- **Per‑session context meter** — model name and tokens used vs. context limit, parsed live from `~/.claude/projects/*.jsonl`
-- **Buddy ASCII pet** — 18 species, 5 rarities, hats, and shiny variants, derived deterministically from `~/.claude.json` via wyhash; works even after Anthropic removed `/buddy` from the CLI in v2.1.97
-- **Buddy speech bubbles** — occasional in‑character musings ("HONK! Esse commit tá horrível", "naptime in 5… 4… 3…"); click to dismiss
-- **Anthropic status pill** — pulls `status.claude.com` every 5 minutes; click opens the page
-- **Codex usage bar** — parses local rollout JSONL for primary (5h) and secondary (7d) rate‑limit windows
-- **Claude rate‑limit capture** — via a transparent statusline wrapper (Claude Code v2.1.80+); surfaces the same numbers as `claude.ai/settings/usage`, with transient warnings each time usage crosses a 5% bucket
-- **i18n** — English, Português (Brasil), 中文, Türkçe
-
-### Mascot Gallery
+<p align="center"><b>Your coding agents, in the notch.</b><br>
+See which agent is working and which one is waiting on you.<br>
+Approve, answer and get back to what you were doing.</p>
 
 <p align="center">
-  <img src="docs/images/mascots/claude.gif"    width="64" alt="Claude">
-  <img src="docs/images/mascots/codex.gif"     width="64" alt="Codex">
-  <img src="docs/images/mascots/gemini.gif"    width="64" alt="Gemini">
-  <img src="docs/images/mascots/cursor.gif"    width="64" alt="Cursor">
-  <img src="docs/images/mascots/copilot.gif"   width="64" alt="Copilot">
-  <img src="docs/images/mascots/factory.gif"   width="64" alt="Factory">
-  <img src="docs/images/mascots/qoder.gif"     width="64" alt="Qoder">
-  <img src="docs/images/mascots/codebuddy.gif" width="64" alt="CodeBuddy">
-  <img src="docs/images/mascots/opencode.gif"  width="64" alt="OpenCode">
+  <a href="https://github.com/MikaelDDavidd/hatchling/releases/latest"><b>Download for Mac</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://hatchling.mikaeldavid.dev">Website</a>
+  &nbsp;·&nbsp;
+  <a href="CHANGELOG.md">Changelog</a>
+  <br>
+  <sub>Free and open source · macOS 14 or later · Apple Silicon and Intel</sub>
 </p>
 
-## Tech Stack
+<p align="center">
+  <img src="docs/images/demo-mac.webp" width="720" alt="The Hatchling panel under the notch: three sessions with live status, a command approved in place, and a question answered">
+</p>
 
-- **Language**: Swift 5.9
-- **UI**: SwiftUI + AppKit (menu bar / NSStatusItem hybrid)
-- **Build system**: Swift Package Manager (universal binary, arm64 + x86_64)
-- **Targets**:
-  - `CodeIsland` — main `.app` bundle
-  - `CodeIslandCore` — shared library (event normalizer, models, socket paths, chat formatter)
-  - `codeisland-bridge` — sidecar helper that brokers the Unix‑socket hooks
-- **IPC**: per‑agent Unix domain sockets, populated by hooks installed into each CLI's settings
-- **Distribution**: signed `.dmg` (Developer ID + notarization) built via `build.sh` / `scripts/build-dmg.sh`
-- **Min macOS**: 14 (Sonoma)
+Hatchling is a macOS notch panel for every AI coding agent you run: Claude Code, Codex, Gemini CLI, Cursor, Copilot and 12 more.
 
-## Getting Started
+<p align="center">
+  <img src="docs/images/features.png" width="720" alt="Live status, approve in place, answer questions, context and limits, git checkpoints, quiet when you are, pairs with your iPhone, 17 CLIs supported">
+</p>
 
-### Install (recommended)
+## What it does
 
-Download the latest `.dmg` from [Releases](https://github.com/MikaelDDavidd/hatchling/releases), open it, and drag **Hatchling.app** into **Applications**.
+- **Live status for 17 CLIs.** Each CLI gets a hook that reports over a local Unix socket. When the notch is closed it cycles through the sessions that need you first.
+- **Approve and answer in place.** Permission requests and agent questions become cards. Answer with the mouse, or with Return, Esc and 1 to 9. "Always allow" stays narrow, and accepting a plan asks first unless YOLO mode is on.
+- **Context and limits.** Model and context window for each Claude Code session, Claude's 5-hour and 7-day limits read through the Claude Code CLI, Codex limits from its local files, and a warning when usage passes 70%.
+- **Hatch.** One mascot for all your sessions. It reacts to what the agents do and presents finished runs, with an optional AI summary (Anthropic, or NVIDIA's free API; the key stays in the Keychain).
+- **Files, notes and checkpoints.** Drop files on the notch to keep them in a tray, keep notes in the panel, and snapshot the working tree with a shortcut before an agent edits it.
+- **Stays out of the way.** Sounds go quiet during calls, the Mac stays awake while an agent works, and the app updates itself when idle.
 
-On first launch Hatchling installs hooks into every CLI you have configured (`~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`, `~/.cursor/hooks.json`, etc.). It also wraps your Claude Code statusline so it can capture rate‑limit numbers — your existing statusline command is preserved at `~/.codeisland/statusline-original.cmd` and called transparently.
+<p align="center">
+  <img src="docs/images/phone.webp" width="720" alt="Also on your iPhone: the Hatchling phone app showing sessions, an approval and Hatch's replies">
+</p>
 
-### Build from source
+## On your phone
 
-Prerequisites:
+Scan the QR code in the panel and your sessions come along: read the conversation, approve, answer and send the next prompt. The Mac talks to the phone through a relay and opens no network port. Sending a prompt needs the session running in tmux, or Accessibility access. The iOS and Android app is in private beta.
 
-- macOS 14 (Sonoma) or newer
-- Xcode 15+ command‑line tools (Swift 5.9)
+## How it works
+
+```mermaid
+flowchart LR
+  CLI["Agent CLIs"] -- "hook event" --> BR["codeisland-bridge"]
+  BR -- "Unix socket" --> HS["HookServer"]
+  HS --> AS["AppState"]
+  TR["Transcript and<br/>limit readers"] --> AS
+  AS --> UI["Notch panel"]
+  AS --> MB["MobileBridge"]
+  MB -- "WebSocket" --> RL["Relay"] --> PH["Phone app"]
+```
+
+- **Three targets.** `CodeIslandCore` holds the models, the event normalizer and the phone protocol, so they test without the app. `codeisland-bridge` is the small binary each hook calls. `CodeIsland` is the app.
+- **One protocol, three languages.** The Mac (Swift), the relay (TypeScript) and the phone app (Kotlin) share one versioned protocol. The Mac side is tested against a real relay over a real socket.
+- **Measured performance.** Idle, the panel used 14.9% of a core. Profiling showed AppKit keeping the window in continuous layout whenever anything redraws more often than every 250 ms. Moving the animations past that line brought it to 4%. The panel also stopped polling every 500 ms, and session discovery now rescans only when session files appear.
+
+## Install
+
+Download the `.dmg` from [Releases](https://github.com/MikaelDDavidd/hatchling/releases/latest) and drag **Hatchling.app** into **Applications**. On first launch it adds its hooks to each CLI it finds (`~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`, `~/.cursor/hooks.json` and others). To read Claude's limits it wraps your Claude Code statusline; your original command is kept at `~/.codeisland/statusline-original.cmd` and still runs.
+
+## Build from source
+
+Requires macOS 14 or later and a recent full Xcode install (`build.sh` compiles the icon with `actool`).
 
 ```bash
 git clone https://github.com/MikaelDDavidd/hatchling.git
@@ -94,82 +77,31 @@ cd hatchling
 open .build/release/Hatchling.app
 ```
 
-The build script produces a universal binary (arm64 + x86_64), code‑signed with whatever Apple identity is in your keychain (falls back to ad‑hoc signing if none is found). Pass `--notarize` to additionally submit to Apple's notary service and build a signed DMG.
-
-### Running tests
+The result is a universal binary, signed with the Apple identity in your keychain or ad-hoc if there is none. `--notarize` also notarizes and builds a signed DMG.
 
 ```bash
-swift test
-```
-
-## Project Structure
-
-```
-.
-├── Sources/
-│   ├── CodeIsland/          # Main app — SwiftUI views, AppDelegate, hook server, mascots
-│   ├── CodeIslandCore/      # Shared models, event normalizer, socket paths, chat formatter
-│   └── CodeIslandBridge/    # Sidecar helper that brokers Unix-socket hooks
-├── Tests/
-│   ├── CodeIslandCoreTests/ # Core library tests
-│   └── CodeIslandTests/     # App-level tests
-├── Assets.xcassets/         # App icon catalog
-├── AppIcon.icon/            # Source icon (compiled by build.sh)
-├── Info.plist               # Bundle metadata
-├── Hatchling.entitlements   # Sandboxing / capabilities
-├── Package.swift            # SwiftPM manifest (arm64 + x86_64 targets)
-├── build.sh                 # Universal build + sign (+ optional notarize)
-├── scripts/
-│   ├── build-dmg.sh         # Notarized DMG packaging
-│   └── extract-changelog.sh # Pulls a single version's notes from CHANGELOG.md
-└── docs/images/             # Screenshots and mascot GIFs
+swift test   # 148 tests in 26 files
 ```
 
 ## Heritage
 
-Hatchling is a hard fork of [`wxtsky/CodeIsland`][cs], itself inspired by [`farouqaldori/claude-island`][ci]. The Buddy ASCII pet system, WyHash, and species table are adapted from [`MioMioOS/MioIsland`][mio] (CC BY‑NC 4.0). Big thanks to all of them — Hatchling wouldn't exist without their work.
+Hatchling is a hard fork of [`wxtsky/CodeIsland`][cs], which was inspired by [`farouqaldori/claude-island`][ci]. The hook server, the panel shell, remote hosts over SSH, the global shortcuts and most of `AppState` come from upstream. The buddy's WyHash and species data are adapted from [`MioMioOS/MioIsland`][mio] (CC BY-NC 4.0). Two sounds, the microphone check, git checkpoints and sleep prevention come from [`bones7456/notchy`](https://github.com/bones7456/notchy); see [THIRD-PARTY.md](THIRD-PARTY.md).
 
-What Hatchling adds on top of upstream:
+About half of the code that ships today was written for Hatchling, including:
 
-- New brand and icon (the cyber‑eyed notch)
-- Buddy ASCII surfaced as a first‑class Settings page with stats and pet animation, independent of `/buddy`
-- Buddy speech bubbles
-- Anthropic statuspage pill
-- Per‑session context meter
-- Whimsical gerund verbs
-- One‑per‑source mascot strip with attention ranking
-- Claude rate‑limit capture via statusline wrapper
-- YOLO auto‑accept toggle with always‑on indicator
-- Português (BR) localization
-- Adaptive panel width for non‑notch displays
-- Auto‑fit panel height in completion mode
-- Git checkpoints — snapshot the working tree before the agent edits it, as an orphan commit under a private ref (bindable shortcut)
-- Stays quiet while you're on a call, and keeps the Mac awake while an agent is working
-- Chiptune sound set, with per‑sound debounce
-
-## Support
-
-Hatchling is free and MIT-licensed. If it saves you a few glances at the terminal, you can
-say thanks:
-
-<a href="https://www.buymeacoffee.com/mikaeldavid"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=mikaeldavid&button_colour=5F7FFF&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" alt="Buy me a coffee" height="46"></a>
-<a href="https://github.com/sponsors/MikaelDDavidd"><img src="https://img.shields.io/badge/GitHub%20Sponsors-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="GitHub Sponsors" height="46"></a>
-
-Starring the repo and reporting bugs helps just as much.
+- Hatch, its moves, remarks and memory (`HatchlingMascot`, `HatchProfile`, `HatchCompanion`)
+- The phone link: protocol, bridge, pairing and phone panel, plus the relay and the Kotlin app in a separate repo
+- Claude and Codex limit readers (`ClaudeRateLimitReader`, `CodexUsage`) and the usage alerts
+- The conversation view (`TranscriptReader`) and AI summaries (`AIText`, `MomentSummary`)
+- Files tray, notes, keyboard answers, idle self-update with a signature check
+- The Portuguese localisation, the panel redesign and the performance work above
 
 ## License
 
-Distributed under the MIT License, matching the upstream `wxtsky/CodeIsland` license. See [LICENSE](LICENSE) for details. The Buddy ASCII data files inherit CC BY‑NC 4.0 from MioIsland and are not redistributed for commercial use.
+MIT, like upstream. See [LICENSE](LICENSE). The buddy data files keep MioIsland's CC BY-NC 4.0 license.
 
-Third-party code and assets adapted into Hatchling — including sounds and features ported from
-[`bones7456/notchy`](https://github.com/bones7456/notchy) — are credited in [THIRD-PARTY.md](THIRD-PARTY.md).
+If Hatchling saves you a few trips to the terminal, you can [buy me a coffee](https://buymeacoffee.com/mikaeldavid) or [sponsor on GitHub](https://github.com/sponsors/MikaelDDavidd).
 
 [cs]: https://github.com/wxtsky/CodeIsland
 [ci]: https://github.com/farouqaldori/claude-island
 [mio]: https://github.com/MioMioOS/MioIsland
-
----
-
-<div align="center">
-Built by <a href="https://github.com/MikaelDDavidd">Mikael David</a>
-</div>
