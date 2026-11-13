@@ -24,40 +24,64 @@
     if (mood === 'surprised') Object.assign(hands, { ly: 61, ry: 61 });
     if (mood === 'angry') hands = { lx: -4, ly: 80, lr: 12.6, rx: 104, ry: 80, rr: -12.6 };
     if (mood === 'thinking') Object.assign(hands, { rx: 70, ry: 100 });
+    // Giggling: both hands over the mouth, eyes squeezed shut.
+    if (mood === 'giggle') hands = { lx: 36, ly: 75, lr: 30, rx: 64, ry: 75, rr: -30 };
     let p = { x: 0, y: 0 };
     if (mood === 'working') p = { x: 1.8, y: 2.4 };
     if (mood === 'thinking') p = { x: -3.2, y: -3 };
     const irisR = (mood === 'surprised' || mood === 'jump') ? 18 : (mood === 'approval' || mood === 'question' || mood === 'excited') ? 16.5 : 14.5;
     const pupilR = (mood === 'surprised' || mood === 'jump') ? 7.8 : irisR / 14.5 * 11.2;
     const px = 2.2 * irisR / 14.5, py = 55 - 2.4 * irisR / 14.5 + p.y;
-    const happy = mood === 'happy' || mood === 'cheering' || mood === 'waving';
+    const happy = mood === 'happy' || mood === 'cheering' || mood === 'waving' || mood === 'giggle';
     const sleep = mood === 'sleeping', wink = mood === 'wink';
     const sign = mood === 'question' ? '?' : '!';
-    const hand = (x, y, r, dx) => `<g transform="translate(${x} ${y}) rotate(${r})"><ellipse cx="${dx}" cy="-5.5" rx="3.2" ry="3.4" fill="#1f2127" stroke="#5c616e" stroke-width="2.2"/><ellipse rx="8" ry="7" fill="#1f2127" stroke="#5c616e" stroke-width="2.2"/><ellipse cx="-2.5" cy="-3.5" rx="3.4" ry="2" fill="#fff" opacity=".1"/></g>`;
-    const eyeOpen = (cx, show) => show ? `<circle cx="${cx}" cy="55" r="${irisR}" fill="url(#i${id})"/><g class="look"><circle cx="${cx + px + p.x}" cy="${py}" r="${pupilR}" fill="url(#p${id})"/><ellipse cx="${cx + px + p.x + 2.5}" cy="${py - 4.5}" rx="3.5" ry="2.5" fill="#fff" opacity=".92"/></g>` : '';
-    return `<svg class="hatch" viewBox="-24 -40 148 148" width="100%" height="100%" aria-hidden="true">
+    const hand = (x, y, r, dx, side) => `<g transform="translate(${x} ${y}) rotate(${r})"><g class="hand ${side}"><ellipse cx="${dx}" cy="-5.5" rx="3.2" ry="3.4" fill="#1f2127" stroke="#5c616e" stroke-width="2.2"/><ellipse rx="8" ry="7" fill="#1f2127" stroke="#5c616e" stroke-width="2.2"/><ellipse cx="-2.5" cy="-3.5" rx="3.4" ry="2" fill="#fff" opacity=".1"/></g></g>`;
+    const eyeOpen = (cx, show) => show ? `<circle cx="${cx}" cy="55" r="${irisR}" fill="url(#i${id})"/><g class="look"><g class="wander"><circle cx="${cx + px + p.x}" cy="${py}" r="${pupilR}" fill="url(#p${id})"/><ellipse cx="${cx + px + p.x + 2.5}" cy="${py - 4.5}" rx="3.5" ry="2.5" fill="#fff" opacity=".92"/></g></g>` : '';
+    return `<svg class="hatch m-${mood}" viewBox="-24 -40 148 148" width="100%" height="100%" aria-hidden="true">
 <defs><linearGradient id="b${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#292b33"/><stop offset="1" stop-color="#0f1014"/></linearGradient>
 <linearGradient id="s${id}" x1="0" y1=".15" x2="0" y2=".55"><stop offset="0" stop-color="#fff" stop-opacity=".1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
 <radialGradient id="i${id}" cx=".3" cy=".75" r=".95"><stop offset="0" stop-color="${light}"/><stop offset="1" stop-color="${eye}"/></radialGradient>
 <radialGradient id="p${id}" cx=".4" cy=".3" r=".85"><stop offset="0" stop-color="#1a2838"/><stop offset="1" stop-color="#020406"/></radialGradient></defs>
-${hand(hands.lx, hands.ly, hands.lr, 6.5)}${hand(hands.rx, hands.ry, hands.rr, -6.5)}
+<g class="life">${mood === 'giggle' ? '' : hand(hands.lx, hands.ly, hands.lr, 6.5, 'hl') + hand(hands.rx, hands.ry, hands.rr, -6.5, 'hr')}
 <g class="body-g"><path d="${BODY}" fill="url(#b${id})"/><path d="${BODY}" fill="url(#s${id})"/><path d="${BODY}" fill="none" stroke="#5c616e" stroke-width="2.4" stroke-linejoin="round"/>
-${mood === 'working' || mood === 'thinking' ? `<g fill="${eye}"><circle cx="44" cy="24" r="1.9"/><circle cx="50" cy="22.4" r="1.9"/><circle cx="56" cy="24" r="1.9"/></g>` : ''}
+${mood === 'working' || mood === 'thinking' ? `<g fill="${eye}"><circle class="d1" cx="44" cy="24" r="1.9"/><circle class="d2" cx="50" cy="22.4" r="1.9"/><circle class="d3" cx="56" cy="24" r="1.9"/></g>` : ''}
 ${mood === 'approval' || mood === 'question' ? `<text x="50" y="16" text-anchor="middle" font-family="-apple-system,system-ui,sans-serif" font-size="17" font-weight="800" fill="#ffb84d">${sign}</text>` : ''}
 <g class="eyes">${eyeOpen(33, !happy && !sleep)}${eyeOpen(67, !happy && !sleep && !wink)}</g>
 ${mood === 'angry' ? `<path d="M18 49 L48 49 L48 63 L18 58 Z" fill="#1c1e24"/><path d="M52 49 L82 49 L82 58 L52 63 Z" fill="#1c1e24"/>` : ''}
 ${happy ? `<path d="M24 59 Q33 46 42 59" fill="none" stroke="${eye}" stroke-width="4.2" stroke-linecap="round"/>` : ''}
 ${happy || wink ? `<path d="M58 59 Q67 46 76 59" fill="none" stroke="${eye}" stroke-width="4.2" stroke-linecap="round"/>` : ''}
 ${sleep ? `<path d="M24 56 Q33 64 42 56" fill="none" stroke="${dim}" stroke-width="3.8" stroke-linecap="round"/><path d="M58 56 Q67 64 76 56" fill="none" stroke="${dim}" stroke-width="3.8" stroke-linecap="round"/>` : ''}
+${mood === 'giggle' ? `<path d="M24 57 Q33 49 42 57" fill="none" stroke="${eye}" stroke-width="4.2" stroke-linecap="round"/><path d="M58 57 Q67 49 76 57" fill="none" stroke="${eye}" stroke-width="4.2" stroke-linecap="round"/>` : ''}
 ${wink || mood === 'happy' || mood === 'excited' || mood === 'wave' ? `<path d="M43 77 Q50 84 57 77" fill="none" stroke="${eye}" stroke-width="3.2" stroke-linecap="round"/>` : ''}
 ${mood === 'surprised' || mood === 'jump' ? `<ellipse cx="50" cy="78" rx="3.5" ry="4" fill="#0d0d12" stroke="${eye}" stroke-width="2.2"/>` : ''}
 ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2" stroke-linecap="round"/>` : ''}
-</g></svg>`;
+</g>${mood === 'giggle' ? hand(hands.rx, hands.ry, hands.rr, -6.5, 'hr') + hand(hands.lx, hands.ly, hands.lr, 6.5, 'hl') : ''}</g>
+${sleep ? `<g class="zzz" fill="none" stroke="#d9d9d9" stroke-linecap="round" stroke-linejoin="round"><path class="z z1" d="M88 8h7l-7 7h7" stroke-width="1.6"/><path class="z z2" d="M88 8h7l-7 7h7" stroke-width="1.6"/><path class="z z3" d="M88 8h7l-7 7h7" stroke-width="1.6"/></g>` : ''}
+</svg>`;
   }
-  function setHatch(el, mood, agent, hop) {
+  // Changing Hatch's mood crossfades the two drawings with a little squash, instead of
+  // cutting. Asking for the mood it already has changes nothing, so its idle motion never
+  // restarts mid-breath.
+  function setHatch(el, mood, agent = 'claude', hop) {
     if (!el) return;
-    el.innerHTML = hatch(mood, agent);
-    if (hop && !reduce) { el.classList.remove('hop'); void el.offsetWidth; el.classList.add('hop'); }
+    const key = mood + '/' + agent;
+    const old = el.querySelector(':scope > svg.hatch:not(.pose-out)');
+    if (old && el.dataset.pose === key) {
+      if (hop && !reduce) { el.classList.remove('hop', 'morph'); void el.offsetWidth; el.classList.add('hop'); }
+      return;
+    }
+    el.dataset.pose = key;
+    if (!old || reduce) { el.innerHTML = hatch(mood, agent); }
+    else {
+      if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+      old.classList.add('pose-out');
+      setTimeout(() => old.remove(), 240);
+      el.insertAdjacentHTML('beforeend', hatch(mood, agent));
+      el.lastElementChild.classList.add('pose-in');
+    }
+    if (reduce) return;
+    el.classList.remove('hop', 'morph'); void el.offsetWidth;
+    el.classList.add(hop ? 'hop' : 'morph');
   }
   function say(el, text) {
     if (!el || el.textContent === text) return;
@@ -207,16 +231,32 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
     <div class="row task" style="margin-top:6px"><span>${s.task}</span><span class="ago">${s.ago}</span>${MARK[s.agent](s.agent === 'codex' ? C.codex : C.claude)}</div>
   </div></div>`;
     }
+    // The panel keeps Hatch and its line across updates, so a change is a crossfade, not a cut.
+    const stageNow = () => ({ mood: $('m-hatch')?.dataset.pose?.split('/') ?? null, line: $('m-say')?.textContent ?? null });
+    function carry(prev, mood, line, agent) {
+      if (prev.mood) setHatch($('m-hatch'), prev.mood[0], prev.mood[1]);
+      if (prev.line) $('m-say').textContent = prev.line;
+      setHatch($('m-hatch'), mood, agent);
+      say($('m-say'), line);
+    }
     function listPage(mood, line, agent = 'claude') {
+      const list = page.querySelector('.p-list');
+      if (list && $('m-hatch')) {
+        list.innerHTML = sessions.map(card).join('');
+        setHatch($('m-hatch'), mood, agent); say($('m-say'), line); size();
+        return;
+      }
+      const prev = stageNow();
       page.innerHTML = `<div class="p-usage"><span><b style="color:${C.claudeUse}">Claude</b> 5h<span class="bar" style="background:rgba(201,123,84,.2)"><i style="width:38%;background:${C.claudeUse}"></i></span>38%</span>
         <span>7d<span class="bar" style="background:rgba(232,163,61,.2)"><i style="width:72%;background:${C.ctxHigh}"></i></span><span style="color:${C.ctxHigh}">72%</span></span>
         <span><b style="color:${C.codexUse}">Codex</b> 5h<span class="bar" style="background:rgba(125,147,224,.2)"><i style="width:12%;background:${C.codexUse}"></i></span>12%</span></div>
       <div class="p-stage"><div style="width:50px;height:50px;position:relative;flex-shrink:0;margin:0 6px"><div id="m-hatch" style="position:absolute;left:-12px;top:-19px;width:74px;height:74px"></div></div><div class="say" id="m-say">${line}</div></div>
       <div class="p-list">${sessions.map(card).join('')}</div>`;
-      setHatch($('m-hatch'), mood, agent);
+      carry(prev, mood, line, agent);
       size();
     }
     function phonePage(paired) {
+      const prev = stageNow();
       page.innerHTML = `<div class="p-stage"><div style="width:50px;height:50px;position:relative;flex-shrink:0;margin:0 6px"><div id="m-hatch" style="position:absolute;left:-12px;top:-19px;width:74px;height:74px"></div></div><div class="say" id="m-say">Point your phone's camera here. I'll take it from there.</div></div>
       <div class="p-page"><div style="display:flex;gap:18px;margin-top:6px">
         <div class="qr-box"><svg viewBox="0 0 33 33" shape-rendering="crispEdges"><path d="${QR}" fill="#0b0b0c"/></svg></div>
@@ -227,7 +267,7 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
           <span style="margin-top:6px;font-size:12px;line-height:17px;color:rgba(255,255,255,.55);max-width:300px">On your phone, open Hatchling and point the camera at the QR. If the camera won't cooperate, type the code.</span>
         </div></div>
         <div id="m-paired"></div></div>`;
-      setHatch($('m-hatch'), 'waving', 'claude');
+      carry(prev, 'waving', "Point your phone's camera here. I'll take it from there.", 'claude');
       size();
     }
     function size() { notch.style.setProperty('--panel-h', $('m-open').scrollHeight + 'px'); }
@@ -255,7 +295,8 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
         }, steps: [
           [900, () => point(notch, .5, .6)],
           [1900, () => { listPage('working', '2 sessions working right now.'); open(true); }],
-          [4200, () => { set('a', { now: 'Running npm run test', ago: 'now' }); listPage('working', 'recipes-api: running npm run test.'); }],
+          [3300, () => { set('a', { now: 'Thinking', ago: 'now' }); listPage('thinking', 'recipes-api is thinking it over.'); }],
+          [4800, () => { set('a', { now: 'Running npm run test', ago: 'now' }); listPage('working', 'recipes-api: running npm run test.'); }],
           [5800, () => point(byId('c'), .6, .5)],
         ] },
       { label: 'Approve in place', dur: 7600, setup() {
@@ -290,6 +331,23 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
               <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)"><span style="width:7px;height:7px;border-radius:50%;background:#5fcf6b"></span><b style="font-size:13px">Mikael's iPhone</b><span style="font-size:12px;color:rgba(255,255,255,.45)">connected now</span><span style="margin-left:auto;font-size:12px;font-weight:600;color:#ff8a8a">Disconnect</span></div>`;
             size();
           }],
+        ] },
+      { label: 'Poke Hatch', dur: 7400, setup() {
+          sessions = fresh(); open(true); listPage('working', '2 sessions working right now.'); cursorAt(900, 380);
+        }, steps: [
+          [700, () => point($('m-hatch'), .5, .6)],
+          [1500, () => { click(); setHatch($('m-hatch'), 'giggle', 'claude', true); say($('m-say'), 'Hehe. That tickles.'); }],
+          [3300, () => { click(); setHatch($('m-hatch'), 'wink', 'claude', true); say($('m-say'), "I'll tell you if anyone needs you."); }],
+          [5400, () => { setHatch($('m-hatch'), 'working', 'claude'); say($('m-say'), '2 sessions working right now.'); }],
+        ] },
+      { label: 'Nap time', dur: 8600, setup() {
+          sessions = fresh(); set('b', { status: 'idle', now: 'Done: the new home is live.', ago: '1m' }); open(true);
+          listPage('working', 'recipes-api: running npm run test.'); cursorAt(1100, 560);
+        }, steps: [
+          [900, () => { set('a', { status: 'idle', now: 'Done: 212 tests passing.', ago: 'now' }); listPage('happy', 'recipes-api is done. All 212 tests pass.'); setHatch($('m-hatch'), 'happy', 'claude', true); }],
+          [2700, () => listPage('sleeping', 'All quiet. Taking a nap.')],
+          [5600, () => { set('c', { status: 'working', now: 'Reading src/charts/Bars.tsx', ago: 'now' }); listPage('surprised', 'Oh! budget-app is back at it.'); setHatch($('m-hatch'), 'surprised', 'claude', true); }],
+          [6900, () => listPage('working', 'budget-app: reading the charts.')],
         ] },
       { label: 'Out of your way', dur: 6800, setup() {
           sessions = fresh(); open(true); listPage('working', '2 sessions working right now.'); cursorAt(700, 400);
@@ -391,7 +449,7 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
     const show = (id, cls, on) => $(id).classList.toggle(cls, !on);
     function home(mood = 'working', main = 'recipes-api: running the tests.', quiet = 'budget-app just finished.') {
       sessions = sessions || fresh();
-      list(); setHatch($('p-hs-h'), mood, 'claude'); $('p-hs-bub').innerHTML = sayHtml(main, quiet);
+      list(); setHatch($('p-hs-h'), mood, 'claude'); $('p-hs-bub').innerHTML = sayHtml(main, quiet || '');
       show('p-att', 'off-down', false); show('p-sess', 'off-right', false); $('p-home').classList.remove('off-left');
       $('p-splash').classList.add('gone'); $('p-done').classList.add('gone');
     }
@@ -444,9 +502,20 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
           [2050, () => setHatch($('p-splash-h'), 'happy', 'claude')],
           [2750, () => $('p-splash').classList.add('gone')],
         ] },
-      { label: 'Poke Hatch', dur: 7000, setup() { sessions = fresh(); home(); }, steps: [
-          [900, () => { touch($('p-hs-h'), .5, .55); setHatch($('p-hs-h'), 'happy', 'claude', true); bubble('p-hs', sayHtml('Hey, that tickles.')); }],
-          [3600, () => { touch($('p-hs-h'), .5, .55); setHatch($('p-hs-h'), 'wink', 'claude', true); bubble('p-hs', sayHtml('Watching your 4 sessions.', '2 working.')); }],
+      { label: 'Poke Hatch', dur: 9200, setup() { sessions = fresh(); home(); }, steps: [
+          [900, () => { touch($('p-hs-h'), .5, .55); setHatch($('p-hs-h'), 'giggle', 'claude', true); bubble('p-hs', sayHtml('Hehe. That tickles.')); }],
+          [3000, () => { touch($('p-hs-h'), .5, .55); setHatch($('p-hs-h'), 'wink', 'claude', true); bubble('p-hs', sayHtml('Watching your 4 sessions.', '2 working.')); }],
+          ...[0, 1, 2, 3, 4].map((n) => [5000 + n * 150, () => { touch($('p-hs-h'), .45 + n * .03, .55); const h = $('p-hs-h'); h.classList.remove('hop'); void h.offsetWidth; h.classList.add('hop'); }]),
+          [5800, () => { const h = $('p-hs-h'); setHatch(h, 'angry', 'claude'); h.classList.remove('morph'); void h.offsetWidth; h.classList.add('shake'); setTimeout(() => h.classList.remove('shake'), 500); bubble('p-hs', sayHtml('Okay, enough.', 'Back to watching the Mac.')); }],
+          [8200, () => { setHatch($('p-hs-h'), 'working', 'claude'); bubble('p-hs', sayHtml('recipes-api: running the tests.', 'budget-app just finished.')); }],
+        ] },
+      { label: 'Nap time', dur: 9000, setup() {
+          sessions = fresh(); set('b', { status: 'idle', now: 'Done: the new home is live.' }); home('working', 'recipes-api: running the tests.', '');
+        }, steps: [
+          [900, () => { set('a', { status: 'done', now: 'All 212 tests pass.' }); list(); setHatch($('p-hs-h'), 'happy', 'claude', true); bubble('p-hs', sayHtml('recipes-api is done.', 'All 212 tests pass.')); }],
+          [2800, () => { setHatch($('p-hs-h'), 'sleeping', 'claude'); bubble('p-hs', sayHtml('All quiet.', 'Taking a nap.')); }],
+          [6000, () => { set('c', { status: 'working', now: 'Reading src/charts/Bars.tsx' }); list(); setHatch($('p-hs-h'), 'surprised', 'claude', true); bubble('p-hs', sayHtml('Oh! budget-app is back at it.')); }],
+          [7400, () => { setHatch($('p-hs-h'), 'working', 'claude'); bubble('p-hs', sayHtml('budget-app: reading the charts.')); }],
         ] },
       { label: 'Approve', dur: 7600, setup() { sessions = fresh(); home(); }, steps: [
           [500, () => { set('a', { status: 'approval' }); list(); setHatch($('p-hs-h'), 'approval', 'claude'); bubble('p-hs', sayHtml('recipes-api needs your OK.')); }],
@@ -454,11 +523,12 @@ ${mood === 'angry' ? `<path d="M45 79 L55 79" stroke="${eye}" stroke-width="3.2"
           [4600, () => touch($('p-allow'))],
           [5000, () => { show('p-att', 'off-down', false); set('a', { status: 'working', now: 'Running npm run test' }); list(); setHatch($('p-hs-h'), 'happy', 'claude', true); bubble('p-hs', sayHtml('Allowed. The tests are running.')); }],
         ] },
-      { label: 'Answer', dur: 7400, setup() { sessions = fresh(); home(); }, steps: [
+      { label: 'Answer', dur: 8200, setup() { sessions = fresh(); home(); }, steps: [
           [500, () => { set('b', { status: 'question' }); list(); setHatch($('p-hs-h'), 'question', 'codex'); bubble('p-hs', sayHtml('landing-page has a question for you.')); }],
           [1800, () => { questionScreen(); show('p-att', 'off-down', true); }],
           [4400, () => { const o = $('p-opt'); touch(o); o.classList.add('press'); }],
-          [4800, () => { show('p-att', 'off-down', false); set('b', { status: 'working', now: 'Deploying to Netlify' }); list(); setHatch($('p-hs-h'), 'working', 'codex', true); bubble('p-hs', sayHtml('Answered. landing-page is back at it.')); }],
+          [4800, () => { show('p-att', 'off-down', false); set('b', { status: 'working', now: 'Thinking' }); list(); setHatch($('p-hs-h'), 'thinking', 'codex'); bubble('p-hs', sayHtml('Netlify it is.', 'landing-page is thinking it over.')); }],
+          [6300, () => { set('b', { now: 'Deploying to Netlify' }); list(); setHatch($('p-hs-h'), 'working', 'codex'); bubble('p-hs', sayHtml('landing-page: deploying to Netlify.')); }],
         ] },
       { label: 'Session done', dur: 7000, setup() { sessions = fresh(); home(); }, steps: [
           [700, () => doneScreen()],

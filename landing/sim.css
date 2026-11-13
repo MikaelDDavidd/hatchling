@@ -97,6 +97,48 @@
 .hop{animation:hop .55s cubic-bezier(.3,1.4,.5,1)}
 @keyframes hop{30%{transform:translateY(-13%)}60%{transform:translateY(2%)}100%{transform:none}}
 
+/* Hatch vivo: balança, olha em volta, mexe as mãos; os pontinhos se revezam enquanto trabalha;
+   dormindo respira devagar e solta z's. Mesmo ritmo do app do celular. */
+.hatch .life{transform-box:fill-box;transform-origin:50% 100%;animation:h-bob 3s ease-in-out infinite}
+.hatch.m-working .life,.hatch.m-thinking .life{animation-duration:2s}
+.hatch.m-cheering .life,.hatch.m-excited .life,.hatch.m-jump .life{animation:h-bounce .9s ease-in-out infinite}
+.hatch.m-sleeping .life{animation:h-breathe 4s ease-in-out infinite}
+.hatch.m-giggle .life{animation:h-giggle .3s ease-in-out infinite}
+.hatch.m-angry .life{animation:h-huff 1.1s ease-in-out infinite}
+.hatch .wander{animation:h-look 7.5s ease-in-out infinite}
+.hatch.m-working .wander,.hatch.m-thinking .wander{animation:none}
+.hatch .hand{transform-box:fill-box;transform-origin:50% 50%;animation:h-sway 3s ease-in-out infinite alternate}
+.hatch .hand.hr{animation-delay:-1.5s}
+.hatch.m-waving .hand.hr,.hatch.m-wave .hand.hr{animation:h-wave .45s ease-in-out infinite alternate}
+.hatch.m-cheering .hand,.hatch.m-excited .hand,.hatch.m-jump .hand{animation:h-cheer .45s ease-in-out infinite alternate}
+.hatch.m-cheering .hand.hr,.hatch.m-excited .hand.hr{animation-delay:-.22s}
+.hatch.m-giggle .hand{animation:h-giggle .3s ease-in-out infinite}
+.hatch.m-sleeping .hand{animation:none}
+.hatch .d1,.hatch .d2,.hatch .d3{transform-box:fill-box;animation:h-dot 1.4s ease-in-out infinite}
+.hatch .d2{animation-delay:.16s}.hatch .d3{animation-delay:.32s}
+.hatch .z{opacity:0;transform-box:fill-box;transform-origin:0 100%;animation:h-z 3.3s linear infinite}
+.hatch .z2{animation-delay:1.1s}.hatch .z3{animation-delay:2.2s}
+@keyframes h-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2.4px)}}
+@keyframes h-bounce{0%,100%{transform:translateY(0) scale(1,1)}35%{transform:translateY(-6px) scale(.98,1.03)}70%{transform:translateY(0) scale(1.04,.96)}}
+@keyframes h-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(.985,1.03)}}
+@keyframes h-giggle{0%,100%{transform:translate(0,0) rotate(0)}25%{transform:translate(-.8px,-.6px) rotate(-1.5deg)}75%{transform:translate(.8px,-.6px) rotate(1.5deg)}}
+@keyframes h-huff{0%,100%{transform:scale(1,1)}50%{transform:scale(1.03,.97) translateY(1px)}}
+@keyframes h-look{0%,100%{transform:translate(0,0)}18%{transform:translate(-2.4px,.6px)}30%{transform:translate(-2.4px,.6px)}52%{transform:translate(2.2px,-1px)}66%{transform:translate(2.2px,-1px)}84%{transform:translate(.6px,1.2px)}}
+@keyframes h-sway{from{transform:rotate(-3deg)}to{transform:rotate(3deg)}}
+@keyframes h-wave{from{transform:rotate(-16deg)}to{transform:rotate(14deg)}}
+@keyframes h-cheer{from{transform:rotate(-9deg) translateY(1px)}to{transform:rotate(9deg) translateY(-2px)}}
+@keyframes h-dot{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-3px)}}
+@keyframes h-z{0%{opacity:0;transform:translate(0,0) scale(.7)}15%{opacity:.9}100%{opacity:0;transform:translate(16px,-34px) scale(1.5)}}
+/* troca de humor: as duas poses se cruzam, com um amassadinho */
+.hatch.pose-in{position:absolute;inset:0;animation:pose-in .22s ease-out}
+.hatch.pose-out{position:absolute;inset:0;animation:pose-out .22s ease-in forwards}
+@keyframes pose-in{from{opacity:0}to{opacity:1}}
+@keyframes pose-out{to{opacity:0}}
+.morph{animation:morph .34s cubic-bezier(.3,1.5,.5,1)}
+@keyframes morph{0%{transform:scale(1,1)}40%{transform:scale(1.05,.95)}100%{transform:none}}
+.shake{animation:shake .45s ease-in-out}
+@keyframes shake{0%,100%{transform:none}20%{transform:translateX(-4%) rotate(-3deg)}40%{transform:translateX(4%) rotate(3deg)}60%{transform:translateX(-3%) rotate(-2deg)}80%{transform:translateX(2%)}}
+
 /* ---------- iPhone: o Hatch no centro de toda tela ---------- */
 .ph{position:relative;width:390px;height:844px;overflow:hidden;background:#0b0b0c;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .ph .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums;font-size:12px;color:rgba(255,255,255,.5)}
@@ -208,4 +250,6 @@
   .splash .ps-splash-h,.ps-drop,.ps-hops,.ps-reveal,.ps-ring{animation:none!important;opacity:1;transform:none}
   .ps-ring{opacity:0}
   .adot.pulse::after{animation:none!important}
+  .hatch .life,.hatch .wander,.hatch .hand,.hatch .d1,.hatch .d2,.hatch .d3,.morph,.shake{animation:none!important}
+  .hatch .z1{animation:none!important;opacity:.8}
 }
