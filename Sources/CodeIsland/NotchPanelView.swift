@@ -273,8 +273,9 @@ struct NotchPanelView: View {
                     return
                 default: break
                 }
-                // Respect collapseOnMouseLeave setting
+                // Respect collapseOnMouseLeave setting, and the pin in the header
                 if !hovering && !SettingsManager.shared.collapseOnMouseLeave { return }
+                if !hovering && appState.panelPinned { isHovered = false; return }
                 // A file is being swallowed: stay open until it is in the tray, wherever the
                 // mouse went. TrayStage closes the panel itself when it is done.
                 if !hovering && TrayStage.shared.isBusy { isHovered = false; return }
@@ -607,6 +608,7 @@ private struct CompactRightWing: View {
         HStack(spacing: expanded ? 2 : 6) {
             if expanded {
                 PhoneHeaderButton()
+                PinHeaderButton(appState: appState)
                 NotchIconButton(icon: "chevron.up", tooltip: l10n["collapse"]) {
                     appState.collapsePanel()
                 }
@@ -794,6 +796,37 @@ private struct CompactToolStatus: View {
                 shownDesc = liveDesc
             }
         }
+    }
+}
+
+/// Keeps the panel open after the mouse leaves. Lit while pinned; the collapse button
+/// unpins and closes.
+private struct PinHeaderButton: View {
+    var appState: AppState
+    @ObservedObject private var l10n = L10n.shared
+    @State private var hovering = false
+
+    var body: some View {
+        let pinned = appState.panelPinned
+        Button {
+            withAnimation(NotchAnimation.micro) { appState.panelPinned.toggle() }
+        } label: {
+            Image(systemName: pinned ? "pin.fill" : "pin")
+                .font(.system(size: 11, weight: .medium))
+                .rotationEffect(.degrees(pinned ? 0 : 35))
+                .foregroundStyle(.white.opacity(pinned || hovering ? 0.95 : 0.55))
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.white.opacity(pinned ? 0.12 : (hovering ? 0.08 : 0)))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
+        .help(l10n[pinned ? "unpin_panel" : "pin_panel"])
+        .accessibilityLabel(l10n[pinned ? "unpin_panel" : "pin_panel"])
+        .accessibilityAddTraits(pinned ? .isSelected : [])
     }
 }
 
