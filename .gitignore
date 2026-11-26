@@ -10,3 +10,12 @@ dev.sh
 # Packaged builds to hand out
 dist/
 .netlify/
+
+# arquivos de agente (ficam só na máquina)
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+.claude/
+.mcp.json
+AGENTS.md
+GEMINI.md
