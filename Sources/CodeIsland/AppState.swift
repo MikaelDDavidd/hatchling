@@ -25,7 +25,19 @@ final class AppState {
     var pendingQuestion: QuestionRequest? { questionQueue.first }
     /// Preview-only: mock question payload for DebugHarness (no continuation needed)
     var previewQuestionPayload: QuestionPayload?
-    var surface: IslandSurface = .collapsed
+    var surface: IslandSurface = .collapsed {
+        didSet {
+            // Pinned, the panel never closes by itself: whatever would collapse it (the mouse
+            // leaving, a card or a remark ending) lands on the session list instead. Only the
+            // collapse button, which unpins first, closes it.
+            if panelPinned && surface == .collapsed { surface = .sessionList }
+        }
+    }
+
+    /// The user pinned the panel open from its header. Not saved: a restart starts unpinned.
+    var panelPinned = false {
+        didSet { if panelPinned && surface == .collapsed { surface = .sessionList } }
+    }
 
     var justCompletedSessionId: String? {
         if case .completionCard(let id) = surface { return id }
@@ -1442,6 +1454,7 @@ final class AppState {
     /// Collapse the expanded panel without answering any pending question/permission.
     /// The pending item stays queued; the next hover (or a new event) reopens it.
     func collapsePanel() {
+        panelPinned = false
         PhonePanel.shared.close()
         if hasPendingInteraction {
             userCollapsedPendingSurface = true
